@@ -1,0 +1,9 @@
+apiVersion: v2
+name: openresidency
+description: Country-agnostic subnational Residency ID and SSO platform (DPG).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/your-org/openresidency
+sources:
+  - https://github.com/your-org/openresidency

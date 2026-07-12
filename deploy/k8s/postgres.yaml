@@ -1,0 +1,45 @@
+# In-cluster Postgres for evaluation and pilots. For production prefer a managed
+# database (Cloud SQL, RDS, or a government-hosted Postgres) and delete this file.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: openresidency
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: openresidency
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - { name: POSTGRES_USER, value: openres }
+            - { name: POSTGRES_PASSWORD, value: CHANGE_ME }
+            - { name: POSTGRES_DB, value: openres }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: { storage: 10Gi }

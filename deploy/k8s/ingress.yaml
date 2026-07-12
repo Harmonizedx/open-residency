@@ -1,0 +1,63 @@
+# Ingress as the API gateway edge.
+#
+# This is the "API Gateway" layer for the deployment. Rather than run a separate
+# gateway product, we use the ingress controller for the gateway concerns that
+# belong at the edge: TLS termination, global rate limiting, request size caps, and
+# tighter limits on privileged (/admin, /audit) paths. The application enforces the
+# rest (per-route throttling and the admin key) so it is safe even if traffic reaches
+# it directly. Swap this for Kong, APISIX, or a cloud API gateway if that matches your
+# existing stack; the contract (paths, admin key header) is unchanged.
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openresidency
+  namespace: openresidency
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "120" # requests/min per client IP
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    nginx.ingress.kubernetes.io/proxy-body-size: "256k"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["id.example.gov"]
+      secretName: openresidency-tls
+  rules:
+    - host: id.example.gov
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openresidency
+                port: { number: 80 }
+---
+# Stricter edge limits for privileged endpoints.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openresidency-admin
+  namespace: openresidency
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "20"
+    nginx.ingress.kubernetes.io/limit-rps: "5"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: id.example.gov
+      http:
+        paths:
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: openresidency
+                port: { number: 80 }
+          - path: /audit
+            pathType: Prefix
+            backend:
+              service:
+                name: openresidency
+                port: { number: 80 }

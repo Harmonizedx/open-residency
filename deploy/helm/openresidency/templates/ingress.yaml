@@ -1,0 +1,28 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "openresidency.name" . }}
+  labels: {{- include "openresidency.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: {{ .Values.ingress.rateLimitPerMinute | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: "256k"
+    {{- if .Values.ingress.clusterIssuer }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ .Values.ingress.tlsSecret }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "openresidency.name" . }}
+                port: { number: {{ .Values.service.port }} }
+{{- end }}

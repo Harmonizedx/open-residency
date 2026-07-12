@@ -1,0 +1,83 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openresidency
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openresidency-config
+  namespace: openresidency
+data:
+  PUBLIC_BASE_URL: "https://id.example.gov"
+  COUNTRY_CONFIG_DIR: "/app/config/countries"
+  RATE_LIMIT_PER_MINUTE: "120"
+---
+# Example only. In production, source these from a sealed secret / external secrets
+# operator / cloud KMS, never commit real values.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openresidency-secrets
+  namespace: openresidency
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql://openres:CHANGE_ME@postgres:5432/openres?schema=public"
+  SUBJECT_PEPPER: "CHANGE_ME_STRONG_RANDOM"
+  OIDC_COOKIE_SECRET: "CHANGE_ME_COOKIE"
+  ADMIN_API_KEY: "CHANGE_ME_ADMIN_KEY"
+  # ISSUER_PRIVATE_JWK sourced from KMS in production:
+  # ISSUER_PRIVATE_JWK: '{"kty":"OKP","crv":"Ed25519","x":"...","d":"..."}'
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openresidency
+  namespace: openresidency
+  labels: { app: openresidency }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: openresidency }
+  template:
+    metadata:
+      labels: { app: openresidency }
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/your-org/openresidency:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef: { name: openresidency-config }
+            - secretRef: { name: openresidency-secrets }
+          readinessProbe:
+            httpGet: { path: /residency/countries, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /residency/countries, port: 3000 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "192Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+      # Run DB migrations before the app starts serving.
+      initContainers:
+        - name: migrate
+          image: ghcr.io/your-org/openresidency:latest
+          command: ["npx", "prisma", "migrate", "deploy"]
+          envFrom:
+            - secretRef: { name: openresidency-secrets }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openresidency
+  namespace: openresidency
+spec:
+  selector: { app: openresidency }
+  ports:
+    - port: 80
+      targetPort: 3000

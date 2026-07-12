@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: openres
+      POSTGRES_PASSWORD: openres
+      POSTGRES_DB: openres
+    ports:
+      - "5432:5432"
+    volumes:
+      - openres_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://openres:openres@db:5432/openres?schema=public
+      PUBLIC_BASE_URL: http://localhost:3000
+      SUBJECT_PEPPER: change-me-in-production
+      OIDC_COOKIE_SECRET: change-me-cookie-secret
+    ports:
+      - "3000:3000"
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+
+volumes:
+  openres_pg:

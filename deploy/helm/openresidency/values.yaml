@@ -1,0 +1,40 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/your-org/openresidency
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  port: 80
+  targetPort: 3000
+
+config:
+  publicBaseUrl: https://id.example.gov
+  countryConfigDir: /app/config/countries
+  rateLimitPerMinute: "120"
+
+# Provide these via `--set-string` or a values file kept out of version control,
+# or reference an existing secret with existingSecret.
+secrets:
+  existingSecret: "" # if set, envFrom uses this secret and the values below are ignored
+  databaseUrl: "postgresql://openres:CHANGE_ME@postgres:5432/openres?schema=public"
+  subjectPepper: "CHANGE_ME_STRONG_RANDOM"
+  oidcCookieSecret: "CHANGE_ME_COOKIE"
+  adminApiKey: "CHANGE_ME_ADMIN_KEY"
+  issuerPrivateJwk: "" # leave empty to source from KMS at runtime
+
+migrations:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  host: id.example.gov
+  tlsSecret: openresidency-tls
+  rateLimitPerMinute: "120"
+  clusterIssuer: letsencrypt-prod
+
+resources:
+  requests: { cpu: 100m, memory: 192Mi }
+  limits: { cpu: 500m, memory: 512Mi }

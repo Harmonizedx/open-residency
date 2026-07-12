@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "openresidency.name" . }}-config
+  labels: {{- include "openresidency.labels" . | nindent 4 }}
+data:
+  PUBLIC_BASE_URL: {{ .Values.config.publicBaseUrl | quote }}
+  COUNTRY_CONFIG_DIR: {{ .Values.config.countryConfigDir | quote }}
+  RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
+{{- if not .Values.secrets.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "openresidency.name" . }}-secrets
+  labels: {{- include "openresidency.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  DATABASE_URL: {{ .Values.secrets.databaseUrl | quote }}
+  SUBJECT_PEPPER: {{ .Values.secrets.subjectPepper | quote }}
+  OIDC_COOKIE_SECRET: {{ .Values.secrets.oidcCookieSecret | quote }}
+  ADMIN_API_KEY: {{ .Values.secrets.adminApiKey | quote }}
+{{- if .Values.secrets.issuerPrivateJwk }}
+  ISSUER_PRIVATE_JWK: {{ .Values.secrets.issuerPrivateJwk | quote }}
+{{- end }}
+{{- end }}

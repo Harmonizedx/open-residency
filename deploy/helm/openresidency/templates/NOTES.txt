@@ -1,0 +1,16 @@
+OpenResidency is deploying.
+
+1. Check rollout:
+   kubectl get pods -l app.kubernetes.io/name={{ include "openresidency.name" . }}
+
+2. Reference UI (once ingress + DNS resolve):
+   https://{{ .Values.ingress.host }}/app/index.html
+
+3. API docs:
+   https://{{ .Values.ingress.host }}/docs
+
+Before production, confirm you have:
+  - Set strong SUBJECT_PEPPER, OIDC_COOKIE_SECRET, ADMIN_API_KEY
+  - Sourced ISSUER_PRIVATE_JWK from a KMS/HSM (not the ephemeral dev key)
+  - A real SSO authentication factor wired in src/sso/interaction.controller.ts
+  - The national ID API contract and legal basis with each identity authority

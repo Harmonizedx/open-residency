@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openresidency.name" . }}
+  labels: {{- include "openresidency.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "openresidency.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels: {{- include "openresidency.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.migrations.enabled }}
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          command: ["npx", "prisma", "migrate", "deploy"]
+          envFrom:
+            - secretRef: { name: {{ include "openresidency.secretName" . }} }
+      {{- end }}
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.targetPort }}
+          envFrom:
+            - configMapRef: { name: {{ include "openresidency.name" . }}-config }
+            - secretRef: { name: {{ include "openresidency.secretName" . }} }
+          readinessProbe:
+            httpGet: { path: /residency/countries, port: {{ .Values.service.targetPort }} }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /residency/countries, port: {{ .Values.service.targetPort }} }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openresidency.name" . }}
+  labels: {{- include "openresidency.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "openresidency.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
