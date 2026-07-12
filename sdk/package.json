@@ -1,0 +1,36 @@
+{
+  "name": "@openresidency/sdk",
+  "version": "0.1.0",
+  "description": "Typed client for the OpenResidency API (identity verification, residency, consent, SSO helpers).",
+  "license": "Apache-2.0",
+  "author": "HarmonizedX Limited",
+  "homepage": "https://github.com/harmonizedx/openresidency",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/harmonizedx/openresidency.git",
+    "directory": "sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/harmonizedx/openresidency/issues"
+  },
+  "keywords": [
+    "openresidency",
+    "digital-identity",
+    "verifiable-credentials",
+    "sdk"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
