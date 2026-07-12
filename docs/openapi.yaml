@@ -1,0 +1,468 @@
+openapi: 3.1.0
+info:
+  title: OpenResidency API
+  version: 0.1.0
+  description: >
+    Country-agnostic subnational Residency ID and SSO platform. Binds any national
+    foundational ID to a W3C Verifiable Credential, issues cross-sector single
+    sign-on, and records consent and a tamper-evident audit trail. The raw national
+    ID is never stored or returned; only a tokenized subjectRef leaves the adapter.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: identity
+    description: Verify a person against the foundational national ID
+  - name: residency
+    description: Issue, look up, verify, and revoke residency credentials
+  - name: consent
+    description: First-class, revocable consent records with signed receipts
+  - name: audit
+    description: Tamper-evident audit log (admin)
+  - name: admin
+    description: Resident registry administration (admin)
+  - name: offline
+    description: QR carriage and USSD for low-connectivity inclusion
+  - name: sso
+    description: OpenID Connect provider (discovery served under /oidc)
+paths:
+  /identity/challenge:
+    post:
+      tags: [identity]
+      summary: Start a second factor (OTP) for two-step providers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+      responses:
+        '200':
+          description: Whether a challenge is required and its reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChallengeResponse'
+  /identity/verify:
+    post:
+      tags: [identity]
+      summary: Verify a person against the foundational ID, without issuing residency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityVerifyRequest'
+      responses:
+        '200':
+          description: Verification outcome with minimized attributes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityVerifyResponse'
+  /residency/countries:
+    get:
+      tags: [residency]
+      summary: List served countries and the inputs each foundational check needs
+      responses:
+        '200':
+          description: Configured countries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CountrySummary'
+  /residency/issue:
+    post:
+      tags: [residency]
+      summary: Verify foundational identity and issue a residency credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueRequest'
+      responses:
+        '200':
+          description: Issuance result (issued, exists, challenge, or rejected)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssueResult'
+  /residency/{residentId}:
+    get:
+      tags: [residency]
+      summary: Look up non-sensitive residency status
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      responses:
+        '200':
+          description: Residency status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResidencyStatus'
+        '404':
+          description: Unknown residentId
+  /residency/verify:
+    post:
+      tags: [residency]
+      summary: Verify a presented residency credential (server-side)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialVerifyRequest'
+      responses:
+        '200':
+          description: Verification outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialVerifyOutcome'
+  /residency/revoke/{residentId}:
+    post:
+      tags: [residency]
+      summary: Revoke a residency credential
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      responses:
+        '200':
+          description: Revocation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: boolean }
+  /consent/resident/{residentId}:
+    get:
+      tags: [consent]
+      summary: List consents a resident has granted
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      responses:
+        '200':
+          description: Consent records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residentId: { type: string }
+                  consents:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConsentRecord' }
+  /consent/grant:
+    post:
+      tags: [consent]
+      summary: Grant consent to a relying party and mint a signed receipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsentGrantRequest'
+      responses:
+        '200':
+          description: The consent record and its signed receipt (JWT)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consent: { $ref: '#/components/schemas/ConsentRecord' }
+                  receipt: { type: string, description: Signed consent receipt (EdDSA JWT) }
+  /consent/{id}/revoke:
+    post:
+      tags: [consent]
+      summary: Revoke a consent record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The updated consent record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  consent: { $ref: '#/components/schemas/ConsentRecord' }
+  /audit:
+    get:
+      tags: [audit]
+      summary: Read the audit log (admin)
+      security: [{ adminKey: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+        - { name: target, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Audit events, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditEvent' }
+        '401': { description: Missing or invalid admin key }
+  /audit/verify:
+    get:
+      tags: [audit]
+      summary: Verify the audit hash chain is intact (admin)
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Chain integrity result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  length: { type: integer }
+                  brokenAtSeq: { type: integer, nullable: true }
+  /admin/residents:
+    get:
+      tags: [admin]
+      summary: List residents in the registry (admin)
+      security: [{ adminKey: [] }]
+      parameters:
+        - { name: countryCode, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Registry page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  residents:
+                    type: array
+                    items: { $ref: '#/components/schemas/ResidencyStatus' }
+  /admin/stats:
+    get:
+      tags: [admin]
+      summary: Deployment statistics (admin)
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Counts by country
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  countries: { type: integer }
+                  residentsByCountry:
+                    type: object
+                    additionalProperties: { type: integer }
+  /offline/qr:
+    post:
+      tags: [offline]
+      summary: Render a residency credential as a scannable QR (SVG)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                credential: { type: string }
+                residentId: { type: string }
+      responses:
+        '200':
+          description: SVG QR
+          content:
+            image/svg+xml:
+              schema: { type: string }
+  /offline/ussd:
+    post:
+      tags: [offline]
+      summary: USSD webhook for feature phones
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+                phoneNumber: { type: string }
+      responses:
+        '200':
+          description: USSD CON/END response
+          content:
+            text/plain:
+              schema: { type: string }
+  /.well-known/did.json:
+    get:
+      tags: [sso]
+      summary: Issuer DID document (did:web)
+      responses:
+        '200':
+          description: DID document
+          content:
+            application/json:
+              schema: { type: object }
+components:
+  parameters:
+    ResidentId:
+      name: residentId
+      in: path
+      required: true
+      schema: { type: string, example: KT-GT1F-75WJ-6 }
+  securitySchemes:
+    adminKey:
+      type: apiKey
+      in: header
+      name: x-admin-key
+  schemas:
+    ChallengeRequest:
+      type: object
+      required: [countryCode, identifiers]
+      properties:
+        countryCode: { type: string, example: IN }
+        identifiers:
+          type: object
+          additionalProperties: { type: string }
+    ChallengeResponse:
+      type: object
+      properties:
+        challengeRequired: { type: boolean }
+        challengeRef: { type: string }
+        channel: { type: string }
+    IdentityVerifyRequest:
+      type: object
+      required: [countryCode, identifiers]
+      properties:
+        countryCode: { type: string, example: NG }
+        identifiers:
+          type: object
+          additionalProperties: { type: string }
+        challengeRef: { type: string }
+        purpose: { type: string }
+    IdentityVerifyResponse:
+      type: object
+      properties:
+        verified: { type: boolean }
+        assuranceLevel: { type: string, enum: [none, basic, verified, high] }
+        subjectRef: { type: string, description: Tokenized reference, never the raw ID }
+        attributes:
+          type: object
+          additionalProperties: true
+        pendingChallenge: { type: boolean }
+        reason: { type: string }
+    CountrySummary:
+      type: object
+      properties:
+        countryCode: { type: string }
+        countryName: { type: string }
+        provider: { type: string }
+        inputs:
+          type: array
+          items: { type: object }
+        subnationalUnits:
+          type: array
+          items: { type: object }
+    IssueRequest:
+      type: object
+      required: [countryCode, subnationalUnit, identifiers]
+      properties:
+        countryCode: { type: string, example: ZZ }
+        subnationalUnit: { type: string, example: DX }
+        identifiers:
+          type: object
+          additionalProperties: { type: string }
+        holderId: { type: string, description: did:key the holder controls }
+        challengeRef: { type: string }
+        proofOfResidence: { type: string }
+        offline: { type: boolean }
+    IssueResult:
+      type: object
+      properties:
+        status: { type: string, enum: [issued, exists, challenge, rejected] }
+        residentId: { type: string }
+        credentialJwt: { type: string }
+        reason: { type: string }
+    ResidencyStatus:
+      type: object
+      properties:
+        residentId: { type: string }
+        countryCode: { type: string }
+        subnationalUnit: { type: string }
+        assuranceLevel: { type: string }
+        provisional: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    CredentialVerifyRequest:
+      type: object
+      required: [credential]
+      properties:
+        credential: { type: string, description: VC-JWT }
+        offline: { type: boolean }
+    CredentialVerifyOutcome:
+      type: object
+      properties:
+        valid: { type: boolean }
+        reason: { type: string }
+        checkedRevocation: { type: boolean }
+        subject:
+          type: object
+          additionalProperties: true
+    ConsentGrantRequest:
+      type: object
+      required: [residentId, relyingParty, purpose, scopes]
+      properties:
+        residentId: { type: string }
+        subjectRef: { type: string }
+        relyingParty: { type: string, example: health }
+        relyingPartyName: { type: string }
+        purpose: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        validityDays: { type: integer }
+    ConsentRecord:
+      type: object
+      properties:
+        id: { type: string }
+        residentId: { type: string }
+        relyingParty: { type: string }
+        purpose: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        status: { type: string, enum: [active, revoked, expired] }
+        grantedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        revokedAt: { type: string, format: date-time, nullable: true }
+        receiptId: { type: string }
+    AuditEvent:
+      type: object
+      properties:
+        seq: { type: integer }
+        id: { type: string }
+        timestamp: { type: string, format: date-time }
+        action: { type: string }
+        actor: { type: string }
+        target: { type: string, nullable: true }
+        countryCode: { type: string, nullable: true }
+        outcome: { type: string, enum: [success, failure] }
+        metadata: { type: object, additionalProperties: true, nullable: true }
+        prevHash: { type: string }
+        hash: { type: string }
