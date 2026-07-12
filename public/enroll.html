@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Enroll · OpenResidency</title>
+  <link rel="stylesheet" href="/app/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="top"><span class="dot"></span><h1>OpenResidency</h1></header>
+    <nav class="tabs">
+      <a href="/app/index.html">Home</a>
+      <a href="/app/enroll.html" class="active">Enroll</a>
+      <a href="/app/verify.html">Verify</a>
+      <a href="/app/admin.html">Admin</a>
+      <a href="/docs">API</a>
+    </nav>
+
+    <div class="card">
+      <h2>Enroll a resident</h2>
+      <p class="muted">Pick a country, verify against its foundational ID, and issue a residency credential.</p>
+      <label for="country">Country</label>
+      <select id="country"></select>
+      <label for="unit">Subnational unit</label>
+      <select id="unit"></select>
+      <div id="inputs"></div>
+      <button id="issue">Verify and issue</button>
+      <p class="note">Demo tip: in country <code>ZZ</code> (Demoland, MOCK provider), any National ID
+        ending in an even digit verifies.</p>
+    </div>
+
+    <div class="card" id="result" style="display:none">
+      <h2>Result</h2>
+      <div id="status"></div>
+      <div id="qrwrap" style="display:none">
+        <p class="muted" style="margin-top:14px">Scannable credential (carries the full VC, verifies offline):</p>
+        <div class="qr" id="qr"></div>
+      </div>
+      <label style="margin-top:14px">Credential (VC-JWT)</label>
+      <textarea id="jwt" readonly></textarea>
+    </div>
+  </div>
+
+  <script>
+    let configs = [];
+
+    async function load() {
+      configs = await fetch('/residency/countries').then((r) => r.json());
+      const cs = document.getElementById('country');
+      cs.innerHTML = configs.map((c) => `<option value="${c.countryCode}">${c.countryName} (${c.countryCode})</option>`).join('');
+      cs.onchange = renderCountry;
+      renderCountry();
+    }
+
+    function currentConfig() {
+      const code = document.getElementById('country').value;
+      return configs.find((c) => c.countryCode === code);
+    }
+
+    function renderCountry() {
+      const cfg = currentConfig();
+      const unit = document.getElementById('unit');
+      unit.innerHTML = (cfg.subnationalUnits || [])
+        .map((u) => `<option value="${u.code}">${u.name} (${u.code})</option>`)
+        .join('');
+      const inputs = document.getElementById('inputs');
+      inputs.innerHTML = (cfg.inputs || [])
+        .map((i) => `<label>${i.label || i.key}</label><input data-key="${i.key}" placeholder="${i.key}" />`)
+        .join('');
+    }
+
+    document.getElementById('issue').onclick = async () => {
+      const cfg = currentConfig();
+      const identifiers = {};
+      document.querySelectorAll('#inputs input').forEach((el) => {
+        if (el.value) identifiers[el.dataset.key] = el.value;
+      });
+      const body = {
+        countryCode: cfg.countryCode,
+        subnationalUnit: document.getElementById('unit').value,
+        identifiers,
+      };
+      const res = await fetch('/residency/issue', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+
+      document.getElementById('result').style.display = 'block';
+      const status = document.getElementById('status');
+      if (res.status === 'issued' || res.status === 'exists') {
+        status.innerHTML = `<span class="pill ok">${res.status}</span> Resident ID: <code>${res.residentId}</code>`;
+        const jwt = res.credentialJwt || '';
+        document.getElementById('jwt').value = jwt;
+        if (jwt) {
+          const svg = await fetch('/offline/qr', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ credential: jwt, residentId: res.residentId }),
+          }).then((r) => r.text());
+          document.getElementById('qr').innerHTML = svg;
+          document.getElementById('qrwrap').style.display = 'block';
+        }
+      } else {
+        status.innerHTML = `<span class="pill bad">${res.status}</span> ${res.reason || ''}`;
+        document.getElementById('jwt').value = JSON.stringify(res, null, 2);
+        document.getElementById('qrwrap').style.display = 'none';
+      }
+    };
+
+    load().catch((e) => alert('Could not load countries: ' + e.message));
+  </script>
+</body>
+</html>

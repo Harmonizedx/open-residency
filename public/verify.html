@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verify · OpenResidency</title>
+  <link rel="stylesheet" href="/app/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="top"><span class="dot"></span><h1>OpenResidency</h1></header>
+    <nav class="tabs">
+      <a href="/app/index.html">Home</a>
+      <a href="/app/enroll.html">Enroll</a>
+      <a href="/app/verify.html" class="active">Verify</a>
+      <a href="/app/admin.html">Admin</a>
+      <a href="/docs">API</a>
+    </nav>
+
+    <div class="card">
+      <h2>Verify a residency credential</h2>
+      <p class="muted">A sector service (Health, Tax, ...) confirms a citizen's residency. Paste the
+        VC-JWT below. Verification checks the issuer signature, expiry, and revocation status.</p>
+      <label>Credential (VC-JWT)</label>
+      <textarea id="jwt" placeholder="eyJ..."></textarea>
+      <button id="verify">Verify</button>
+    </div>
+
+    <div class="card" id="result" style="display:none">
+      <h2>Result</h2>
+      <div id="verdict"></div>
+      <pre id="subject"></pre>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('verify').onclick = async () => {
+      const credential = document.getElementById('jwt').value.trim();
+      if (!credential) return;
+      const res = await fetch('/residency/verify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      }).then((r) => r.json());
+
+      document.getElementById('result').style.display = 'block';
+      const verdict = document.getElementById('verdict');
+      if (res.valid) {
+        verdict.innerHTML = `<span class="pill ok">valid</span> Revocation checked: ${res.checkedRevocation ? 'yes' : 'no (cache unavailable)'}`;
+      } else {
+        verdict.innerHTML = `<span class="pill bad">invalid</span> Reason: <code>${res.reason || 'unknown'}</code>`;
+      }
+      document.getElementById('subject').textContent = JSON.stringify(res.subject || {}, null, 2);
+    };
+  </script>
+</body>
+</html>

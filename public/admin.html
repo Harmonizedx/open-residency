@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Admin · OpenResidency</title>
+  <link rel="stylesheet" href="/app/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="top"><span class="dot"></span><h1>OpenResidency</h1></header>
+    <nav class="tabs">
+      <a href="/app/index.html">Home</a>
+      <a href="/app/enroll.html">Enroll</a>
+      <a href="/app/verify.html">Verify</a>
+      <a href="/app/admin.html" class="active">Admin</a>
+      <a href="/docs">API</a>
+    </nav>
+
+    <div class="card">
+      <h2>Admin key</h2>
+      <p class="muted">Registry and audit endpoints require the admin key configured on the deployment
+        (<code>ADMIN_API_KEY</code>). It is sent as <code>x-admin-key</code> and never stored by this page
+        beyond the current session.</p>
+      <label>Admin key</label>
+      <input id="key" type="password" placeholder="admin key" />
+      <button id="save" class="secondary">Use key</button>
+    </div>
+
+    <div class="card">
+      <h2>Resident registry</h2>
+      <button id="loadResidents" class="secondary">Load residents</button>
+      <div id="residents" class="muted" style="margin-top:12px">Not loaded.</div>
+    </div>
+
+    <div class="card">
+      <h2>Audit log</h2>
+      <div class="row">
+        <button id="loadAudit" class="secondary">Load events</button>
+        <button id="verifyChain" class="secondary">Verify chain</button>
+      </div>
+      <div id="chain" style="margin-top:12px"></div>
+      <div id="audit" class="muted" style="margin-top:12px">Not loaded.</div>
+    </div>
+
+    <div class="card">
+      <h2>Consents for a resident</h2>
+      <label>Resident ID</label>
+      <input id="rid" placeholder="KT-XXXX-XXXX-X" />
+      <button id="loadConsents" class="secondary">Load consents</button>
+      <div id="consents" class="muted" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <script>
+    let adminKey = sessionStorage.getItem('or_admin_key') || '';
+    document.getElementById('key').value = adminKey;
+    document.getElementById('save').onclick = () => {
+      adminKey = document.getElementById('key').value.trim();
+      sessionStorage.setItem('or_admin_key', adminKey);
+      alert('Key set for this session.');
+    };
+    const H = () => ({ 'x-admin-key': adminKey });
+
+    document.getElementById('loadResidents').onclick = async () => {
+      const el = document.getElementById('residents');
+      try {
+        const data = await fetch('/admin/residents?limit=100', { headers: H() }).then((r) => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
+        if (!data.residents.length) { el.textContent = 'No residents yet.'; return; }
+        el.innerHTML = `<div class="muted">${data.total} total</div><table><tr><th>Resident ID</th><th>Country</th><th>Unit</th><th>Assurance</th><th>Provisional</th></tr>` +
+          data.residents.map((r) => `<tr><td><code>${r.residentId}</code></td><td>${r.countryCode}</td><td>${r.subnationalUnit}</td><td>${r.assuranceLevel}</td><td>${r.provisional ? 'yes' : 'no'}</td></tr>`).join('') +
+          '</table>';
+      } catch (e) { el.textContent = 'Error: ' + e.message + ' (check admin key)'; }
+    };
+
+    document.getElementById('loadAudit').onclick = async () => {
+      const el = document.getElementById('audit');
+      try {
+        const data = await fetch('/audit?limit=100', { headers: H() }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+        if (!data.events.length) { el.textContent = 'No events yet.'; return; }
+        el.innerHTML = '<table><tr><th>#</th><th>Action</th><th>Actor</th><th>Target</th><th>Outcome</th><th>Time</th></tr>' +
+          data.events.map((e) => `<tr><td>${e.seq}</td><td><code>${e.action}</code></td><td>${e.actor}</td><td>${e.target || ''}</td><td>${e.outcome === 'success' ? '<span class="pill ok">ok</span>' : '<span class="pill bad">fail</span>'}</td><td class="muted">${new Date(e.timestamp).toLocaleString()}</td></tr>`).join('') +
+          '</table>';
+      } catch (e) { el.textContent = 'Error: ' + e.message + ' (check admin key)'; }
+    };
+
+    document.getElementById('verifyChain').onclick = async () => {
+      const el = document.getElementById('chain');
+      try {
+        const data = await fetch('/audit/verify', { headers: H() }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+        el.innerHTML = data.ok
+          ? `<span class="pill ok">chain intact</span> ${data.length} events`
+          : `<span class="pill bad">chain broken</span> at seq ${data.brokenAtSeq}`;
+      } catch (e) { el.innerHTML = '<span class="pill bad">error</span> ' + e.message; }
+    };
+
+    document.getElementById('loadConsents').onclick = async () => {
+      const rid = document.getElementById('rid').value.trim();
+      const el = document.getElementById('consents');
+      if (!rid) return;
+      try {
+        const data = await fetch('/consent/resident/' + encodeURIComponent(rid)).then((r) => r.json());
+        if (!data.consents || !data.consents.length) { el.textContent = 'No consents for this resident.'; return; }
+        el.innerHTML = '<table><tr><th>Relying party</th><th>Scopes</th><th>Status</th><th>Granted</th><th></th></tr>' +
+          data.consents.map((c) => `<tr><td>${c.relyingParty}</td><td>${(c.scopes || []).join(', ')}</td><td>${c.status === 'active' ? '<span class="pill ok">active</span>' : '<span class="pill bad">' + c.status + '</span>'}</td><td class="muted">${new Date(c.grantedAt).toLocaleDateString()}</td><td>${c.status === 'active' ? `<button class="danger" style="margin:0;padding:4px 10px" onclick="revoke('${c.id}')">Revoke</button>` : ''}</td></tr>`).join('') +
+          '</table>';
+      } catch (e) { el.textContent = 'Error: ' + e.message; }
+    };
+
+    async function revoke(id) {
+      await fetch('/consent/' + encodeURIComponent(id) + '/revoke', { method: 'POST' });
+      document.getElementById('loadConsents').click();
+    }
+    window.revoke = revoke;
+  </script>
+</body>
+</html>

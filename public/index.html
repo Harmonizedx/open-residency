@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenResidency</title>
+  <link rel="stylesheet" href="/app/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="top"><span class="dot"></span><h1>OpenResidency</h1></header>
+    <p class="sub">Country-agnostic subnational Residency ID and SSO. Reference console.</p>
+    <nav class="tabs">
+      <a href="/app/index.html" class="active">Home</a>
+      <a href="/app/enroll.html">Enroll</a>
+      <a href="/app/verify.html">Verify</a>
+      <a href="/app/admin.html">Admin</a>
+      <a href="/docs">API</a>
+    </nav>
+
+    <div class="card">
+      <h2>What this is</h2>
+      <p class="muted">A working reference deployment. Use the tabs to enroll a resident against a
+        foundational ID, verify a credential offline in the browser, and inspect the registry, consents,
+        and tamper-evident audit log.</p>
+    </div>
+
+    <div class="card">
+      <h2>Served countries</h2>
+      <div id="countries" class="muted">Loading...</div>
+    </div>
+
+    <div class="card">
+      <h2>Endpoints</h2>
+      <p class="muted">Full machine-readable spec at <a href="/openapi.yaml">/openapi.yaml</a>,
+        browsable at <a href="/docs">/docs</a>. OIDC discovery at
+        <code>/oidc/.well-known/openid-configuration</code>.</p>
+    </div>
+  </div>
+
+  <script>
+    fetch('/residency/countries')
+      .then((r) => r.json())
+      .then((list) => {
+        const el = document.getElementById('countries');
+        if (!Array.isArray(list) || !list.length) { el.textContent = 'No countries configured.'; return; }
+        el.innerHTML = list
+          .map((c) => `<div><b>${c.countryName}</b> (${c.countryCode}) &middot; provider <code>${c.provider}</code></div>`)
+          .join('');
+      })
+      .catch(() => (document.getElementById('countries').textContent = 'Server not reachable.'));
+  </script>
+</body>
+</html>
