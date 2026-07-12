@@ -1,0 +1,31 @@
+# Demo jurisdiction - MOCK foundational provider.
+#
+# Wire this up to run the ENTIRE stack (issue -> credential -> SSO -> verify) with no
+# live national ID API. Any identifier whose primary value ends in an even digit
+# verifies. Never enable a MOCK config in production.
+
+countryCode: ZZ
+countryName: Demoland
+defaultSubnationalUnit: DX
+
+foundational:
+  provider: MOCK
+  inputs:
+    - { key: nationalId, label: National ID (even last digit = verifies in demo) }
+  assuranceOnSuccess: verified
+
+residency:
+  minAssurance: verified
+  proofOfResidence: attestation
+  allowProvisional: true
+
+credential:
+  issuerDid: did:web:id.demoland.example
+  issuerName: Demoland Residency Authority
+  type: StateResidencyCredential
+  validityDays: 365
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: DX, name: Demo District, parent: ZZ, level: state }

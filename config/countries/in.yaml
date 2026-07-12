@@ -1,0 +1,47 @@
+# India - Aadhaar as the foundational identity (OTP-based auth).
+# Demonstrates a two-step provider: the platform requests an OTP, the resident
+# receives it on their registered mobile, then verify() is called with the OTP.
+
+countryCode: IN
+countryName: India
+defaultSubnationalUnit: KA
+
+foundational:
+  provider: IN_AADHAAR
+  baseUrl: https://auth.example.in
+  timeoutMs: 8000
+  auth:
+    type: bearer
+    secretEnv: AADHAAR_API_TOKEN
+  inputs:
+    - { key: aadhaar, label: Aadhaar Number, pattern: '^\d{12}$' }
+    - { key: otp, label: OTP, required: false, secret: true }
+  request:
+    method: POST
+    path: /v2/auth
+    bodyTemplate:
+      uid: '{identifiers.aadhaar}'
+      otp: '{identifiers.otp}'
+      txn: '{context.challengeRef}'
+  verifiedFlag: { path: authResult, equals: 'y' }
+  responseMapping:
+    givenName: kyc.name
+    dateOfBirth: kyc.dob
+    gender: kyc.gender
+  assuranceOnSuccess: high
+
+residency:
+  minAssurance: verified
+  proofOfResidence: document
+  allowProvisional: false
+
+credential:
+  issuerDid: did:web:residency.karnataka.gov.in
+  issuerName: Karnataka Residency Directorate
+  type: StateResidencyCredential
+  validityDays: 1825
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: KA, name: Karnataka, parent: IN, level: state }

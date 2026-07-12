@@ -1,0 +1,55 @@
+# Nigeria - National Identity Number (NIN) as the foundational identity.
+#
+# This is the shape of a real deployment. It will only return matches once you point
+# baseUrl at a licensed NIMC verification gateway and set the NIN_GATEWAY_KEY secret.
+# To run the full stack offline for a pilot or demo, use demo.yaml (MOCK provider).
+
+countryCode: NG
+countryName: Nigeria
+defaultSubnationalUnit: KT
+
+foundational:
+  provider: NG_NIN
+  baseUrl: https://nin-gateway.example.ng
+  timeoutMs: 8000
+  auth:
+    type: apiKey
+    headerName: x-api-key
+    secretEnv: NIN_GATEWAY_KEY # the value lives in the environment, never in this file
+  # Fields the citizen submits. Drives validation and any auto-generated capture UI.
+  inputs:
+    - { key: nin, label: National Identification Number, pattern: '^\d{11}$' }
+    - { key: dateOfBirth, label: Date of Birth (YYYY-MM-DD) }
+  request:
+    method: POST
+    path: /v1/verify
+    bodyTemplate:
+      nin: '{identifiers.nin}'
+      dob: '{identifiers.dateOfBirth}'
+  # Where in the gateway response to read the match flag and attributes.
+  verifiedFlag: { path: verification.status, equals: VERIFIED }
+  responseMapping:
+    givenName: data.firstname
+    familyName: data.surname
+    dateOfBirth: data.birthdate
+    gender: data.gender
+    phone: data.telephoneno
+  assuranceOnSuccess: verified
+
+residency:
+  minAssurance: verified
+  proofOfResidence: attestation # ward-level operator or existing register vouches
+  allowProvisional: true # permit offline issuance, reconcile when back online
+
+credential:
+  issuerDid: did:web:id.katsina.gov.ng
+  issuerName: Katsina State Residency Authority
+  type: StateResidencyCredential
+  validityDays: 1095
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: KT, name: Katsina, parent: NG, level: state }
+  - { code: NG-NI, name: Niger, parent: NG, level: state }
+  - { code: ZA, name: Zamfara, parent: NG, level: state }

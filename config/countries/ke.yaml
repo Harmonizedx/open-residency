@@ -1,0 +1,57 @@
+# Kenya - Huduma Namba via the GENERIC_REST adapter.
+#
+# This file proves the core claim: a country whose foundational API is an ordinary
+# REST call needs NO code at all. Everything (endpoint, auth, request body, success
+# flag, attribute mapping) is expressed here. Swap these values for any national ID
+# API in the world and the residency, credential, and SSO layers work unchanged.
+
+countryCode: KE
+countryName: Kenya
+defaultSubnationalUnit: NBI
+
+foundational:
+  provider: GENERIC_REST
+  baseUrl: https://huduma-api.example.ke
+  timeoutMs: 8000
+  auth:
+    type: basic
+    clientIdEnv: HUDUMA_CLIENT_ID
+    clientSecretEnv: HUDUMA_CLIENT_SECRET
+  inputs:
+    - { key: hudumaNumber, label: Huduma Namba }
+    - { key: firstName, label: First Name }
+    - { key: lastName, label: Last Name }
+  request:
+    method: POST
+    path: /verify
+    bodyTemplate:
+      huduma_no: '{identifiers.hudumaNumber}'
+      first_name: '{identifiers.firstName}'
+      last_name: '{identifiers.lastName}'
+  verifiedFlag: { path: match, equals: true }
+  responseMapping:
+    givenName: person.first_name
+    familyName: person.last_name
+    dateOfBirth: person.dob
+    gender: person.sex
+    addressHint: person.county
+  assuranceOnSuccess: verified
+  extra:
+    subjectSourcePath: person.huduma_no # tokenized before leaving the adapter
+
+residency:
+  minAssurance: verified
+  proofOfResidence: attestation
+  allowProvisional: true
+
+credential:
+  issuerDid: did:web:id.nairobi.go.ke
+  issuerName: Nairobi County Residency Office
+  type: StateResidencyCredential
+  validityDays: 1095
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: NBI, name: Nairobi, parent: KE, level: county }
+  - { code: MSA, name: Mombasa, parent: KE, level: county }
