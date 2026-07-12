@@ -1,0 +1,97 @@
+// OpenResidency data model.
+// Deliberately minimal and privacy-preserving: the raw national ID is never stored.
+// Only a tokenized subjectRef (HMAC of provider+id under a deployment pepper) is kept,
+// so the residency register cannot be used to reconstruct foundational ID numbers.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Resident {
+  id              String   @id @default(uuid())
+  residentId      String   @unique
+  subjectRef      String   @unique
+  countryCode     String
+  subnationalUnit String
+  providerCode    String
+  assuranceLevel  String
+  provisional     Boolean  @default(false)
+  credentialId    String?
+  statusListIndex Int
+  // Minimized demographic attributes carried into the credential.
+  fullName        String?
+  givenName       String?
+  familyName      String?
+  dateOfBirth     String?
+  gender          String?
+  phoneHash       String? // for USSD/OTP binding; hashed, never plaintext
+  createdAt       DateTime @default(now())
+
+  @@index([countryCode, subnationalUnit])
+}
+
+// One growable revocation bitstring per country/deployment, plus a monotonic counter
+// for assigning fresh status indices.
+model StatusListState {
+  countryCode String   @id
+  encodedList String // gzip+base64url bitstring
+  nextIndex   Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+// Short-lived OTP challenges for USSD/SMS authentication and Aadhaar-style flows.
+model OtpChallenge {
+  id         String   @id @default(uuid())
+  residentId String
+  codeHash   String
+  channel    String
+  expiresAt  DateTime
+  consumed   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([residentId])
+}
+
+// Tamper-evident audit log. Each row is hash-chained to the previous (prevHash),
+// so any later edit or deletion is detectable by recomputing the chain.
+model AuditEvent {
+  seq         Int      @id
+  eventId     String   @unique
+  timestamp   DateTime
+  action      String
+  actor       String
+  target      String?
+  countryCode String?
+  outcome     String
+  metadata    Json?
+  prevHash    String
+  hash        String
+
+  @@index([target])
+  @@index([action])
+}
+
+// First-class consent records for cross-sector data sharing over SSO. Revocable,
+// and each grant is backed by a signed, portable receipt (receiptId).
+model ConsentRecord {
+  id               String    @id
+  subjectRef       String
+  residentId       String
+  relyingParty     String
+  relyingPartyName String?
+  purpose          String
+  scopes           String[]
+  status           String    @default("active")
+  grantedAt        DateTime
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  receiptId        String
+
+  @@index([residentId])
+  @@index([relyingParty])
+}
