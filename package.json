@@ -31,7 +31,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "smoke": "tsc -p tsconfig.core.json && node dist-core/scripts/smoke.js",
-    "test": "jest"
+    "test": "jest",
+    "smoke:oid4vci": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vci-smoke.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.22",
@@ -44,8 +45,10 @@
     "express": "^5.2.1",
     "jose": "^5.10.0",
     "js-yaml": "^4.3.0",
+    "jsonld": "^8.3.3",
     "oidc-provider": "^8.8.1",
     "qrcode": "^1.5.4",
+    "rdf-canonize": "^4.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^3.25.76"
@@ -54,6 +57,7 @@
     "@nestjs/cli": "^10.4.5",
     "@types/express": "^5.0.6",
     "@types/js-yaml": "^4.0.9",
+    "@types/jsonld": "^1.5.15",
     "@types/node": "^22.20.1",
     "@types/oidc-provider": "^8.8.1",
     "@types/qrcode": "^1.5.6",
