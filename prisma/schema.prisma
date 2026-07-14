@@ -77,6 +77,29 @@ model Oid4vciNonce {
   @@index([expiresAt])
 }
 
+// An in-flight OpenID4VP presentation request.
+//
+// Created by a relying party, answered by a wallet on a different connection, then polled
+// for by the relying party -- three interactions that will not land on the same replica,
+// which is why this is a table and not a map in memory.
+//
+// `status` is what makes a presentation single-use: the response endpoint only records an
+// outcome while the request is still `pending`, so a captured vp_token replayed a second
+// time cannot overwrite a verdict.
+model PresentationRequest {
+  id         String    @id @default(uuid())
+  nonce      String    @unique
+  clientId   String
+  purpose    String
+  reference  String?
+  status     String    @default("pending")
+  outcome    Json?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
 // Short-lived OTP challenges for USSD/SMS authentication and Aadhaar-style flows.
 model OtpChallenge {
   id         String   @id @default(uuid())

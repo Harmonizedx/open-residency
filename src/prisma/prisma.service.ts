@@ -5,6 +5,7 @@ import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
+import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -265,6 +266,64 @@ export class PrismaOid4vciStore implements Oid4vciStore {
   async consumeNonce(nonceHash: string): Promise<boolean> {
     const { count } = await this.prisma.oid4vciNonce.deleteMany({
       where: { nonceHash, expiresAt: { gt: new Date() } },
+    });
+    return count === 1;
+  }
+}
+
+/** Prisma-backed OpenID4VP store: in-flight presentation requests. */
+@Injectable()
+export class PrismaOid4vpStore implements Oid4vpStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toRecord = (r: any): PresentationRequestRecord => ({
+    id: r.id,
+    nonce: r.nonce,
+    clientId: r.clientId,
+    purpose: r.purpose,
+    reference: r.reference ?? undefined,
+    status: r.status,
+    outcome: (r.outcome ?? undefined) as Record<string, unknown> | undefined,
+    expiresAt: r.expiresAt.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  });
+
+  async saveRequest(request: PresentationRequestRecord): Promise<void> {
+    await this.prisma.presentationRequest.create({
+      data: {
+        id: request.id,
+        nonce: request.nonce,
+        clientId: request.clientId,
+        purpose: request.purpose,
+        reference: request.reference,
+        status: request.status,
+        expiresAt: new Date(request.expiresAt),
+      },
+    });
+  }
+
+  async findRequest(id: string): Promise<PresentationRequestRecord | null> {
+    const r = await this.prisma.presentationRequest.findUnique({ where: { id } });
+    return r ? this.toRecord(r) : null;
+  }
+
+  /**
+   * Record an outcome only while the request is still pending.
+   *
+   * The `status: 'pending'` predicate is the point. A plain update would let a captured
+   * vp_token be posted twice: the second POST would re-verify and overwrite the verdict,
+   * so a presentation would not be single-use. A conditional UPDATE is atomic in
+   * PostgreSQL, so exactly one caller sees a non-zero count and the rest are told the
+   * request was already answered.
+   */
+  async completeRequest(
+    id: string,
+    status: 'fulfilled' | 'failed',
+    outcome: Record<string, unknown>,
+  ): Promise<boolean> {
+    const { count } = await this.prisma.presentationRequest.updateMany({
+      where: { id, status: 'pending' },
+      data: { status, outcome: outcome as any },
     });
     return count === 1;
   }

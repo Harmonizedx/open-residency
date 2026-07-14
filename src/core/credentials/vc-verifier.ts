@@ -1,4 +1,4 @@
-import { jwtVerify, importJWK, JWK, KeyLike } from 'jose';
+import { jwtVerify, importJWK, errors, JWK, KeyLike } from 'jose';
 import { StatusList } from './status-list';
 
 /**
@@ -35,6 +35,18 @@ export class VcVerifier {
   private keyCache = new Map<string, KeyLike>();
   constructor(private trust: Map<string, TrustedIssuer>) {}
 
+  /**
+   * The cached status list for an issuer, if one has been synced.
+   *
+   * Exposed so the presentation verifier can check revocation for JSON-LD credentials
+   * against the same snapshot the VC-JWT path uses. Keeping one cache rather than two is
+   * what guarantees a revoked resident is revoked in both formats -- two caches would
+   * eventually disagree, and a revoked credential would keep verifying in one of them.
+   */
+  statusListFor(issuerDid: string, statusListUrl: string): StatusList | undefined {
+    return this.trust.get(issuerDid)?.statusLists?.[statusListUrl];
+  }
+
   private async keyFor(did: string): Promise<KeyLike | undefined> {
     if (this.keyCache.has(did)) return this.keyCache.get(did);
     const issuer = this.trust.get(did);
@@ -68,8 +80,16 @@ export class VcVerifier {
       const res = await jwtVerify(jwt, key, { issuer: issuerDid });
       payload = res.payload as Record<string, unknown>;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'VERIFY_FAILED';
-      const reason = /exp/i.test(msg) ? 'EXPIRED' : 'BAD_SIGNATURE';
+      // Classify on jose's typed errors, NOT on the message text. Matching /exp/ against
+      // the message looks reasonable and is quietly wrong: jose reports a bad claim as
+      // `unexpected "iss" claim value`, and "unexpected" contains "exp" -- so a
+      // wrong-issuer credential would be reported to the verifier as EXPIRED.
+      const reason =
+        e instanceof errors.JWTExpired
+          ? 'EXPIRED'
+          : e instanceof errors.JWTClaimValidationFailed
+            ? 'ISSUER_MISMATCH'
+            : 'BAD_SIGNATURE';
       return { valid: false, reason, offline, checkedRevocation: false, issuerDid };
     }
 
