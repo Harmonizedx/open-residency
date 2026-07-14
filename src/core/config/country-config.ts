@@ -89,6 +89,99 @@ const subnationalUnitSchema = z.object({
   level: z.enum(['state', 'province', 'region', 'lga', 'ward', 'county']),
 });
 
+/**
+ * Wallet interoperability profile (OpenID4VCI).
+ *
+ * None of this is Inji-specific: the implementation speaks the standards, and works with
+ * any compatible wallet. But the *defaults* below are deliberately the widest possible
+ * surface -- both credential formats, three proof algorithms, both wire dialects -- so
+ * that the hardest real wallet (MOSIP's Inji, still on Draft 13, hardcoding RS256) works
+ * out of the box.
+ *
+ * That width has a cost, and a deployment should be able to decline to pay it. Every knob
+ * here narrows the surface. See docs/INTEROP.md for what each one breaks if you change it.
+ */
+const walletSchema = z.object({
+  /**
+   * Credential formats to offer.
+   *
+   * `ldp_vc` (JSON-LD + Data Integrity) is what wallets accept; Inji rejects
+   * `jwt_vc_json` outright. `jwt_vc_json` is the compact, canonicalization-free format
+   * that fits in a printed QR code and suits offline verification. Most deployments want
+   * both, which is why both are the default.
+   */
+  formats: z.array(z.enum(['ldp_vc', 'jwt_vc_json'])).nonempty().default(['ldp_vc', 'jwt_vc_json']),
+
+  /**
+   * Key-proof algorithms accepted from a wallet.
+   *
+   * RS256 is here ONLY because the Inji wallet hardcodes it. We would not otherwise
+   * accept RSA -- EdDSA keeps credentials small, which matters for QR codes. Remove RS256
+   * once the wallets you serve have moved on; nothing else depends on it.
+   */
+  proofAlgs: z.array(z.enum(['EdDSA', 'ES256', 'RS256'])).nonempty().default(['EdDSA', 'ES256', 'RS256']),
+
+  compatibility: z
+    .object({
+      /**
+       * Accept and answer the OpenID4VCI Draft 13 wire format alongside 1.0.
+       *
+       * Draft 13 and 1.0 are wire-incompatible (`proof` vs `proofs`, `credential` vs
+       * `credentials`). Inji is on Draft 13, so this defaults on. Turning it off narrows
+       * the accepted request surface, which is a security improvement -- do it as soon as
+       * every wallet you serve is on 1.0.
+       */
+      draft13: z.boolean().default(true),
+
+      /**
+       * Duplicate `c_nonce` and `client_id` into the access token's JWT claims.
+       *
+       * This is in NO version of the specification. Inji does not read c_nonce from the
+       * token response body; it parses the access token and reads the claim from inside.
+       * Without this, Inji signs its key proof with the literal string "null" and the
+       * citizen sees "enrollment failed". If you do not serve Inji, turn it off: you are
+       * otherwise emitting a non-standard claim for no reason.
+       */
+      cNonceInAccessToken: z.boolean().default(true),
+    })
+    .default({}),
+
+  offer: z
+    .object({
+      /** How long a credential offer QR stays valid. Minutes, not hours: it is scanned at a desk. */
+      ttlSeconds: z.number().int().positive().default(900),
+      /** Digits in the transaction code read out to the citizen. The second factor. */
+      txCodeLength: z.number().int().min(4).max(12).default(6),
+      /**
+       * Wrong-PIN guesses before the offer locks. A short numeric code is only safe if
+       * guesses are bounded; raising this materially weakens the second factor.
+       */
+      maxTxCodeAttempts: z.number().int().min(1).max(20).default(5),
+    })
+    .default({}),
+
+  /** Access token lifetime. It only has to survive one credential request. */
+  accessTokenTtlSeconds: z.number().int().positive().default(600),
+  /** c_nonce lifetime. Single-use regardless; this bounds how stale a proof may be. */
+  nonceTtlSeconds: z.number().int().positive().default(300),
+});
+
+/** Presentation profile (OpenID4VP). Deployment-wide; read from the default country. */
+const presentationSchema = z.object({
+  /** How long a presentation request stays answerable. */
+  requestTtlSeconds: z.number().int().positive().default(300),
+  /**
+   * Query languages to advertise in the request object.
+   *
+   * DCQL is OpenID4VP 1.0. Presentation Exchange is what wallets mid-migration still
+   * understand. Emitting both means we do not have to guess which a wallet speaks.
+   */
+  query: z
+    .array(z.enum(['dcql', 'presentation_definition']))
+    .nonempty()
+    .default(['dcql', 'presentation_definition']),
+});
+
 export const countryConfigSchema = z.object({
   countryCode: z.string().length(2),
   countryName: z.string(),
@@ -96,8 +189,14 @@ export const countryConfigSchema = z.object({
   foundational: foundationalSchema,
   residency: residencySchema.default({}),
   credential: credentialSchema,
+  // Both default to today's behaviour, so a config that omits them is unchanged.
+  wallet: walletSchema.default({}),
+  presentation: presentationSchema.default({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),
 });
+
+export type WalletProfile = z.infer<typeof walletSchema>;
+export type PresentationProfile = z.infer<typeof presentationSchema>;
 
 export type CountryConfig = z.infer<typeof countryConfigSchema>;
 

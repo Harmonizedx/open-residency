@@ -408,6 +408,153 @@ async function main() {
   const after = await new VcVerifier(revokedTrust).verify(vcJwt, { offline: true });
   check('the wallet-held credential now verifies as REVOKED', !after.valid && after.reason === 'REVOKED');
 
+
+  // ---- A strict profile: config actually narrows the surface -------------
+  //
+  // The defaults above are the widest possible surface, so that the hardest real wallet
+  // (Inji) works out of the box. A deployment whose wallets have all moved to OpenID4VCI
+  // 1.0 should be able to decline to pay for that width. This proves the config knobs are
+  // load-bearing rather than decorative: turning them off must actually REJECT things.
+  console.log('');
+  console.log('A strict wallet profile (1.0 only, EdDSA only, ldp_vc only):');
+
+  const STRICT: CountryConfig = parseCountryConfig({
+    ...JSON.parse(JSON.stringify({
+      countryCode: 'NG',
+      countryName: 'Nigeria',
+      foundational: { provider: 'MOCK', inputs: [{ key: 'nin', label: 'NIN' }], assuranceOnSuccess: 'verified' },
+      residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
+      credential: {
+        issuerDid: 'did:web:id.katsina.gov.ng',
+        issuerName: 'Katsina State Residency Authority',
+        type: 'StateResidencyCredential',
+        validityDays: 1095,
+        context: ['https://www.w3.org/ns/credentials/v2'],
+      },
+      subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
+    })),
+    wallet: {
+      formats: ['ldp_vc'],
+      proofAlgs: ['EdDSA'],
+      compatibility: { draft13: false, cNonceInAccessToken: false },
+      offer: { txCodeLength: 8, maxTxCodeAttempts: 3 },
+    },
+  });
+
+  const strictResidents = new InMemoryStore();
+  const strictResidency = new ResidencyService(
+    new ProviderRegistry('test-pepper'),
+    new VcIssuer(key),
+    strictResidents,
+    () => `${ISSUER}/.well-known/status/ng.json`,
+    new LdpIssuer(key),
+  );
+  const strict = new Oid4vciService(
+    { credentialIssuer: ISSUER },
+    () => [STRICT],
+    (cc) => (cc.toUpperCase() === 'NG' ? STRICT : undefined),
+    strictResidency,
+    strictResidents,
+    new InMemoryOid4vciStore(),
+    key,
+  );
+
+  const strictEnrolled = await strictResidency.issue(STRICT, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '12345678902' },
+  });
+  if (strictEnrolled.status !== 'issued') throw new Error('strict enrollment failed');
+
+  const strictMeta = strict.credentialIssuerMetadata();
+  const strictConfigs = strictMeta.credential_configurations_supported as Record<string, any>;
+  check(
+    'metadata offers ONLY ldp_vc',
+    'NG_StateResidencyCredential_ldp_vc' in strictConfigs &&
+      !('NG_StateResidencyCredential_jwt_vc_json' in strictConfigs),
+  );
+  check(
+    'metadata advertises ONLY EdDSA (RS256 is gone)',
+    JSON.stringify(
+      strictConfigs['NG_StateResidencyCredential_ldp_vc'].proof_types_supported.jwt
+        .proof_signing_alg_values_supported,
+    ) === '["EdDSA"]',
+  );
+
+  const strictOffer = await strict.createOffer(strictEnrolled.residentId);
+  check('tx_code honours the configured length (8 digits)', strictOffer.txCode.length === 8);
+  const strictScanned = JSON.parse(
+    new URL(strictOffer.offerUri).searchParams.get('credential_offer')!,
+  );
+  check(
+    'the offer advertises the configured tx_code length',
+    strictScanned.grants[PRE_AUTHORIZED_CODE_GRANT].tx_code.length === 8,
+  );
+
+  const strictToken = await strict.token({
+    grantType: PRE_AUTHORIZED_CODE_GRANT,
+    preAuthorizedCode: strictScanned.grants[PRE_AUTHORIZED_CODE_GRANT]['pre-authorized_code'],
+    txCode: strictOffer.txCode,
+  });
+
+  // The non-standard Inji claims must be GONE, not merely ignored.
+  const strictAt = JSON.parse(
+    Buffer.from((strictToken.access_token as string).split('.')[1], 'base64url').toString(),
+  );
+  check(
+    'the non-standard c_nonce/client_id claims are absent from the access token',
+    strictAt.c_nonce === undefined && strictAt.client_id === undefined,
+  );
+
+  const strictNonce = (await strict.nonce()).c_nonce as string;
+
+  // An RS256 proof -- which Inji would send -- must now be refused.
+  await rejects('an RS256 key proof is rejected', 'invalid_proof', async () => {
+    const rsaProof = await makeProof({
+      privateKey: walletB.privateKey,
+      publicJwk: walletBJwk,
+      alg: 'RS256',
+      aud: ISSUER,
+      nonce: strictNonce,
+    });
+    return strict.credential(`Bearer ${strictToken.access_token}`, {
+      credential_configuration_id: 'NG_StateResidencyCredential_ldp_vc',
+      proofs: { jwt: [rsaProof] },
+    });
+  });
+
+  // A Draft 13 request must now be refused outright.
+  await rejects('a Draft 13 request is rejected', 'invalid_credential_request', async () => {
+    const p = await makeProof({
+      privateKey: walletA.privateKey,
+      publicJwk: walletAJwk,
+      alg: 'EdDSA',
+      aud: ISSUER,
+      nonce: (await strict.nonce()).c_nonce as string,
+    });
+    return strict.credential(`Bearer ${strictToken.access_token}`, {
+      format: 'ldp_vc',
+      proof: { proof_type: 'jwt', jwt: p },
+    });
+  });
+
+  // And a spec-current 1.0 wallet must still work perfectly.
+  const strictOk = await strict.credential(`Bearer ${strictToken.access_token}`, {
+    credential_configuration_id: 'NG_StateResidencyCredential_ldp_vc',
+    proofs: {
+      jwt: [
+        await makeProof({
+          privateKey: walletA.privateKey,
+          publicJwk: walletAJwk,
+          alg: 'EdDSA',
+          aud: ISSUER,
+          nonce: (await strict.nonce()).c_nonce as string,
+        }),
+      ],
+    },
+  });
+  check('a spec-current 1.0 wallet still succeeds', Array.isArray(strictOk.credentials));
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   if (fail > 0) process.exit(1);
 }

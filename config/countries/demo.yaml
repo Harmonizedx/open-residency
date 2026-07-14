@@ -29,3 +29,50 @@ credential:
 
 subnationalUnits:
   - { code: DX, name: Demo District, parent: ZZ, level: state }
+
+# ---------------------------------------------------------------------------
+# Wallet interoperability profile (OpenID4VCI). OPTIONAL.
+#
+# Every value below is the default, spelled out here so the trade-offs are visible. Omit
+# this whole block and you get exactly this. The defaults are the WIDEST possible surface,
+# so that the hardest real wallet -- MOSIP's Inji, still on Draft 13 and hardcoding RS256 --
+# works with no tuning.
+#
+# None of this is Inji-specific: the code speaks the standards and sniffs no wallet. But
+# width has a cost, and a deployment should be able to decline to pay it. See docs/INTEROP.md.
+# ---------------------------------------------------------------------------
+wallet:
+  # ldp_vc is what wallets accept (Inji REJECTS jwt_vc_json outright).
+  # jwt_vc_json is compact, needs no canonicalization, and fits in a printed QR -- it is
+  # the offline path. Most deployments want both.
+  formats: [ldp_vc, jwt_vc_json]
+
+  # RS256 is accepted ONLY because Inji hardcodes it. Drop it once your wallets have moved
+  # on; EdDSA keeps credentials small, which is what makes the QR code scannable.
+  proofAlgs: [EdDSA, ES256, RS256]
+
+  compatibility:
+    # Accept the OpenID4VCI Draft 13 wire format as well as 1.0. Turning this off narrows
+    # the request surface we accept, which is a security improvement -- do it as soon as
+    # every wallet you serve is on 1.0.
+    draft13: true
+    # Duplicate c_nonce/client_id into the access token. This is in NO version of the spec;
+    # Inji reads the nonce from inside the token rather than from the response body. If you
+    # do not serve Inji, set this false rather than emit a non-standard claim for nobody.
+    cNonceInAccessToken: true
+
+  offer:
+    ttlSeconds: 900        # a citizen scanning a QR at a desk: minutes, not hours
+    txCodeLength: 6        # the spoken second factor; NOT carried in the QR
+    maxTxCodeAttempts: 5   # a short numeric PIN is only safe if guesses are bounded
+
+  accessTokenTtlSeconds: 600
+  nonceTtlSeconds: 300
+
+# Presentation profile (OpenID4VP). Deployment-wide: a presentation request names no country,
+# so this is read from the default (first) country config.
+presentation:
+  requestTtlSeconds: 300
+  # DCQL is OpenID4VP 1.0; presentation_definition is Presentation Exchange, which wallets
+  # mid-migration still use. Emitting both means not having to guess which a wallet speaks.
+  query: [dcql, presentation_definition]

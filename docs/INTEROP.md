@@ -234,6 +234,69 @@ residency has no business receiving either, and `subjectRef` is precisely the fi
 whole tokenization design exists to protect. `minimizeClaims` releases the residency ID,
 the subnational unit, the name, and the provisional flag. Nothing else leaves.
 
+## Wallet profiles: this is configuration, not code
+
+A recurring question: **is this built for Inji?** No. The implementation speaks the
+standards and sniffs no wallet — there is no `if (wallet === 'inji')` anywhere in the
+codebase. Inji is simply the *hardest* wallet to satisfy, so satisfying it means satisfying
+the others.
+
+What we do is offer the **union** of what wallets need, and the union is configurable per
+country in `config/countries/*.yaml`:
+
+```yaml
+wallet:
+  formats: [ldp_vc, jwt_vc_json]
+  proofAlgs: [EdDSA, ES256, RS256]
+  compatibility:
+    draft13: true
+    cNonceInAccessToken: true
+  offer:
+    ttlSeconds: 900
+    txCodeLength: 6
+    maxTxCodeAttempts: 5
+  accessTokenTtlSeconds: 600
+  nonceTtlSeconds: 300
+
+presentation:
+  requestTtlSeconds: 300
+  query: [dcql, presentation_definition]
+```
+
+Every value above is the default. **Omit the blocks entirely and you get exactly this** —
+which is what `ng.yaml`, `in.yaml`, and `ke.yaml` do.
+
+### What each knob costs you
+
+| Knob | Default | Why you might change it |
+|---|---|---|
+| `formats` | both | Inji rejects `jwt_vc_json`; `jwt_vc_json` is the offline/QR path. Drop one only if you are sure you need neither. |
+| `proofAlgs` | EdDSA, ES256, RS256 | **RS256 is present only because Inji hardcodes it.** Drop it when your wallets move on — EdDSA keeps credentials small, which is what keeps the QR scannable. |
+| `compatibility.draft13` | `true` | Draft 13 and 1.0 are wire-incompatible. Turning this off **rejects** Draft 13 requests, narrowing the accepted surface. A security improvement once your wallets are on 1.0. |
+| `compatibility.cNonceInAccessToken` | `true` | Not in **any** version of the spec. Exists solely because Inji reads `c_nonce` from *inside* the access token. If you do not serve Inji, turn it off rather than emit a non-standard claim for nobody's benefit. |
+| `offer.txCodeLength` | 6 | The spoken second factor. Longer is stronger, and harder to read out over a noisy counter. |
+| `offer.maxTxCodeAttempts` | 5 | A short numeric PIN is **only** safe because guesses are bounded. Raising this materially weakens the second factor. |
+| `presentation.query` | both | DCQL is 1.0; Presentation Exchange is what wallets mid-migration use. Emitting both means not guessing. |
+
+### The knobs are load-bearing, not decorative
+
+It would be easy to add config that is read but never enforced. `scripts/oid4vci-smoke.ts`
+runs a **strict profile** (`ldp_vc` only, EdDSA only, `draft13: false`,
+`cNonceInAccessToken: false`, 8-digit PIN) and asserts that it genuinely narrows behaviour:
+
+- an **RS256 key proof is rejected**
+- a **Draft 13 request is rejected**
+- the non-standard `c_nonce`/`client_id` claims are **absent** from the access token
+- only `ldp_vc` appears in the issuer metadata
+- and a spec-current 1.0 wallet **still works**
+
+### Recommendation
+
+Start on the defaults; they interoperate with everything, including Inji. Move to the
+strict profile as soon as the wallets you actually serve are on OpenID4VCI 1.0. Narrowing
+is a security improvement — a smaller request surface and no non-standard claims — so it is
+worth revisiting, not something to set once and forget.
+
 ## Adding a wallet
 
 If a wallet cannot complete issuance against this deployment, the fastest way to find out

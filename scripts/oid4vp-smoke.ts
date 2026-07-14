@@ -123,7 +123,13 @@ async function main() {
   const vpVerifier = new VpVerifier(vcVerifier, ldpTrust);
   const vpStore = new InMemoryOid4vpStore();
   const vp = new Oid4vpService(
-    { baseUrl: BASE, clientId: ISSUER_DID, clientName: 'Katsina General Hospital' },
+    {
+      baseUrl: BASE,
+      clientId: ISSUER_DID,
+      clientName: 'Katsina General Hospital',
+      requestTtlSeconds: CONFIG.presentation.requestTtlSeconds,
+      query: CONFIG.presentation.query,
+    },
     vpStore,
     () => vpVerifier,
     key,

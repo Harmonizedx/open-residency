@@ -3,7 +3,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { CountryConfig } from '../config/country-config';
 import { IssuerKey } from '../credentials/keystore';
 import { RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
-import { SUPPORTED_PROOF_ALGS, verifyHolderProof, HolderProofError } from './holder-proof';
+import { verifyHolderProof, HolderProofError } from './holder-proof';
 import { CredentialFormat, MintedCredential, ResidencyService } from '../residency/residency-service';
 import { ResidencyStore } from '../residency/ports';
 import { CredentialOfferRecord, Oid4vciStore } from './ports';
@@ -38,11 +38,6 @@ import { CredentialOfferRecord, Oid4vciStore } from './ports';
  * the dialect it addressed us in. Every such accommodation below is marked. When Draft
  * 13 wallets have aged out, deleting them should be mechanical.
  */
-
-const OFFER_TTL_SECONDS = 15 * 60; // a citizen scanning a QR at a desk; minutes, not hours
-const ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
-const NONCE_TTL_SECONDS = 5 * 60;
-const MAX_TX_CODE_ATTEMPTS = 5;
 
 export const PRE_AUTHORIZED_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 
@@ -108,6 +103,19 @@ export class Oid4vciService {
   // ---------------------------------------------------------------------------
 
   /**
+   * The wallet profile for a country, falling back to the deployment's default country.
+   *
+   * The fallback exists because two endpoints have no country in scope: the Nonce Endpoint
+   * is unauthenticated and carries no context at all, and token lifetimes are decided
+   * before we resolve which credential is being requested. A single-country deployment --
+   * which is the overwhelmingly common case -- is unaffected either way.
+   */
+  private wallet(countryCode?: string) {
+    const cfg = (countryCode ? this.getConfig(countryCode) : undefined) ?? this.configs()[0];
+    return cfg.wallet;
+  }
+
+  /**
    * A credential configuration id is namespaced by country because a single deployment
    * can serve several jurisdictions, each with its own issuer DID and validity rules.
    */
@@ -119,7 +127,7 @@ export class Oid4vciService {
     id: string,
   ): { cfg: CountryConfig; format: CredentialFormat } | undefined {
     for (const cfg of this.configs()) {
-      for (const format of ['ldp_vc', 'jwt_vc_json'] as CredentialFormat[]) {
+      for (const format of cfg.wallet.formats) {
         if (this.configurationId(cfg, format) === id) return { cfg, format };
       }
     }
@@ -152,7 +160,7 @@ export class Oid4vciService {
     const configurations: Record<string, unknown> = {};
 
     for (const cfg of this.configs()) {
-      for (const format of ['ldp_vc', 'jwt_vc_json'] as CredentialFormat[]) {
+      for (const format of cfg.wallet.formats) {
         configurations[this.configurationId(cfg, format)] = this.configurationMetadata(cfg, format);
       }
     }
@@ -214,8 +222,9 @@ export class Oid4vciService {
       },
       proof_types_supported: {
         jwt: {
-          // RS256 is advertised only because Inji hardcodes it. EdDSA is what we want.
-          proof_signing_alg_values_supported: [...SUPPORTED_PROOF_ALGS],
+          // Whatever this country's wallet profile accepts. RS256 is in the default set
+          // only because Inji hardcodes it; a deployment can drop it.
+          proof_signing_alg_values_supported: [...cfg.wallet.proofAlgs],
         },
       },
       // Draft 13 position.
@@ -248,14 +257,14 @@ export class Oid4vciService {
     }
 
     const preAuthorizedCode = randomBytes(32).toString('base64url');
-    // A 6-digit PIN, uniformly sampled. randomInt is rejection-sampled, so no modulo bias.
-    const txCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    // A PIN of the configured length, uniformly sampled. randomInt is rejection-sampled,
+    // so there is no modulo bias toward low digits.
+    const digits = cfg.wallet.offer.txCodeLength;
+    const txCode = String(randomInt(0, 10 ** digits)).padStart(digits, '0');
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + OFFER_TTL_SECONDS * 1000);
+    const expiresAt = new Date(now.getTime() + cfg.wallet.offer.ttlSeconds * 1000);
 
-    const configurationIds = (['ldp_vc', 'jwt_vc_json'] as CredentialFormat[]).map((f) =>
-      this.configurationId(cfg, f),
-    );
+    const configurationIds = cfg.wallet.formats.map((f) => this.configurationId(cfg, f));
 
     const offer: CredentialOfferRecord = {
       id: randomUUID(),
@@ -286,7 +295,7 @@ export class Oid4vciService {
      *   - wrong tx_code guesses are counted, so the 6-digit PIN cannot be walked through.
      * A photographed QR alone is therefore not enough to obtain anybody's credential.
      */
-    const offerObject = this.buildOfferObject(offer, preAuthorizedCode);
+    const offerObject = this.buildOfferObject(cfg, offer, preAuthorizedCode);
     const offerUri = `openid-credential-offer://?credential_offer=${encodeURIComponent(
       JSON.stringify(offerObject),
     )}`;
@@ -302,6 +311,7 @@ export class Oid4vciService {
   }
 
   private buildOfferObject(
+    cfg: CountryConfig,
     offer: CredentialOfferRecord,
     preAuthorizedCode: string,
   ): Record<string, unknown> {
@@ -312,9 +322,9 @@ export class Oid4vciService {
         [PRE_AUTHORIZED_CODE_GRANT]: {
           'pre-authorized_code': preAuthorizedCode,
           tx_code: {
-            length: 6,
+            length: cfg.wallet.offer.txCodeLength,
             input_mode: 'numeric',
-            description: 'Enter the 6-digit code shown at the enrollment desk',
+            description: `Enter the ${cfg.wallet.offer.txCodeLength}-digit code shown at the enrollment desk`,
           },
         },
       },
@@ -352,7 +362,7 @@ export class Oid4vciService {
     if (offer.redeemedAt) {
       throw new Oid4vciError('invalid_grant', 'pre-authorized code has already been used');
     }
-    if (offer.failedAttempts >= MAX_TX_CODE_ATTEMPTS) {
+    if (offer.failedAttempts >= this.wallet(offer.countryCode).offer.maxTxCodeAttempts) {
       throw new Oid4vciError('invalid_grant', 'too many incorrect transaction codes; offer is locked');
     }
 
@@ -371,21 +381,22 @@ export class Oid4vciService {
     offer.redeemedAt = new Date().toISOString();
     await this.store.updateOffer(offer);
 
-    const cNonce = await this.mintNonce();
+    const wallet = this.wallet(offer.countryCode);
+    const cNonce = await this.mintNonce(offer.countryCode);
     const accessToken = await this.mintAccessToken(offer, cNonce);
 
     return {
       access_token: accessToken,
       token_type: 'bearer',
-      expires_in: ACCESS_TOKEN_TTL_SECONDS,
+      expires_in: wallet.accessTokenTtlSeconds,
       authorization_details: offer.credentialConfigurationIds.map((id) => ({
         type: 'openid_credential',
         credential_configuration_id: id,
       })),
-      // Draft 13 wallets read c_nonce from here. 1.0 wallets ignore it and call the
-      // Nonce Endpoint. Emitting it costs nothing and is what makes Inji work.
+      // Draft 13 wallets read c_nonce from here; 1.0 wallets ignore it and call the Nonce
+      // Endpoint. Emitting it is harmless to a 1.0 wallet, and it is what makes Inji work.
       c_nonce: cNonce,
-      c_nonce_expires_in: NONCE_TTL_SECONDS,
+      c_nonce_expires_in: wallet.nonceTtlSeconds,
     };
   }
 
@@ -403,13 +414,19 @@ export class Oid4vciService {
    */
   private async mintAccessToken(offer: CredentialOfferRecord, cNonce: string): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
+    const wallet = this.wallet(offer.countryCode);
     return new SignJWT({
       offer_id: offer.id,
       resident_id: offer.residentId,
       country_code: offer.countryCode,
       credential_configuration_ids: offer.credentialConfigurationIds,
-      c_nonce: cNonce, // Inji compatibility; see above.
-      client_id: this.cfg.credentialIssuer, // Inji compatibility; see above.
+      // These two are in NO version of the spec. They exist because Inji reads c_nonce
+      // and client_id from INSIDE the access token rather than from the token response.
+      // A deployment that does not serve Inji should turn this off rather than emit
+      // non-standard claims for nobody's benefit.
+      ...(wallet.compatibility.cNonceInAccessToken
+        ? { c_nonce: cNonce, client_id: this.cfg.credentialIssuer }
+        : {}),
     })
       .setProtectedHeader({ alg: 'EdDSA', kid: this.key.kid, typ: 'at+jwt' })
       .setIssuer(this.cfg.credentialIssuer)
@@ -417,7 +434,7 @@ export class Oid4vciService {
       .setSubject(offer.residentId)
       .setJti(randomUUID())
       .setIssuedAt(now)
-      .setExpirationTime(now + ACCESS_TOKEN_TTL_SECONDS)
+      .setExpirationTime(now + wallet.accessTokenTtlSeconds)
       .sign(this.key.privateKey);
   }
 
@@ -452,11 +469,13 @@ export class Oid4vciService {
   // ---------------------------------------------------------------------------
 
   /** Mint and store a c_nonce. Stored hashed: a DB read must not yield a usable nonce. */
-  private async mintNonce(): Promise<string> {
+  private async mintNonce(countryCode?: string): Promise<string> {
     const nonce = randomBytes(24).toString('base64url');
     await this.store.saveNonce({
       nonceHash: sha256(nonce),
-      expiresAt: new Date(Date.now() + NONCE_TTL_SECONDS * 1000).toISOString(),
+      expiresAt: new Date(
+        Date.now() + this.wallet(countryCode).nonceTtlSeconds * 1000,
+      ).toISOString(),
     });
     return nonce;
   }
@@ -477,7 +496,10 @@ export class Oid4vciService {
    * 1.0 sends `credential_configuration_id` and a plural `proofs`.
    * We accept either, and remember which so the response matches.
    */
-  private parseCredentialRequest(body: Record<string, unknown>): ParsedCredentialRequest {
+  private parseCredentialRequest(
+    body: Record<string, unknown>,
+    wallet: { compatibility: { draft13: boolean } },
+  ): ParsedCredentialRequest {
     const proofJwts: string[] = [];
 
     const proofs = body.proofs as { jwt?: unknown } | undefined;
@@ -511,6 +533,17 @@ export class Oid4vciService {
     const dialect: 'draft13' | 'final' =
       body.proofs != null || (configurationId != null && format == null) ? 'final' : 'draft13';
 
+    // A deployment whose wallets have all moved to 1.0 can turn Draft 13 off. That is a
+    // real security improvement, not just tidiness: it narrows the request surface we
+    // accept, and the Draft 13 path is the one carrying the non-standard accommodations.
+    if (dialect === 'draft13' && !wallet.compatibility.draft13) {
+      throw new Oid4vciError(
+        'invalid_credential_request',
+        'this issuer no longer accepts the OpenID4VCI Draft 13 request format; ' +
+          'send credential_configuration_id with a `proofs` array (OpenID4VCI 1.0)',
+      );
+    }
+
     return { dialect, configurationId, format, proofJwts };
   }
 
@@ -519,7 +552,8 @@ export class Oid4vciService {
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     const token = await this.verifyAccessToken(authorization);
-    const request = this.parseCredentialRequest(body);
+    const wallet = this.wallet(token.countryCode);
+    const request = this.parseCredentialRequest(body, wallet);
 
     // Resolve which credential configuration is being asked for, and check the token
     // actually authorizes it -- a token minted for one offer must not be usable to mint
@@ -562,6 +596,7 @@ export class Oid4vciService {
       try {
         const result = await verifyHolderProof(jwt, {
           credentialIssuer: this.cfg.credentialIssuer,
+          allowedAlgs: wallet.proofAlgs,
           consumeNonce,
         });
         holders.push(result.holderDid);
@@ -581,7 +616,7 @@ export class Oid4vciService {
       minted.push(await this.residency.mintForHolder(resolved.cfg, record, holderDid, resolved.format));
     }
 
-    return this.formatCredentialResponse(minted, request, resolved.format);
+    return this.formatCredentialResponse(minted, request, resolved.format, resolved.cfg.countryCode);
   }
 
   /** Answer in whichever dialect the wallet used. */
@@ -589,6 +624,7 @@ export class Oid4vciService {
     minted: MintedCredential[],
     request: ParsedCredentialRequest,
     format: CredentialFormat,
+    countryCode: string,
   ): Promise<Record<string, unknown>> {
     if (request.dialect === 'final') {
       return { credentials: minted.map((m) => ({ credential: m.credential })) };
@@ -598,8 +634,8 @@ export class Oid4vciService {
     return {
       format,
       credential: minted[0].credential,
-      c_nonce: await this.mintNonce(),
-      c_nonce_expires_in: NONCE_TTL_SECONDS,
+      c_nonce: await this.mintNonce(countryCode),
+      c_nonce_expires_in: this.wallet(countryCode).nonceTtlSeconds,
     };
   }
 }
