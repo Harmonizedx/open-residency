@@ -5,7 +5,9 @@ name: CI
 # why `npm test` had been pointing at an uninstalled jest since the repo was created and
 # nobody had tripped over it.
 #
-# Everything here is hermetic: no database, no network.
+# Everything here is hermetic: no database, no network. The official W3C suite needs a live
+# server and is therefore opt-in (`npm run test:w3c`); see test/w3c/README.md, which is
+# explicit about what we do and do not run here.
 
 on:
   pull_request:
@@ -18,7 +20,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck and end-to-end checks
+    name: Typecheck, conformance, and end-to-end checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +39,10 @@ jobs:
         run: npx prisma generate
 
       - name: Typecheck
-        run: npx tsc --noEmit -p tsconfig.json
+        run: npm run typecheck
+
+      - name: W3C conformance (VC Data Model 2.0, Bitstring Status List, Data Integrity)
+        run: npm run test:conformance
 
       - name: Core smoke test
         run: npm run smoke

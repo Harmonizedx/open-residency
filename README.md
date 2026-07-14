@@ -35,7 +35,7 @@ This repository is the generic public infrastructure, not a single-country app:
 ## Why this is different from a bespoke state ID system
 
 1. **Bring your own foundational ID.** NIN is just one adapter. A new country is onboarded with a YAML file. If its national ID API is a normal REST call, no code is written at all.
-2. **Verifiable Credentials, not a lookup database.** Residency is issued as a signed W3C VC (VC-JWT, Ed25519). A verifier confirms authenticity cryptographically, without phoning home.
+2. **Verifiable Credentials, not a lookup database.** Residency is issued as a signed W3C VC. A verifier confirms authenticity cryptographically, without phoning home. Credentials are issued over **OpenID4VCI** and presented over **OpenID4VP**, so a citizen can hold their residency credential in [Inji](https://github.com/mosip/inji-wallet) or any OpenWallet-compatible wallet, and any relying party can verify it without integrating anything OpenResidency-specific. See [`docs/INTEROP.md`](docs/INTEROP.md).
 3. **Offline-first inclusion.** Credentials fit in a single QR code, verify against a cached issuer key with zero connectivity, and revocation is checked against a synced status list. Feature phones are served over USSD and SMS.
 4. **SSO across sectors.** The residency system is an OpenID Connect Identity Provider. "Sign in with Katsina" lets Health, Tax, Permits, and Subsidy trust one login, and the citizen's national ID number is never shared with them.
 
@@ -69,6 +69,8 @@ Four clean layers, each swappable:
 | Foundational | Verify a person against any national ID API | `src/core/foundational/*` |
 | Residency | Mint the ResidentID, enforce policy, orchestrate issuance | `src/core/residency/*` |
 | Credentials | Issue and verify W3C VCs, DIDs, revocation | `src/core/credentials/*` |
+| Wallet issuance | OpenID4VCI: offer, token, nonce, credential | `src/core/oid4vci/*` |
+| Wallet presentation | OpenID4VP: request, direct_post, verification | `src/core/oid4vp/*` |
 | Inclusion | QR carriage, offline verify, USSD/SMS | `src/core/offline/*` |
 | SSO | OpenID Connect IdP for cross-sector login | `src/sso/*` |
 
@@ -138,6 +140,28 @@ The service is an OIDC provider mounted at `/oidc`. Discovery is at `/oidc/.well
 - **USSD/SMS delivery** is stubbed at the gateway boundary. Wire your aggregator (for example an MNO or Africa's Talking) in `OfflineController`.
 
 ## Digital Public Good alignment
+
+## Standards conformance
+
+Claims about conformance should be checkable, so here is exactly what is and is not
+verified.
+
+**Checked in CI, on every pull request** (`npm run test:conformance`): the normative
+requirements of [VC Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/),
+[Bitstring Status List 1.0](https://www.w3.org/TR/vc-bitstring-status-list/), and
+[VC Data Integrity](https://www.w3.org/TR/vc-di-eddsa/) — asserted against credentials we
+actually issue, in both formats, and including that credentials *violating* those
+requirements are rejected. CI also drives the full OpenID4VCI and OpenID4VP flows from a
+wallet's side, and runs the attacks each is meant to stop.
+
+**Not run in CI, and not claimed:** the official
+[`w3c/vc-data-model-2.0-test-suite`](https://github.com/w3c/vc-data-model-2.0-test-suite).
+It needs a live server and a database, so it cannot gate a commit. We expose the
+[VC-API](https://w3c-ccg.github.io/vc-api/) endpoints it drives, and ship the config and a
+runner (`npm run test:w3c`), so that anyone can point it at an instance and see the result
+for themselves. [`test/w3c/README.md`](test/w3c/README.md) explains how, and is candid
+about what we expect it to surface. **We do not claim to pass it.** If you run it, please
+open an issue with the output.
 
 See `docs/DPG.md` for a mapping to the nine DPG Standard indicators, the open standards used (W3C VC, DID, OpenID Connect, Bitstring Status List), and the data-handling notes a reviewer will look for.
 
