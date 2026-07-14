@@ -1,0 +1,65 @@
+{
+  "@context": {
+    "@protected": true,
+
+    "orv": "https://openresidency.org/vocab#",
+
+    "StateResidencyCredential": {
+      "@id": "orv:StateResidencyCredential",
+      "@context": {
+        "@protected": true,
+        "id": "@id",
+        "type": "@type"
+      }
+    },
+
+    "StateResident": {
+      "@id": "orv:StateResident",
+      "@context": {
+        "@protected": true,
+        "id": "@id",
+        "type": "@type",
+
+        "residentId": "orv:residentId",
+        "proofOfResidence": "orv:proofOfResidence",
+        "provisional": {
+          "@id": "orv:provisional",
+          "@type": "http://www.w3.org/2001/XMLSchema#boolean"
+        },
+
+        "subnationalUnit": {
+          "@id": "orv:subnationalUnit",
+          "@context": {
+            "@protected": true,
+            "country": "orv:country",
+            "code": "orv:code",
+            "name": "orv:name",
+            "level": "orv:level"
+          }
+        },
+
+        "foundationalAssurance": {
+          "@id": "orv:foundationalAssurance",
+          "@context": {
+            "@protected": true,
+            "provider": "orv:provider",
+            "assuranceLevel": "orv:assuranceLevel",
+            "subjectRef": "orv:subjectRef"
+          }
+        },
+
+        "person": {
+          "@id": "orv:person",
+          "@context": {
+            "@protected": true,
+            "fullName": "orv:fullName",
+            "givenName": "orv:givenName",
+            "familyName": "orv:familyName",
+            "dateOfBirth": "orv:dateOfBirth",
+            "gender": "orv:gender"
+          }
+        }
+      }
+    }
+  }
+}

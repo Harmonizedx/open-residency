@@ -57,6 +57,47 @@ export interface IssuedCredential {
   statusListIndex: number;
 }
 
+/**
+ * Build the W3C Verifiable Credential body.
+ *
+ * Both issuance formats go through here -- the VC-JWT issuer below, and the Data
+ * Integrity (`ldp_vc`) issuer used for wallet interoperability. Sharing one builder is
+ * what guarantees the two formats assert exactly the same claims about a person. If
+ * they were built separately they would drift, and a resident could end up holding two
+ * credentials that disagree.
+ */
+export function buildCredentialBody(
+  claims: ResidencyClaims,
+  opts: IssueOptions,
+  times: { credentialId: string; issuedAt: Date; expiresAt: Date },
+): Record<string, unknown> {
+  return {
+    '@context': opts.context,
+    id: times.credentialId,
+    type: ['VerifiableCredential', opts.type],
+    issuer: { id: opts.issuerDid, name: opts.issuerName },
+    validFrom: times.issuedAt.toISOString(),
+    validUntil: times.expiresAt.toISOString(),
+    credentialStatus: {
+      id: `${opts.statusListUrl}#${opts.statusListIndex}`,
+      type: 'BitstringStatusListEntry',
+      statusPurpose: 'revocation',
+      statusListIndex: String(opts.statusListIndex),
+      statusListCredential: opts.statusListUrl,
+    },
+    credentialSubject: {
+      id: claims.holderId,
+      type: 'StateResident',
+      residentId: claims.residentId,
+      subnationalUnit: claims.subnationalUnit,
+      foundationalAssurance: claims.foundational,
+      person: claims.person,
+      proofOfResidence: claims.proofOfResidence,
+      provisional: claims.provisional,
+    },
+  };
+}
+
 export class VcIssuer {
   constructor(private key: IssuerKey) {}
 
@@ -65,31 +106,11 @@ export class VcIssuer {
     const exp = new Date(now.getTime() + opts.validityDays * 86400_000);
     const credentialId = `urn:uuid:${crypto.randomUUID()}`;
 
-    const vc = {
-      '@context': opts.context,
-      id: credentialId,
-      type: ['VerifiableCredential', opts.type],
-      issuer: { id: opts.issuerDid, name: opts.issuerName },
-      validFrom: now.toISOString(),
-      validUntil: exp.toISOString(),
-      credentialStatus: {
-        id: `${opts.statusListUrl}#${opts.statusListIndex}`,
-        type: 'BitstringStatusListEntry',
-        statusPurpose: 'revocation',
-        statusListIndex: String(opts.statusListIndex),
-        statusListCredential: opts.statusListUrl,
-      },
-      credentialSubject: {
-        id: claims.holderId,
-        type: 'StateResident',
-        residentId: claims.residentId,
-        subnationalUnit: claims.subnationalUnit,
-        foundationalAssurance: claims.foundational,
-        person: claims.person,
-        proofOfResidence: claims.proofOfResidence,
-        provisional: claims.provisional,
-      },
-    };
+    const vc = buildCredentialBody(claims, opts, {
+      credentialId,
+      issuedAt: now,
+      expiresAt: exp,
+    });
 
     // VC-JWT registered-claim mirroring per the W3C VC-JWT profile.
     const jwt = await new SignJWT({ vc })
