@@ -10,6 +10,7 @@ import { AdminModule } from './admin/admin.module';
 import { OfflineModule } from './offline/offline.module';
 import { SsoModule } from './sso/oidc.module';
 import { Oid4vciModule } from './oid4vci/oid4vci.module';
+import { Oid4vpModule } from './oid4vp/oid4vp.module';
 import { MetaModule } from './meta/meta.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { MetaModule } from './meta/meta.module';
     OfflineModule,
     SsoModule,
     Oid4vciModule,
+    Oid4vpModule,
     MetaModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
