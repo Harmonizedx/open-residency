@@ -28,6 +28,13 @@ tags:
     description: QR carriage and USSD for low-connectivity inclusion
   - name: sso
     description: OpenID Connect provider (discovery served under /oidc)
+  - name: oid4vci
+    description: >
+      OpenID for Verifiable Credential Issuance. The standards-based path by which a
+      citizen's own wallet (Inji, or any OpenWallet-compatible wallet) obtains a
+      residency credential bound to a key on their device. Both OpenID4VCI 1.0 and
+      Draft 13 request/response shapes are accepted; the response matches the dialect
+      of the request.
 paths:
   /identity/challenge:
     post:
@@ -310,6 +317,220 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /.well-known/openid-credential-issuer:
+    get:
+      tags: [oid4vci]
+      summary: Credential Issuer Metadata
+      description: >
+        Advertises the credential configurations this deployment can issue, the
+        endpoints a wallet must call, and the key-proof algorithms accepted. Claims and
+        display metadata are emitted in both the Draft 13 and the 1.0 positions so that
+        wallets on either version can read them.
+      responses:
+        '200':
+          description: Credential Issuer Metadata
+          content:
+            application/json:
+              schema: { type: object }
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [oid4vci]
+      summary: Authorization Server Metadata (RFC 8414)
+      description: >
+        Only the pre-authorized code grant is supported. There is no interactive
+        authorization-code flow, because the citizen was already authenticated in person
+        against their foundational ID at the enrollment desk.
+      responses:
+        '200':
+          description: Authorization Server Metadata
+          content:
+            application/json:
+              schema: { type: object }
+  /openid4vci/offer:
+    post:
+      tags: [oid4vci]
+      summary: Create a Credential Offer for an enrolled resident (operator; admin key)
+      description: >
+        Called by the enrollment desk after the foundational ID check has passed. Returns
+        an `openid-credential-offer://` deep link to render as a QR, and a 6-digit
+        transaction code to read out to the citizen.
+
+        The offer is passed BY VALUE: the pre-authorized code travels inside the QR, and
+        only its SHA-256 hash is stored. A photographed QR is not sufficient on its own,
+        because the transaction code is a separate factor, the code is single-use, and it
+        expires in 15 minutes.
+      security:
+        - adminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [residentId]
+              properties:
+                residentId: { type: string, example: KT-7F3A-9K2P }
+      responses:
+        '200':
+          description: A credential offer, its deep link, and the transaction code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  offerId: { type: string }
+                  offerUri:
+                    type: string
+                    example: openid-credential-offer://?credential_offer=%7B...%7D
+                  offer: { type: object }
+                  txCode:
+                    type: string
+                    description: Read out to the citizen. Returned once; stored only as a hash.
+                    example: '402913'
+                  expiresAt: { type: string, format: date-time }
+                  credentialConfigurationIds:
+                    type: array
+                    items: { type: string }
+        '401': { description: Missing or invalid admin key }
+        '404': { description: Unknown residentId }
+  /openid4vci/token:
+    post:
+      tags: [oid4vci]
+      summary: Token Endpoint (pre-authorized code grant)
+      description: >
+        Exchanges the pre-authorized code plus the transaction code for an access token.
+        The code is single-use, and wrong transaction codes are counted so a 6-digit PIN
+        cannot be walked through.
+
+        The access token is a signed JWT that also carries `c_nonce` and `client_id` as
+        claims. That duplication is not in any version of the spec; it exists because the
+        Inji wallet reads the nonce from inside the token rather than from this response.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, pre-authorized_code]
+              properties:
+                grant_type:
+                  type: string
+                  enum: ['urn:ietf:params:oauth:grant-type:pre-authorized_code']
+                pre-authorized_code: { type: string }
+                tx_code: { type: string, example: '402913' }
+      responses:
+        '200':
+          description: Access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, example: bearer }
+                  expires_in: { type: integer, example: 600 }
+                  c_nonce: { type: string }
+                  c_nonce_expires_in: { type: integer }
+        '400':
+          description: >
+            invalid_grant (unknown, expired, reused, or PIN-locked code) or
+            invalid_request (missing tx_code)
+  /openid4vci/nonce:
+    post:
+      tags: [oid4vci]
+      summary: Nonce Endpoint (OpenID4VCI 1.0)
+      description: >
+        Returns a fresh `c_nonce` for a wallet to sign over. Unauthenticated by design:
+        a nonce is a freshness challenge, not a capability. Nonces are single-use and
+        stored only as hashes.
+      responses:
+        '200':
+          description: A fresh c_nonce
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  c_nonce: { type: string }
+  /openid4vci/credential:
+    post:
+      tags: [oid4vci]
+      summary: Credential Endpoint
+      description: >
+        Issues a residency credential bound to the key the wallet proves possession of.
+        A key proof is REQUIRED: this issuer will not mint an unbound credential, because
+        a credential with no holder binding is a bearer token.
+
+        Accepts both dialects and answers in kind. Draft 13 sends `format` +
+        `credential_definition` with a singular `proof`, and receives a singular
+        `credential`. OpenID4VCI 1.0 sends `credential_configuration_id` with a plural
+        `proofs`, and receives a `credentials` array.
+
+        The credential subject is a did:key for Ed25519 holders and a did:jwk otherwise
+        (including the RSA keys Inji generates). Both resolve with no network access.
+      security:
+        - walletToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                credential_configuration_id:
+                  type: string
+                  example: NG_StateResidencyCredential_ldp_vc
+                format:
+                  type: string
+                  enum: [ldp_vc, jwt_vc_json]
+                  description: Draft 13 alternative to credential_configuration_id
+                proofs:
+                  type: object
+                  properties:
+                    jwt:
+                      type: array
+                      items: { type: string }
+                proof:
+                  type: object
+                  description: Draft 13 singular key proof
+                  properties:
+                    proof_type: { type: string, enum: [jwt] }
+                    jwt: { type: string }
+      responses:
+        '200':
+          description: The issued credential, in the dialect of the request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credentials:
+                    type: array
+                    description: OpenID4VCI 1.0 response
+                    items:
+                      type: object
+                      properties:
+                        credential: {}
+                  credential:
+                    description: Draft 13 response (a JWT string, or a JSON-LD object)
+                  c_nonce: { type: string }
+        '400':
+          description: invalid_proof, invalid_nonce, or unknown_credential_configuration
+        '401': { description: invalid_token }
+  /contexts/residency/v1:
+    get:
+      tags: [oid4vci]
+      summary: The residency JSON-LD context
+      description: >
+        Published so an external verifier using a stock JSON-LD toolchain can dereference
+        it. Our own canonicalizer never fetches it: it resolves a pinned local copy, so
+        that signing and offline verification stay deterministic.
+      responses:
+        '200':
+          description: JSON-LD context document
+          content:
+            application/ld+json:
+              schema: { type: object }
   /.well-known/did.json:
     get:
       tags: [sso]
@@ -332,6 +553,14 @@ components:
       type: apiKey
       in: header
       name: x-admin-key
+    walletToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        The OpenID4VCI access token obtained from /openid4vci/token. Scoped to a single
+        credential offer: it authorizes only the credential configurations that offer
+        named, for the resident that offer was created for.
   schemas:
     ChallengeRequest:
       type: object
