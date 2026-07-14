@@ -11,12 +11,15 @@ import { VcVerifier, TrustedIssuer } from '../core/credentials/vc-verifier';
 import { buildDidWebDocument } from '../core/credentials/did';
 import { ResidencyService } from '../core/residency/residency-service';
 import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
+import { Oid4vpService } from '../core/oid4vp/oid4vp-service';
+import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
 import {
   PrismaAuditStore,
   PrismaConsentStore,
   PrismaOid4vciStore,
+  PrismaOid4vpStore,
   PrismaResidencyStore,
 } from '../prisma/prisma.service';
 
@@ -36,6 +39,8 @@ export class PlatformService {
   private verifier!: VcVerifier;
   private residency!: ResidencyService;
   private oid4vci!: Oid4vciService;
+  private oid4vp!: Oid4vpService;
+  private vpVerifier!: VpVerifier;
   private audit!: AuditLog;
   private consent!: ConsentService;
   private platformIssuerDid!: string;
@@ -46,6 +51,7 @@ export class PlatformService {
     private auditStore: PrismaAuditStore,
     private consentStore: PrismaConsentStore,
     private oid4vciStore: PrismaOid4vciStore,
+    private oid4vpStore: PrismaOid4vpStore,
   ) {}
 
   private initialized = false;
@@ -102,6 +108,30 @@ export class PlatformService {
     }
     this.verifier = new VcVerifier(this.trust);
 
+    // OpenID4VP: the presentation half. The VP verifier reuses the VC verifier -- and
+    // therefore its status-list cache -- so a revoked resident is revoked whether the
+    // credential arrives as a VC-JWT or as JSON-LD.
+    const ldpTrust = new Map<string, VpTrustedIssuer>();
+    for (const cfg of this.configs.values()) {
+      ldpTrust.set(cfg.credential.issuerDid, {
+        did: cfg.credential.issuerDid,
+        publicKeyObject: keyObjectFromJwk(this.key.publicJwk),
+      });
+    }
+    this.vpVerifier = new VpVerifier(this.verifier, ldpTrust);
+    this.oid4vp = new Oid4vpService(
+      {
+        baseUrl: this.publicBaseUrl(),
+        // The verifier identifies itself by DID so a wallet can resolve our key and check
+        // the request object's signature without a PKI or a network round-trip.
+        clientId: this.listConfigs()[0]?.credential.issuerDid ?? 'did:web:openresidency.example',
+        clientName: this.listConfigs()[0]?.credential.issuerName ?? 'OpenResidency Verifier',
+      },
+      this.oid4vpStore,
+      () => this.vpVerifier,
+      this.key,
+    );
+
     // Audit and consent frameworks.
     this.platformIssuerDid =
       process.env.PLATFORM_ISSUER_DID ??
@@ -140,6 +170,9 @@ export class PlatformService {
   }
   getOid4vci(): Oid4vciService {
     return this.oid4vci;
+  }
+  getOid4vp(): Oid4vpService {
+    return this.oid4vp;
   }
   getVerifier(): VcVerifier {
     return this.verifier;

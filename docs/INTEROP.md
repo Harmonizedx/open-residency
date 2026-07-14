@@ -167,6 +167,73 @@ the credential still verified. The document would attest less than it appears to
 a forgery vector, not a formatting nit, and it is why `contexts/residency-v1.jsonld`
 exists and defines every custom term we use.
 
+## Presenting a credential (OpenID4VP)
+
+A relying party — a clinic, a subsidy desk, a bank — opens a presentation request, shows
+the citizen a QR, and gets back a verified answer. It does not integrate anything
+OpenResidency-specific to do that.
+
+```
+POST /openid4vp/request        (relying party, admin key)  -> openid4vp:// URI + QR
+GET  /openid4vp/request/:id    (wallet)                    -> signed Request Object
+POST /openid4vp/response/:id   (wallet, direct_post)       -> vp_token
+GET  /openid4vp/result/:id     (relying party, admin key)  -> the verdict
+```
+
+The Request Object is **signed**, so the wallet can tell the citizen who is actually
+asking before they consent. An unsigned request would let anything capable of displaying
+a QR code impersonate a hospital and harvest residency data.
+
+We emit **both** a `dcql_query` (OpenID4VP 1.0) and a `presentation_definition`
+(Presentation Exchange). Wallets are mid-migration between the two, so emitting both means
+we do not have to guess which one a given wallet speaks.
+
+### Verifying a presentation is not verifying a credential
+
+This distinction is the entire reason OpenID4VP exists, and it is worth stating plainly.
+
+The old `POST /residency/verify` takes a raw VC-JWT and checks that the issuer signed it,
+that it has not expired, and that it is not revoked. **Every one of those checks passes for
+a credential copied from somebody else.** It answers "is this a genuine credential?" — never
+"is the person in front of me its holder?", and never "was this presented to *me*, *just
+now*?".
+
+`VpVerifier` enforces four things, and dropping any one of the first three collapses the
+credential back into a bearer token:
+
+1. **Holder binding** — the presentation is signed by the key named in the credential's
+   `credentialSubject.id`. A stolen credential presented under a different key is refused.
+2. **Freshness** — the nonce is one we just issued, and the request is single-use. A
+   captured presentation cannot be replayed at us a second time.
+3. **Audience** — `aud` is us. A presentation captured by a shop cannot be replayed by that
+   shop at a hospital.
+4. **Credential validity** — signature, expiry, and revocation, delegated to the existing
+   verifiers.
+
+`scripts/oid4vp-smoke.ts` runs each of these attacks and asserts it is rejected *for the
+right reason*.
+
+### The presentation path fails closed on revocation
+
+`VcVerifier` is deliberately permissive when it cannot reach a status list: it returns
+`valid: true` with `checkedRevocation: false`, so a field officer with no connectivity can
+still check a card against their last synced snapshot and know exactly what they are
+getting. That is correct for offline verification.
+
+It is **not** correct online. `VpVerifier` runs on a server that has just synced the status
+list; if there is no list to check against, something is wrong. "Accept it anyway, but set
+a flag" means a revoked credential is accepted by every relying party that does not read
+the flag — and nobody reads the flag. So a presentation with an uncheckable revocation
+status is **refused** (`REVOCATION_UNCHECKABLE`).
+
+### Only the claims that were asked for are released
+
+The residency credential carries `foundationalAssurance.subjectRef` — the tokenized
+reference to the person's national ID — and their date of birth. A clinic confirming
+residency has no business receiving either, and `subjectRef` is precisely the field the
+whole tokenization design exists to protect. `minimizeClaims` releases the residency ID,
+the subnational unit, the name, and the provisional flag. Nothing else leaves.
+
 ## Adding a wallet
 
 If a wallet cannot complete issuance against this deployment, the fastest way to find out

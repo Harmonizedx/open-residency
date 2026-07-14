@@ -1,0 +1,60 @@
+name: CI
+
+# The repository had no CI. Nothing ran on a pull request, so a change that broke the
+# typecheck or the credential logic could be merged with nobody the wiser -- which is also
+# why `npm test` had been pointing at an uninstalled jest since the repo was created and
+# nobody had tripped over it.
+#
+# Everything here is hermetic: no database, no network.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck and end-to-end checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The Prisma client is generated code, and the Nest layer will not typecheck without
+      # it. Generating it needs no database connection.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Core smoke test
+        run: npm run smoke
+
+      - name: OpenID4VCI issuance (drives the full flow as a wallet)
+        run: npm run smoke:oid4vci
+
+      - name: OpenID4VP presentation (drives the flow, and the attacks it must reject)
+        run: npm run smoke:oid4vp
+
+  build:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The runtime image must carry contexts/, or JSON-LD issuance fails at RUN time with
+      # a missing-context error rather than at build time. Building it here keeps that
+      # from regressing.
+      - name: Build container image
+        run: docker build -t open-residency:ci .

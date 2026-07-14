@@ -24,7 +24,10 @@ export type AuditAction =
   | 'admin.read'
   // OpenID4VCI: a credential offer was created for a resident, and a wallet redeemed it.
   | 'oid4vci.offer.create'
-  | 'oid4vci.credential.issue';
+  | 'oid4vci.credential.issue'
+  // OpenID4VP: a relying party asked for a presentation, and a wallet answered.
+  | 'oid4vp.request.create'
+  | 'oid4vp.presentation.verify';
 
 export interface AuditEventInput {
   action: AuditAction;
