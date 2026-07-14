@@ -21,7 +21,10 @@ export type AuditAction =
   | 'consent.grant'
   | 'consent.revoke'
   | 'sso.login'
-  | 'admin.read';
+  | 'admin.read'
+  // OpenID4VCI: a credential offer was created for a resident, and a wallet redeemed it.
+  | 'oid4vci.offer.create'
+  | 'oid4vci.credential.issue';
 
 export interface AuditEventInput {
   action: AuditAction;

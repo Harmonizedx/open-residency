@@ -5,14 +5,18 @@ import { CountryConfig, loadCountryConfigs } from '../core/config/country-config
 import { ProviderRegistry } from '../core/foundational/registry';
 import { KeyStore, IssuerKey } from '../core/credentials/keystore';
 import { VcIssuer } from '../core/credentials/vc-issuer';
+import { LdpIssuer } from '../core/credentials/ldp-issuer';
+import { residencyContextDocument } from '../core/credentials/jsonld/document-loader';
 import { VcVerifier, TrustedIssuer } from '../core/credentials/vc-verifier';
 import { buildDidWebDocument } from '../core/credentials/did';
 import { ResidencyService } from '../core/residency/residency-service';
+import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
 import {
   PrismaAuditStore,
   PrismaConsentStore,
+  PrismaOid4vciStore,
   PrismaResidencyStore,
 } from '../prisma/prisma.service';
 
@@ -28,8 +32,10 @@ export class PlatformService {
   private key!: IssuerKey;
   private registry!: ProviderRegistry;
   private issuer!: VcIssuer;
+  private ldpIssuer!: LdpIssuer;
   private verifier!: VcVerifier;
   private residency!: ResidencyService;
+  private oid4vci!: Oid4vciService;
   private audit!: AuditLog;
   private consent!: ConsentService;
   private platformIssuerDid!: string;
@@ -39,6 +45,7 @@ export class PlatformService {
     private store: PrismaResidencyStore,
     private auditStore: PrismaAuditStore,
     private consentStore: PrismaConsentStore,
+    private oid4vciStore: PrismaOid4vciStore,
   ) {}
 
   private initialized = false;
@@ -63,11 +70,25 @@ export class PlatformService {
     const pepper = process.env.SUBJECT_PEPPER ?? 'dev-pepper';
     this.registry = new ProviderRegistry(pepper);
     this.issuer = new VcIssuer(this.key);
+    this.ldpIssuer = new LdpIssuer(this.key);
     this.residency = new ResidencyService(
       this.registry,
       this.issuer,
       this.store,
       (cfg) => this.statusListUrl(cfg),
+      this.ldpIssuer,
+    );
+
+    // OpenID4VCI: the standards-based issuance path that lets a citizen's own wallet
+    // pull a credential bound to a key on their device.
+    this.oid4vci = new Oid4vciService(
+      { credentialIssuer: this.publicBaseUrl() },
+      () => this.listConfigs(),
+      (countryCode) => this.getConfig(countryCode),
+      this.residency,
+      this.store,
+      this.oid4vciStore,
+      this.key,
     );
 
     // Trust ourselves as an issuer for the verify endpoint (each config's issuerDid
@@ -90,9 +111,22 @@ export class PlatformService {
     this.consent = new ConsentService(this.consentStore, this.key, this.platformIssuerDid);
   }
 
+  /**
+   * The public origin of this deployment. It doubles as the OpenID4VCI Credential Issuer
+   * Identifier, which is what a wallet's key proof must name in its `aud` -- so if this
+   * is misconfigured, every proof is rejected as audience-mismatched.
+   */
+  publicBaseUrl(): string {
+    return (process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+  }
+
   statusListUrl(cfg: CountryConfig): string {
-    const base = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000';
-    return `${base}/.well-known/status/${cfg.countryCode.toLowerCase()}.json`;
+    return `${this.publicBaseUrl()}/.well-known/status/${cfg.countryCode.toLowerCase()}.json`;
+  }
+
+  /** The residency JSON-LD context document, published for external verifiers. */
+  residencyContext(): unknown {
+    return residencyContextDocument();
   }
 
   getConfig(countryCode: string): CountryConfig | undefined {
@@ -103,6 +137,9 @@ export class PlatformService {
   }
   getResidency(): ResidencyService {
     return this.residency;
+  }
+  getOid4vci(): Oid4vciService {
+    return this.oid4vci;
   }
   getVerifier(): VcVerifier {
     return this.verifier;

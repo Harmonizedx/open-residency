@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-core/
+*.tsbuildinfo
+
+# Secrets and local configuration. Never commit a real issuer key, a foundational ID
+# gateway credential, or an admin API key.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Test and tooling artifacts
+coverage/
+.nyc_output/
+w3c-report.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

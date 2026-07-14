@@ -44,6 +44,39 @@ model StatusListState {
   updatedAt   DateTime @updatedAt
 }
 
+// A pending OpenID4VCI credential offer: the bridge between an enrollment desk and a
+// citizen's wallet. Short-lived by design.
+//
+// The pre-authorized code and the transaction code are stored only as SHA-256 hashes.
+// The raw code lives in the QR the citizen scans and nowhere else, so a dump of this
+// table yields nothing that can be redeemed for a credential.
+model CredentialOffer {
+  id                    String    @id @default(uuid())
+  preAuthorizedCodeHash String    @unique
+  txCodeHash            String?
+  residentId            String
+  countryCode           String
+  configurationIds      String[]
+  expiresAt             DateTime
+  redeemedAt            DateTime?
+  // Wrong-PIN counter. A 6-digit tx_code is only safe if guesses are bounded.
+  failedAttempts        Int       @default(0)
+  createdAt             DateTime  @default(now())
+
+  @@index([residentId])
+  @@index([expiresAt])
+}
+
+// c_nonce values a wallet must sign over to prove key possession. Single-use: the unique
+// primary key plus a delete-on-consume is what makes replay of a captured key proof fail.
+model Oid4vciNonce {
+  nonceHash String   @id
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 // Short-lived OTP challenges for USSD/SMS authentication and Aadhaar-style flows.
 model OtpChallenge {
   id         String   @id @default(uuid())

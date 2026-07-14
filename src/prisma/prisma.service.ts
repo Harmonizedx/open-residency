@@ -4,6 +4,7 @@ import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
+import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -182,6 +183,91 @@ export class PrismaAuditStore implements AuditStore {
     prevHash: r.prevHash,
     hash: r.hash,
   });
+}
+
+/**
+ * Prisma-backed OpenID4VCI store: credential offers and single-use nonces.
+ *
+ * This has to be a shared store rather than process memory, because the Kubernetes
+ * manifests run several replicas behind a load balancer. A wallet creates its offer on
+ * one pod and redeems it on whichever pod the load balancer picks next; in-memory state
+ * would make issuance fail roughly (1 - 1/replicas) of the time.
+ */
+@Injectable()
+export class PrismaOid4vciStore implements Oid4vciStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toOffer = (r: any): CredentialOfferRecord => ({
+    id: r.id,
+    preAuthorizedCodeHash: r.preAuthorizedCodeHash,
+    txCodeHash: r.txCodeHash ?? undefined,
+    residentId: r.residentId,
+    countryCode: r.countryCode,
+    credentialConfigurationIds: r.configurationIds,
+    expiresAt: r.expiresAt.toISOString(),
+    redeemedAt: r.redeemedAt ? r.redeemedAt.toISOString() : undefined,
+    failedAttempts: r.failedAttempts,
+    createdAt: r.createdAt.toISOString(),
+  });
+
+  async saveOffer(offer: CredentialOfferRecord): Promise<void> {
+    await this.prisma.credentialOffer.create({
+      data: {
+        id: offer.id,
+        preAuthorizedCodeHash: offer.preAuthorizedCodeHash,
+        txCodeHash: offer.txCodeHash,
+        residentId: offer.residentId,
+        countryCode: offer.countryCode,
+        configurationIds: offer.credentialConfigurationIds,
+        expiresAt: new Date(offer.expiresAt),
+        failedAttempts: offer.failedAttempts,
+      },
+    });
+  }
+
+  async findOfferById(id: string): Promise<CredentialOfferRecord | null> {
+    const r = await this.prisma.credentialOffer.findUnique({ where: { id } });
+    return r ? this.toOffer(r) : null;
+  }
+
+  async findOfferByCodeHash(codeHash: string): Promise<CredentialOfferRecord | null> {
+    const r = await this.prisma.credentialOffer.findUnique({
+      where: { preAuthorizedCodeHash: codeHash },
+    });
+    return r ? this.toOffer(r) : null;
+  }
+
+  async updateOffer(offer: CredentialOfferRecord): Promise<void> {
+    await this.prisma.credentialOffer.update({
+      where: { id: offer.id },
+      data: {
+        redeemedAt: offer.redeemedAt ? new Date(offer.redeemedAt) : null,
+        failedAttempts: offer.failedAttempts,
+      },
+    });
+  }
+
+  async saveNonce(nonce: NonceRecord): Promise<void> {
+    await this.prisma.oid4vciNonce.create({
+      data: { nonceHash: nonce.nonceHash, expiresAt: new Date(nonce.expiresAt) },
+    });
+  }
+
+  /**
+   * Consume a nonce, atomically.
+   *
+   * A read-then-delete would race: two concurrent credential requests carrying the same
+   * captured key proof could both observe the nonce as unused before either deleted it,
+   * and both would be issued a credential -- which is precisely the replay this nonce
+   * exists to prevent. A conditional DELETE is atomic in PostgreSQL, so exactly one
+   * caller sees a non-zero count.
+   */
+  async consumeNonce(nonceHash: string): Promise<boolean> {
+    const { count } = await this.prisma.oid4vciNonce.deleteMany({
+      where: { nonceHash, expiresAt: { gt: new Date() } },
+    });
+    return count === 1;
+  }
 }
 
 /** Prisma-backed consent store. */
