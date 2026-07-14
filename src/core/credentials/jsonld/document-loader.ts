@@ -21,10 +21,14 @@ import { join } from 'node:path';
 
 export const CREDENTIALS_V2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2';
 export const RESIDENCY_V1_CONTEXT_URL = 'https://openresidency.org/contexts/residency/v1';
+/** Used only by the W3C test suite's example credentials, never by one we issue. */
+export const CREDENTIALS_EXAMPLES_V2_CONTEXT_URL =
+  'https://www.w3.org/ns/credentials/examples/v2';
 
 const CONTEXT_FILES: Record<string, string> = {
   [CREDENTIALS_V2_CONTEXT_URL]: 'credentials-v2.jsonld',
   [RESIDENCY_V1_CONTEXT_URL]: 'residency-v1.jsonld',
+  [CREDENTIALS_EXAMPLES_V2_CONTEXT_URL]: 'credentials-examples-v2.jsonld',
 };
 
 function contextsDir(): string {

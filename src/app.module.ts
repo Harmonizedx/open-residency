@@ -11,6 +11,7 @@ import { OfflineModule } from './offline/offline.module';
 import { SsoModule } from './sso/oidc.module';
 import { Oid4vciModule } from './oid4vci/oid4vci.module';
 import { Oid4vpModule } from './oid4vp/oid4vp.module';
+import { VcApiModule } from './vcapi/vcapi.module';
 import { MetaModule } from './meta/meta.module';
 
 @Module({
@@ -30,6 +31,7 @@ import { MetaModule } from './meta/meta.module';
     SsoModule,
     Oid4vciModule,
     Oid4vpModule,
+    VcApiModule,
     MetaModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
