@@ -24,3 +24,6 @@ w3c-report.json
 .idea/
 .vscode/
 *.swp
+
+# The W3C test suite is cloned on demand by npm run test:w3c
+test/w3c/.suite/
