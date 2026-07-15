@@ -297,6 +297,32 @@ strict profile as soon as the wallets you actually serve are on OpenID4VCI 1.0. 
 is a security improvement — a smaller request surface and no non-standard claims — so it is
 worth revisiting, not something to set once and forget.
 
+## Sign-in ("Sign in with <State>")
+
+The residency system is also an OpenID Connect identity provider: sector services
+authenticate citizens through it and receive only the residency claims the citizen
+consents to release, never the national ID. Sign-in offers two factors.
+
+**Primary — Verifiable Presentation.** The citizen scans a QR and presents their residency
+credential from a wallet, over the same OpenID4VP path the rest of the platform uses. That
+proves holder binding, freshness, and audience, so the residency ID that comes back is
+*authenticated*, and a revoked credential is refused at sign-in exactly as it is at a
+clinic.
+
+**Fallback — one-time code.** For a citizen whose wallet is not to hand. The code lifecycle
+is real and enforced (single-use, expiring, attempt-bounded), but **delivery is delegated**:
+`OtpService` never sees a phone number. OpenResidency deliberately does not store plaintext
+contact details — the schema keeps only a `phoneHash` — so an `OtpSender` implemented by the
+deployment, against its own SMS gateway and contact directory, does the sending. The
+reference `LoggingOtpSender` logs the code and is for development only; a production
+deployment MUST replace it.
+
+> This replaced a login handler that authenticated anyone who could name an *existing*
+> residency ID. Residency IDs are semi-public (printed on cards, carried in QR codes), so
+> that was not authentication — it was an open door to every citizen's cross-sector session.
+> `scripts/sso-smoke.ts` asserts the door is shut: a stolen credential, a revoked
+> credential, and a bare residency ID all fail to sign in.
+
 ## Adding a wallet
 
 If a wallet cannot complete issuance against this deployment, the fastest way to find out

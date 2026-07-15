@@ -1,18 +1,24 @@
-import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import type Provider from 'oidc-provider';
+import QRCode from 'qrcode';
 import { PlatformService } from '../platform/platform.service';
 
 /**
- * Handles the human-facing steps of the OIDC flow: login and consent.
+ * The human-facing steps of the OIDC flow: sign-in and consent.
  *
- * IMPORTANT (authentication factor): the demo login below only checks that a
- * Residency ID exists. That is NOT authentication. A real deployment binds one of:
- *   - an SMS/USSD one-time code sent to the phone bound to the residency (works on
- *     feature phones, see the offline module), or
- *   - a Verifiable Presentation of the resident's own residency credential from a
- *     wallet (strongest, and fully offline-capable).
- * The place to enforce that is the `login` handler, where noted.
+ * Sign-in offers two real factors, replacing what used to be an existence check on the
+ * residency ID (which was not authentication at all -- residency IDs are semi-public):
+ *
+ *   PRIMARY   a Verifiable Presentation. The citizen scans a QR with their wallet and
+ *             presents their residency credential over OpenID4VP. The verifier proves
+ *             holder binding, freshness, and audience, so the residency ID that comes
+ *             back is authenticated, not merely asserted.
+ *
+ *   FALLBACK  a one-time code, for a citizen whose wallet is not to hand.
+ *
+ * All the authentication logic lives in the framework-agnostic SsoAuthService; this
+ * controller is the thin HTTP/HTML layer over it.
  */
 @Controller('interaction')
 export class InteractionController {
@@ -31,49 +37,115 @@ export class InteractionController {
       res.end(this.loginPage(uid, String(params.client_id ?? '')));
       return;
     }
-
-    // Consent step: show which residency claims will be shared, then confirm.
     if (prompt.name === 'consent') {
       res.set('content-type', 'text/html');
       res.end(this.consentPage(uid, String(params.client_id ?? ''), (params.scope as string) ?? ''));
       return;
     }
-
     res.status(400).end('Unknown prompt');
   }
 
-  @Post(':uid/login')
-  async login(@Req() req: Request, @Res() res: Response) {
-    const { residentId } = (req.body ?? {}) as { residentId?: string };
+  // ---- Primary factor: Verifiable Presentation ---------------------------
 
-    // ---- Authentication happens here. Demo: existence check only. ----
-    const record = residentId
-      ? await this.platform.getStore().findByResidentId(residentId)
-      : null;
+  /** Begin a presentation sign-in. Returns the request URI and a QR to render. */
+  @Get(':uid/vp/start')
+  async vpStart() {
+    const { requestId, requestUri } = await this.platform.getSsoAuth().beginVpLogin();
+    const qrSvg = await QRCode.toString(requestUri, { type: 'svg', margin: 1 });
+    return { requestId, requestUri, qrSvg };
+  }
 
-    if (!record) {
+  /** Poll a presentation sign-in. The wallet posts its response out of band. */
+  @Get(':uid/vp/poll')
+  async vpPoll(@Query('requestId') requestId: string) {
+    const result = await this.platform.getSsoAuth().pollVpLogin(requestId);
+    // Never leak the authenticated residentId to the poller; the browser does not need it,
+    // and completion happens server-side against the interaction cookie.
+    return { status: result.status };
+  }
+
+  /**
+   * Complete a presentation sign-in. Called by the browser once polling reports success.
+   *
+   * Re-verifies server-side that the presentation for `requestId` actually authenticated,
+   * so the request id -- which is the capability -- is what finishes the interaction, not
+   * any client claim.
+   */
+  @Get(':uid/vp/complete')
+  async vpComplete(@Query('requestId') requestId: string, @Req() req: Request, @Res() res: Response) {
+    const result = await this.platform.getSsoAuth().pollVpLogin(requestId);
+    if (result.status !== 'authenticated' || !result.residentId) {
       res.set('content-type', 'text/html');
-      res.end(this.loginPage('', '', 'Residency ID not found. Try again.'));
+      res.end(this.loginPage(this.uidFromReq(req), '', 'Sign-in not completed. Please try again.'));
       return;
     }
-    // In production: verify OTP or a Verifiable Presentation before proceeding.
+    await this.finishLogin(req, res, result.residentId, 'vp');
+  }
 
-    const result = { login: { accountId: record.residentId } };
+  // ---- Fallback factor: one-time code ------------------------------------
+
+  /**
+   * Request a one-time code. Responds identically whether or not the residency ID exists,
+   * so it cannot be used to enumerate valid residency IDs.
+   */
+  @Post(':uid/otp/start')
+  async otpStart(@Body() body: { residentId?: string }) {
+    if (body?.residentId) {
+      await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
+    }
+    return { sent: true };
+  }
+
+  /** Verify a one-time code and, on success, complete the interaction. */
+  @Post(':uid/otp/verify')
+  async otpVerify(@Req() req: Request, @Res() res: Response) {
+    const { residentId, code } = (req.body ?? {}) as { residentId?: string; code?: string };
+    const result =
+      residentId && code
+        ? await this.platform.getSsoAuth().verifyOtpLogin(residentId, code)
+        : { authenticated: false, reason: 'MISSING_FIELDS' };
+
+    if (!result.authenticated || !result.residentId) {
+      await this.platform.getAudit().record({
+        action: 'sso.login',
+        actor: residentId ?? 'unknown',
+        outcome: 'failure',
+        metadata: { factor: 'otp', reason: result.reason },
+      });
+      res.set('content-type', 'text/html');
+      res.end(this.loginPage(this.uidFromReq(req), '', 'Incorrect or expired code. Please try again.'));
+      return;
+    }
+    await this.finishLogin(req, res, result.residentId, 'otp');
+  }
+
+  /** Shared completion: record the login and hand control back to the OIDC provider. */
+  private async finishLogin(req: Request, res: Response, residentId: string, factor: string) {
     await this.platform.getAudit().record({
       action: 'sso.login',
-      actor: record.residentId,
-      target: record.residentId,
+      actor: residentId,
+      target: residentId,
       outcome: 'success',
+      metadata: { factor },
     });
-    await this.provider.interactionFinished(req, res, result, {
-      mergeWithLastSubmission: false,
-    });
+    await this.provider.interactionFinished(
+      req,
+      res,
+      { login: { accountId: residentId } },
+      { mergeWithLastSubmission: false },
+    );
   }
+
+  private uidFromReq(req: Request): string {
+    return String((req.params as { uid?: string }).uid ?? '');
+  }
+
+  // ---- Consent (unchanged) -----------------------------------------------
 
   @Post(':uid/confirm')
   async confirm(@Req() req: Request, @Res() res: Response) {
     const details = await this.provider.interactionDetails(req, res);
-    const { prompt, params, session } = details as any;
+    const { params, session } = details as any;
 
     const accountId = session?.accountId as string;
     const clientId = String(params.client_id);
@@ -83,7 +155,6 @@ export class InteractionController {
     grant.addOIDCScope(requested);
     const grantId = await grant.save();
 
-    // Record a first-class, revocable consent and mint a portable receipt.
     const resident = await this.platform.getStore().findByResidentId(accountId);
     if (resident) {
       const scopes = requested.split(' ').filter((s) => s !== 'openid');
@@ -109,7 +180,6 @@ export class InteractionController {
       { consent: { grantId } },
       { mergeWithLastSubmission: true },
     );
-    void prompt;
   }
 
   @Get(':uid/abort')
@@ -122,17 +192,79 @@ export class InteractionController {
     );
   }
 
+  // ---- HTML ---------------------------------------------------------------
+
+  /**
+   * The sign-in page. Two tabs: scan-to-sign-in (VP, primary) and use-a-code (OTP).
+   *
+   * The VP tab fetches a presentation request, renders its QR, and polls until the wallet
+   * has responded, then navigates to the completion endpoint. Kept to inline vanilla JS so
+   * there is no build step; a production deployment would replace this with its own themed
+   * front end, but the endpoints it drives are the real ones.
+   */
   private loginPage(uid: string, clientId: string, error = ''): string {
     return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in</title></head><body style="font-family:system-ui;max-width:420px;margin:40px auto;padding:0 16px">
+<title>Sign in</title></head><body style="font-family:system-ui;max-width:460px;margin:40px auto;padding:0 16px">
 <h2>Sign in to continue</h2>
-<p style="color:#555">Service <b>${clientId}</b> is requesting to verify your residency.</p>
+${clientId ? `<p style="color:#555">Service <b>${clientId}</b> is requesting to verify your residency.</p>` : ''}
 ${error ? `<p style="color:#b00">${error}</p>` : ''}
-<form method="post" action="/interaction/${uid}/login">
-  <label>Residency ID<br><input name="residentId" placeholder="KT-XXXX-XXXX-X" style="width:100%;padding:8px;font-size:16px"></label>
-  <p style="color:#777;font-size:13px">A one-time code will be sent to your registered phone (production).</p>
-  <button type="submit" style="padding:10px 16px;font-size:16px">Continue</button>
-</form></body></html>`;
+
+<div style="display:flex;gap:8px;margin:16px 0">
+  <button id="tab-vp" onclick="show('vp')" style="flex:1;padding:8px">Scan with wallet</button>
+  <button id="tab-otp" onclick="show('otp')" style="flex:1;padding:8px">Use a one-time code</button>
+</div>
+
+<div id="pane-vp">
+  <p style="color:#555">Scan this with your wallet to present your residency credential.</p>
+  <div id="qr" style="max-width:260px">Loading&hellip;</div>
+  <p id="vp-status" style="color:#777;font-size:13px">Waiting for your wallet&hellip;</p>
+</div>
+
+<div id="pane-otp" style="display:none">
+  <form id="otp-start" onsubmit="return sendCode(event)">
+    <label>Residency ID<br><input id="rid" name="residentId" placeholder="KT-XXXX-XXXX-X" style="width:100%;padding:8px;font-size:16px"></label>
+    <button type="submit" style="margin-top:8px;padding:10px 16px;font-size:16px">Send me a code</button>
+  </form>
+  <form id="otp-verify" method="post" action="/interaction/${uid}/otp/verify" style="display:none;margin-top:16px">
+    <input type="hidden" id="rid2" name="residentId">
+    <label>Enter the code sent to your registered contact<br><input name="code" inputmode="numeric" style="width:100%;padding:8px;font-size:16px"></label>
+    <button type="submit" style="margin-top:8px;padding:10px 16px;font-size:16px">Sign in</button>
+  </form>
+</div>
+
+<script>
+const uid = ${JSON.stringify(uid)};
+function show(which){
+  document.getElementById('pane-vp').style.display = which==='vp'?'block':'none';
+  document.getElementById('pane-otp').style.display = which==='otp'?'block':'none';
+  if (which==='vp') startVp();
+}
+let polling=false;
+async function startVp(){
+  if (polling) return; polling=true;
+  const r = await fetch('/interaction/'+uid+'/vp/start');
+  const { requestId, qrSvg } = await r.json();
+  document.getElementById('qr').innerHTML = qrSvg;
+  const tick = async () => {
+    const p = await (await fetch('/interaction/'+uid+'/vp/poll?requestId='+encodeURIComponent(requestId))).json();
+    if (p.status==='authenticated'){ window.location = '/interaction/'+uid+'/vp/complete?requestId='+encodeURIComponent(requestId); return; }
+    if (p.status==='failed'){ document.getElementById('vp-status').textContent='Presentation was not accepted. Refresh to try again.'; return; }
+    setTimeout(tick, 2000);
+  };
+  setTimeout(tick, 2000);
+}
+async function sendCode(e){
+  e.preventDefault();
+  const rid = document.getElementById('rid').value.trim();
+  await fetch('/interaction/'+uid+'/otp/start', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({residentId:rid})});
+  document.getElementById('rid2').value = rid;
+  document.getElementById('otp-start').style.display='none';
+  document.getElementById('otp-verify').style.display='block';
+  return false;
+}
+show('vp');
+</script>
+</body></html>`;
   }
 
   private consentPage(uid: string, clientId: string, scope: string): string {

@@ -4,6 +4,7 @@ import {
   PrismaConsentStore,
   PrismaOid4vciStore,
   PrismaOid4vpStore,
+  PrismaOtpStore,
   PrismaResidencyStore,
   PrismaService,
 } from '../prisma/prisma.service';
@@ -18,6 +19,7 @@ import { PlatformService } from './platform.service';
     PrismaConsentStore,
     PrismaOid4vciStore,
     PrismaOid4vpStore,
+    PrismaOtpStore,
     PlatformService,
   ],
   exports: [
@@ -27,6 +29,7 @@ import { PlatformService } from './platform.service';
     PrismaConsentStore,
     PrismaOid4vciStore,
     PrismaOid4vpStore,
+    PrismaOtpStore,
     PlatformService,
   ],
 })

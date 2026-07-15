@@ -12,6 +12,8 @@ import { buildDidWebDocument } from '../core/credentials/did';
 import { ResidencyService } from '../core/residency/residency-service';
 import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
 import { Oid4vpService } from '../core/oid4vp/oid4vp-service';
+import { OtpService, LoggingOtpSender } from '../core/sso/otp';
+import { SsoAuthService } from '../core/sso/sso-auth';
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
@@ -20,6 +22,7 @@ import {
   PrismaConsentStore,
   PrismaOid4vciStore,
   PrismaOid4vpStore,
+  PrismaOtpStore,
   PrismaResidencyStore,
 } from '../prisma/prisma.service';
 
@@ -41,6 +44,7 @@ export class PlatformService {
   private oid4vci!: Oid4vciService;
   private oid4vp!: Oid4vpService;
   private vpVerifier!: VpVerifier;
+  private ssoAuth!: SsoAuthService;
   private audit!: AuditLog;
   private consent!: ConsentService;
   private platformIssuerDid!: string;
@@ -52,6 +56,7 @@ export class PlatformService {
     private consentStore: PrismaConsentStore,
     private oid4vciStore: PrismaOid4vciStore,
     private oid4vpStore: PrismaOid4vpStore,
+    private otpStore: PrismaOtpStore,
   ) {}
 
   private initialized = false;
@@ -137,6 +142,13 @@ export class PlatformService {
       this.key,
     );
 
+    // Sign-in authentication: a Verifiable Presentation as the strong factor, a one-time
+    // code as the fallback. The OTP sender is a dev stub that logs the code; a production
+    // deployment replaces it with one backed by its own SMS gateway and contact directory,
+    // which is what keeps plaintext phone numbers out of our store.
+    const otp = new OtpService(this.otpStore, new LoggingOtpSender(), () => crypto.randomUUID());
+    this.ssoAuth = new SsoAuthService(this.oid4vp, otp, this.store);
+
     // Audit and consent frameworks.
     this.platformIssuerDid =
       process.env.PLATFORM_ISSUER_DID ??
@@ -178,6 +190,9 @@ export class PlatformService {
   }
   getOid4vp(): Oid4vpService {
     return this.oid4vp;
+  }
+  getSsoAuth(): SsoAuthService {
+    return this.ssoAuth;
   }
   getLdpIssuer(): LdpIssuer {
     return this.ldpIssuer;

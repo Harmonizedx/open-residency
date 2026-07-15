@@ -31,12 +31,13 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "smoke": "tsc -p tsconfig.core.json && node dist-core/scripts/smoke.js",
-    "test": "npm run smoke && npm run smoke:oid4vci && npm run smoke:oid4vp && npm run test:conformance",
+    "test": "npm run smoke && npm run smoke:oid4vci && npm run smoke:oid4vp && npm run smoke:sso && npm run test:conformance",
     "smoke:oid4vci": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vci-smoke.js",
     "smoke:oid4vp": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vp-smoke.js",
     "test:conformance": "tsc -p tsconfig.core.json && node dist-core/scripts/conformance.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test:w3c": "bash scripts/run-w3c-suite.sh"
+    "test:w3c": "bash scripts/run-w3c-suite.sh",
+    "smoke:sso": "tsc -p tsconfig.core.json && node dist-core/scripts/sso-smoke.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.22",
