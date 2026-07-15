@@ -25,8 +25,6 @@ import { Oid4vpStore, PresentationRequestRecord } from './ports';
  * replayed from somebody else's transaction.
  */
 
-const REQUEST_TTL_SECONDS = 5 * 60;
-
 export class Oid4vpError extends Error {
   constructor(
     public readonly code: string,
@@ -49,6 +47,15 @@ export interface Oid4vpConfig {
   clientId: string;
   /** Shown to the citizen in the wallet's consent screen. */
   clientName: string;
+  /** How long a presentation request stays answerable. */
+  requestTtlSeconds: number;
+  /**
+   * Query languages to advertise. DCQL is OpenID4VP 1.0; Presentation Exchange is what
+   * wallets mid-migration still understand. Emitting both means we do not have to guess
+   * which one a given wallet speaks -- but a deployment that knows its wallets can narrow
+   * this, and should, since each extra language is extra surface in the request object.
+   */
+  query: readonly ('dcql' | 'presentation_definition')[];
 }
 
 export interface CreatedPresentationRequest {
@@ -77,7 +84,7 @@ export class Oid4vpService {
     reference?: string;
   }): Promise<CreatedPresentationRequest> {
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + REQUEST_TTL_SECONDS * 1000);
+    const expiresAt = new Date(now.getTime() + this.cfg.requestTtlSeconds * 1000);
 
     const record: PresentationRequestRecord = {
       id: randomUUID(),
@@ -143,12 +150,12 @@ export class Oid4vpService {
         client_name: this.cfg.clientName,
         purpose: record.purpose,
       },
-      // DCQL is the query language of OpenID4VP 1.0.
-      dcql_query: this.dcqlQuery(),
-      // Presentation Exchange is what wallets mid-migration (including Inji) still
-      // understand. Emitting both means we do not have to guess which the wallet speaks;
-      // it reads the one it knows and ignores the other.
-      presentation_definition: this.presentationDefinition(record.id),
+      // Whichever query languages this deployment advertises. A wallet reads the one it
+      // knows and ignores the other, so emitting both is the safe default.
+      ...(this.cfg.query.includes('dcql') ? { dcql_query: this.dcqlQuery() } : {}),
+      ...(this.cfg.query.includes('presentation_definition')
+        ? { presentation_definition: this.presentationDefinition(record.id) }
+        : {}),
     })
       .setProtectedHeader({
         alg: 'EdDSA',

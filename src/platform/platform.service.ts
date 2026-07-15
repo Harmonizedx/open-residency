@@ -119,13 +119,18 @@ export class PlatformService {
       });
     }
     this.vpVerifier = new VpVerifier(this.verifier, ldpTrust);
+    // OpenID4VP is deployment-wide (a presentation request names no country), so its
+    // profile is read from the default -- that is, the first -- country config.
+    const defaultCfg = this.listConfigs()[0];
     this.oid4vp = new Oid4vpService(
       {
         baseUrl: this.publicBaseUrl(),
         // The verifier identifies itself by DID so a wallet can resolve our key and check
         // the request object's signature without a PKI or a network round-trip.
-        clientId: this.listConfigs()[0]?.credential.issuerDid ?? 'did:web:openresidency.example',
-        clientName: this.listConfigs()[0]?.credential.issuerName ?? 'OpenResidency Verifier',
+        clientId: defaultCfg?.credential.issuerDid ?? 'did:web:openresidency.example',
+        clientName: defaultCfg?.credential.issuerName ?? 'OpenResidency Verifier',
+        requestTtlSeconds: defaultCfg?.presentation.requestTtlSeconds ?? 300,
+        query: defaultCfg?.presentation.query ?? ['dcql', 'presentation_definition'],
       },
       this.oid4vpStore,
       () => this.vpVerifier,

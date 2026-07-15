@@ -14,13 +14,16 @@ import { holderDidFromJwk, publicPartOf, resolveHolderDid } from '../credentials
  */
 
 /**
- * Algorithms we accept from a wallet.
+ * Algorithms a deployment MAY accept from a wallet.
  *
- * RS256 is here because the Inji wallet hardcodes it in its proof generator. We would
- * not choose it, but refusing it means refusing the wallet this project most wants to
- * interoperate with. EdDSA and ES256 are the ones we recommend.
+ * RS256 is supported because the Inji wallet hardcodes it in its proof generator. We would
+ * not choose it -- EdDSA keeps credentials small, which matters for QR codes -- but
+ * refusing it means refusing the wallet this project most wants to serve. Which of these
+ * a given deployment actually accepts is a config choice (`wallet.proofAlgs`), not a
+ * property of the code.
  */
 export const SUPPORTED_PROOF_ALGS = ['EdDSA', 'ES256', 'RS256'] as const;
+export type ProofAlg = (typeof SUPPORTED_PROOF_ALGS)[number];
 
 /** Wallet clocks drift. Allow a small window on `iat` rather than rejecting outright. */
 const IAT_SKEW_SECONDS = 300;
@@ -47,6 +50,8 @@ export class HolderProofError extends Error {
 export interface VerifyHolderProofOptions {
   /** Our Credential Issuer Identifier. The proof's `aud` must equal this. */
   credentialIssuer: string;
+  /** The algorithms this deployment accepts, from `wallet.proofAlgs`. */
+  allowedAlgs: readonly string[];
   /**
    * Consume the proof's nonce, returning false if it is unknown, expired, or already
    * used.
@@ -130,9 +135,9 @@ export async function verifyHolderProof(
   }
 
   const alg = String(header.alg ?? '');
-  if (!(SUPPORTED_PROOF_ALGS as readonly string[]).includes(alg)) {
+  if (!opts.allowedAlgs.includes(alg)) {
     throw new HolderProofError(
-      `unsupported proof alg '${alg}'; expected one of ${SUPPORTED_PROOF_ALGS.join(', ')}`,
+      `unsupported proof alg '${alg}'; this issuer accepts ${opts.allowedAlgs.join(', ')}`,
     );
   }
 
