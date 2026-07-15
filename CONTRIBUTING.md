@@ -11,6 +11,55 @@ HarmonizedX Limited and released under Apache-2.0.
 - Never commit secrets, real national ID numbers, or personal data, including in tests
   or fixtures. Use the MOCK provider and synthetic values.
 
+## Contribution workflow
+
+Every contribution — from a HarmonizedX engineer or a first-time external contributor —
+follows the same lifecycle and is held to the same review standard. The
+[GitHub issue tracker](https://github.com/harmonizedx/openresidency/issues) is the single
+source of truth for planned work.
+
+```text
+Issue → Discussion & assignment → Development → Pull request → Review → CI → Approval → Merge
+```
+
+### 1. Start with an issue
+
+Before writing code, search the existing issues. If the work has not been proposed, open a
+new issue describing the change. For anything substantial — a new standard, a breaking API
+change, or a change to the privacy or security model — discuss it in the issue and wait for
+maintainer agreement before starting, so effort is not spent on a direction the project
+will not take. (This mirrors the "substantial changes need a written proposal" rule in
+[`GOVERNANCE.md`](GOVERNANCE.md).)
+
+### 2. Get the code
+
+The only difference between internal and external contributors is **where you develop**.
+
+- **HarmonizedX organization members** with write access branch directly from the latest
+  `main` in this repository.
+- **External contributors** fork the repository, clone the fork, and branch there. You do
+  not need write access to contribute; you open your pull request from your fork.
+
+### 3. Create a feature branch
+
+Branch from an up-to-date `main`, and name the branch for its purpose:
+
+```
+feat/esignet-adapter        bugfix/nonce-replay
+feat/vp-sso-login           hotfix/security-patch
+docs/update-contributing    test/oid4vp-coverage
+```
+
+Commit messages follow the same `type(scope): summary` convention as the git history
+(`feat`, `fix`, `test`, `docs`, `chore`, …).
+
+### 4. Develop, then open a pull request
+
+Implement the change, keep it focused on one concern, and follow the setup, testing, and
+"what not to break" guidance below. Then open a pull request that references its issue.
+`main` is a **protected branch**: direct pushes are rejected, and every change lands through
+a reviewed, CI-passing pull request. See [Pull requests](#pull-requests) for the checklist.
+
 ## Commits must be signed
 
 **This repository requires verified commit signatures.** An unsigned push is rejected, so
@@ -122,6 +171,7 @@ why.
 
 ## Pull requests
 
+- Reference the issue the PR resolves (`Closes #123`).
 - Keep changes focused. One concern per PR.
 - Sign your commits (see above) and write a descriptive commit body — say *why*, not what.
 - Add or update a check in the relevant `scripts/*.ts` suite when you change core logic.
@@ -129,6 +179,23 @@ why.
 - Update `docs/openapi.yaml` when you change the HTTP surface, and the SDK to match.
 - Update `docs/INTEROP.md` when you change anything a wallet sees.
 - Describe privacy or security implications explicitly in the PR.
+
+### What review looks at
+
+A maintainer reviews every pull request against `main` before it can merge. Expect
+feedback on any of: correctness, security and privacy posture, code quality and
+maintainability, test coverage (a core-logic change without a matching `scripts/*.ts`
+assertion will be sent back), and documentation completeness. Constructive discussion
+before approval is normal — it is how the change gets better, not a rejection.
+
+### CI must pass
+
+Every pull request runs the automated pipeline in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml): the Prisma client is generated, the
+project is typechecked, the core / OpenID4VCI / OpenID4VP / W3C-conformance suites all run,
+and the Docker image is built to prove `contexts/` ships in the runtime image. A pull
+request with failing checks cannot be merged. These runs are hermetic — no database, no
+network — so a green run locally (`npm test`) is a green run in CI.
 
 ## Reporting bugs
 
