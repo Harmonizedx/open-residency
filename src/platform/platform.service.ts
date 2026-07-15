@@ -174,6 +174,9 @@ export class PlatformService {
   getOid4vp(): Oid4vpService {
     return this.oid4vp;
   }
+  getLdpIssuer(): LdpIssuer {
+    return this.ldpIssuer;
+  }
   getVerifier(): VcVerifier {
     return this.verifier;
   }
