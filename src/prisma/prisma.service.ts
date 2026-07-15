@@ -6,6 +6,7 @@ import { AuditEvent, AuditStore } from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
+import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -326,6 +327,56 @@ export class PrismaOid4vpStore implements Oid4vpStore {
       data: { status, outcome: outcome as any },
     });
     return count === 1;
+  }
+}
+
+/** Prisma-backed OTP store for the sign-in fallback factor. */
+@Injectable()
+export class PrismaOtpStore implements OtpStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toRecord = (r: any): OtpChallengeRecord => ({
+    id: r.id,
+    residentId: r.residentId,
+    codeHash: r.codeHash,
+    channel: r.channel,
+    expiresAt: r.expiresAt.toISOString(),
+    consumed: r.consumed,
+    failedAttempts: r.failedAttempts,
+    createdAt: r.createdAt.toISOString(),
+  });
+
+  async save(challenge: OtpChallengeRecord): Promise<void> {
+    await this.prisma.otpChallenge.create({
+      data: {
+        id: challenge.id,
+        residentId: challenge.residentId,
+        codeHash: challenge.codeHash,
+        channel: challenge.channel,
+        expiresAt: new Date(challenge.expiresAt),
+        consumed: challenge.consumed,
+        failedAttempts: challenge.failedAttempts,
+      },
+    });
+  }
+
+  async findActive(residentId: string): Promise<OtpChallengeRecord | null> {
+    const r = await this.prisma.otpChallenge.findFirst({
+      where: { residentId, consumed: false },
+      orderBy: { createdAt: 'desc' },
+    });
+    return r ? this.toRecord(r) : null;
+  }
+
+  async update(challenge: OtpChallengeRecord): Promise<void> {
+    await this.prisma.otpChallenge.update({
+      where: { id: challenge.id },
+      data: {
+        channel: challenge.channel,
+        consumed: challenge.consumed,
+        failedAttempts: challenge.failedAttempts,
+      },
+    });
   }
 }
 

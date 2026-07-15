@@ -100,15 +100,20 @@ model PresentationRequest {
   @@index([expiresAt])
 }
 
-// Short-lived OTP challenges for USSD/SMS authentication and Aadhaar-style flows.
+// Short-lived one-time codes for the sign-in fallback factor (and Aadhaar-style flows).
+//
+// The code itself is stored only as a hash; the plaintext exists only in the delivered
+// message. `failedAttempts` bounds brute force, because a 6-digit code is only safe if the
+// number of guesses against it is limited.
 model OtpChallenge {
-  id         String   @id @default(uuid())
-  residentId String
-  codeHash   String
-  channel    String
-  expiresAt  DateTime
-  consumed   Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id             String   @id @default(uuid())
+  residentId     String
+  codeHash       String
+  channel        String
+  expiresAt      DateTime
+  consumed       Boolean  @default(false)
+  failedAttempts Int      @default(0)
+  createdAt      DateTime @default(now())
 
   @@index([residentId])
 }
