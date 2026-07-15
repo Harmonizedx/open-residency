@@ -1,6 +1,7 @@
 import type { Configuration, ClientMetadata } from 'oidc-provider';
 import { exportJWK } from 'jose';
 import { PlatformService } from '../platform/platform.service';
+import { RelyingPartyConfig } from '../core/config/country-config';
 
 /**
  * OpenID Connect configuration that turns the residency system into an Identity
@@ -13,30 +14,27 @@ import { PlatformService } from '../platform/platform.service';
  * client, and the resulting ID token / userinfo carries just those claims.
  */
 
-const SECTOR_SCOPES = ['health', 'tax', 'permits', 'subsidy'];
-
-function sectorClients(): ClientMetadata[] {
-  const base = process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000';
-  const rp = (id: string, port: number, scopes: string): ClientMetadata => ({
-    client_id: id,
-    client_secret: process.env[`${id.toUpperCase()}_CLIENT_SECRET`] ?? `${id}-dev-secret`,
+/** Translate one config-declared relying party into oidc-provider client metadata. */
+function toClientMetadata(rp: RelyingPartyConfig): ClientMetadata {
+  return {
+    client_id: rp.clientId,
+    // The secret lives in the environment, never in config or git. Falls back to a dev
+    // placeholder only when the env var is unset, so local development works out of the box.
+    client_secret:
+      process.env[`${rp.clientId.toUpperCase()}_CLIENT_SECRET`] ?? `${rp.clientId}-dev-secret`,
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
-    redirect_uris: [
-      process.env[`${id.toUpperCase()}_REDIRECT_URI`] ?? `http://localhost:${port}/callback`,
-    ],
-    post_logout_redirect_uris: [`http://localhost:${port}`],
-    scope: scopes,
+    redirect_uris: rp.redirectUris,
+    post_logout_redirect_uris: rp.postLogoutRedirectUris,
+    // openid + profile + residency, plus the one sector scope this RP is entitled to.
+    scope: `openid profile residency ${rp.sector}`,
     token_endpoint_auth_method: 'client_secret_basic',
-  });
+  };
+}
 
-  // Each sector RP gets openid + profile + residency + its own sector scope.
-  return [
-    rp('health', 4001, 'openid profile residency health'),
-    rp('tax', 4002, 'openid profile residency tax'),
-    rp('permits', 4003, 'openid profile residency permits'),
-    rp('subsidy', 4004, 'openid profile residency subsidy'),
-  ].map((c) => ({ ...c, [`_note`]: base } as ClientMetadata));
+/** Every relying party across all country configs. */
+function relyingParties(platform: PlatformService): RelyingPartyConfig[] {
+  return platform.listConfigs().flatMap((c) => c.oidc.relyingParties);
 }
 
 export async function buildOidcConfiguration(
@@ -47,12 +45,18 @@ export async function buildOidcConfiguration(
   privateJwk.alg = 'EdDSA';
   privateJwk.use = 'sig';
 
+  const rps = relyingParties(platform);
+  // The set of sector scopes is whatever the configured RPs actually use, so a country
+  // can add a sector by editing YAML -- no code change, and no scope registered that
+  // nobody requests.
+  const sectorScopes = [...new Set(rps.map((rp) => rp.sector))];
+
   return {
-    clients: sectorClients(),
+    clients: rps.map(toClientMetadata),
 
     jwks: { keys: [privateJwk as any] },
 
-    scopes: ['openid', 'offline_access', ...SECTOR_SCOPES, 'residency'],
+    scopes: ['openid', 'offline_access', 'residency', ...sectorScopes],
 
     claims: {
       openid: ['sub'],

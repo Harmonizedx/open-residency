@@ -10,10 +10,11 @@ Four questions are answered declaratively:
 3. What does the residency credential look like? (`credential`)
 4. Which subnational units exist? (`subnationalUnits`)
 
-Two optional blocks tune wallet interoperability:
+Three optional blocks tune interoperability and sign-in:
 
 5. Which wallets can obtain a credential, and on what terms? (`wallet`)
 6. How are presentations requested? (`presentation`)
+7. Which sector services can citizens sign into with their residency? (`oidc`)
 
 Both default to the widest interoperable behaviour, so **omitting them is safe** — that is
 what `ng.yaml`, `in.yaml`, and `ke.yaml` do. `demo.yaml` spells every knob out with the
@@ -45,3 +46,35 @@ with `proofAlgs: [EdDSA]` an RS256 key proof is **refused**. Both are asserted i
 
 Narrowing is a security improvement — a smaller accepted request surface, and no
 non-standard claims — so move here as soon as your wallets allow.
+
+## Sign-in relying parties (`oidc`)
+
+Sector services — Health, Tax, Permits, Subsidy — authenticate citizens through this
+residency IdP ("Sign in with <State>"). They never see the national ID, only the
+residency claims the citizen consents to release.
+
+These used to be a hardcoded list in `src/sso/oidc.provider.ts`, which made a relying
+party the **one** thing about a country that required a TypeScript edit. They are now
+declared in config:
+
+```yaml
+oidc:
+  relyingParties:
+    - clientId: health
+      name: Demoland Health Service
+      sector: health
+      redirectUris: [http://localhost:4001/callback]
+      postLogoutRedirectUris: [http://localhost:4001]
+```
+
+Each RP is entitled to exactly one `sector` scope, added to the standard
+`openid profile residency` set. Introducing a new sector needs no code change — the set
+of registered scopes is derived from whatever the configured RPs actually use.
+
+The client **secret is never in config**. It is read from `<CLIENT_ID>_CLIENT_SECRET` in
+the environment (e.g. `HEALTH_CLIENT_SECRET`), falling back to a `<id>-dev-secret`
+placeholder only when unset, so local development works with no secrets configured. Set a
+real secret per RP in production.
+
+Omit the `oidc` block entirely and no relying parties are registered — which is what a
+deployment that does not use SSO wants.

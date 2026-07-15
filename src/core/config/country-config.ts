@@ -166,6 +166,40 @@ const walletSchema = z.object({
   nonceTtlSeconds: z.number().int().positive().default(300),
 });
 
+/**
+ * A sector relying party for "Sign in with <State>" (OpenID Connect).
+ *
+ * These used to be a hardcoded list in oidc.provider.ts, which meant adding a sector
+ * service to a deployment required a TypeScript edit -- the one place a country was NOT
+ * code-free. They are now declared here, alongside everything else about a jurisdiction.
+ *
+ * The client secret never appears in config. It is read from an environment variable
+ * named `<CLIENT_ID>_CLIENT_SECRET` (uppercased), so a secret does not sit in a file that
+ * is committed to git.
+ */
+const relyingPartySchema = z.object({
+  /** Stable client_id. Its uppercase form + `_CLIENT_SECRET` names the secret env var. */
+  clientId: z.string().min(1),
+  /** Shown to the citizen on the consent screen. */
+  name: z.string().optional(),
+  /**
+   * The sector scope this RP is entitled to (e.g. `health`). Added to the standard
+   * `openid profile residency` set. Also registered as a supported scope, so a country
+   * can introduce a new sector without a code change.
+   */
+  sector: z.string().min(1),
+  /** OAuth redirect URIs. Must be the real callback URLs in production. */
+  redirectUris: z.array(z.string()).nonempty(),
+  postLogoutRedirectUris: z.array(z.string()).default([]),
+});
+
+/** OIDC identity-provider profile: the relying parties this deployment serves. */
+const oidcSchema = z.object({
+  relyingParties: z.array(relyingPartySchema).default([]),
+});
+
+export type RelyingPartyConfig = z.infer<typeof relyingPartySchema>;
+
 /** Presentation profile (OpenID4VP). Deployment-wide; read from the default country. */
 const presentationSchema = z.object({
   /** How long a presentation request stays answerable. */
@@ -192,6 +226,9 @@ export const countryConfigSchema = z.object({
   // Both default to today's behaviour, so a config that omits them is unchanged.
   wallet: walletSchema.default({}),
   presentation: presentationSchema.default({}),
+  // Sign-in relying parties. Empty by default: a deployment that does not use SSO simply
+  // omits this, and no RPs are registered.
+  oidc: oidcSchema.default({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),
 });
 

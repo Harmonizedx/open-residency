@@ -76,3 +76,39 @@ presentation:
   # DCQL is OpenID4VP 1.0; presentation_definition is Presentation Exchange, which wallets
   # mid-migration still use. Emitting both means not having to guess which a wallet speaks.
   query: [dcql, presentation_definition]
+
+# ---------------------------------------------------------------------------
+# Sign-in relying parties (OpenID Connect). OPTIONAL.
+#
+# These are the sector services that authenticate citizens through this residency IdP --
+# "Sign in with <State>". They never see the national ID, only the residency claims the
+# citizen consents to release. Each RP is entitled to exactly one sector scope.
+#
+# Previously this list was hardcoded in TypeScript, which made a relying party the one
+# thing about a country that needed a code change. It is now config, like everything else.
+#
+# The client SECRET is never here: it is read from <CLIENT_ID>_CLIENT_SECRET in the
+# environment (e.g. HEALTH_CLIENT_SECRET), falling back to a dev placeholder if unset.
+# ---------------------------------------------------------------------------
+oidc:
+  relyingParties:
+    - clientId: health
+      name: Demoland Health Service
+      sector: health
+      redirectUris: [http://localhost:4001/callback]
+      postLogoutRedirectUris: [http://localhost:4001]
+    - clientId: tax
+      name: Demoland Revenue Authority
+      sector: tax
+      redirectUris: [http://localhost:4002/callback]
+      postLogoutRedirectUris: [http://localhost:4002]
+    - clientId: permits
+      name: Demoland Permits Office
+      sector: permits
+      redirectUris: [http://localhost:4003/callback]
+      postLogoutRedirectUris: [http://localhost:4003]
+    - clientId: subsidy
+      name: Demoland Subsidy Program
+      sector: subsidy
+      redirectUris: [http://localhost:4004/callback]
+      postLogoutRedirectUris: [http://localhost:4004]
