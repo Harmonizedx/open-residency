@@ -51,8 +51,59 @@ const foundationalSchema = z.object({
     .object({ path: z.string(), equals: z.unknown().optional() })
     .optional(),
   assuranceOnSuccess: z.enum(['none', 'basic', 'verified', 'high']).optional(),
+  /**
+   * True only for providers whose verification authenticates the APPLICANT as the owner
+   * (an eID / OIDC redirect, or an OTP to the device registered against the record). Such
+   * a provider attests `authoritative_authentication` binding on success. A lookup-only
+   * provider (a NIN/registry match) must leave this false: passing the lookup is not
+   * proof the applicant owns the identity.
+   */
+  authenticatesApplicant: z.boolean().default(false),
   extra: z.record(z.unknown()).optional(),
 });
+
+const bindingMethodEnum = z.enum([
+  'authoritative_authentication',
+  'face_match',
+  'fingerprint_match',
+  'attended_comparison',
+]);
+
+const residenceMethodEnum = z.enum([
+  'register_declared_residence',
+  'authority_attestation',
+  'document',
+  'geospatial_match',
+]);
+
+const residenceLevelEnum = z.enum(['RAL0', 'RAL1', 'RAL2', 'RAL3']);
+
+/**
+ * Proof-of-residence policy.
+ *
+ * Where `applicantBinding` gates "does the applicant own this identity?", this gates "does
+ * the applicant actually reside in the claimed unit?". Both are recorded on every
+ * credential; setting `required` turns residence into an accept/reject gate at issuance.
+ *
+ * `acceptFoundationalResidence` opts in to auto-collecting the residence locality the
+ * foundational provider returns (never the origin field) as `register_declared_residence`
+ * evidence -- capped low by default because such a field is typically self-declared to the
+ * source register, undated, and coarser than a ward. `unitMatchRequired` forces that
+ * evidence to reconcile to the claimed unit before it counts.
+ */
+const residencePolicySchema = z.object({
+  required: z.boolean().default(false),
+  targetLevel: residenceLevelEnum.default('RAL1'),
+  acceptedMethods: z
+    .array(residenceMethodEnum)
+    .default(['register_declared_residence', 'authority_attestation', 'document', 'geospatial_match']),
+  unitMatchRequired: z.boolean().default(true),
+  recencyDays: z.number().int().positive().optional(),
+  methodCeiling: z.record(residenceMethodEnum, residenceLevelEnum).optional(),
+  acceptFoundationalResidence: z.boolean().default(false),
+});
+
+export type ResidencePolicyConfig = z.infer<typeof residencePolicySchema>;
 
 const residencySchema = z.object({
   /** Minimum foundational assurance required to issue residency. */
@@ -67,6 +118,35 @@ const residencySchema = z.object({
     .default('attestation'),
   /** Allow provisional issuance offline, to be reconciled when connectivity returns. */
   allowProvisional: z.boolean().default(true),
+  /**
+   * Applicant -> identity binding policy.
+   *
+   * Foundational verification proves the identity RECORD is genuine; on its own it does
+   * NOT prove the applicant OWNS it. When `required` is true, issuance is refused unless
+   * an accepted binding method was achieved -- either attested by the foundational
+   * provider (authoritative_authentication) or supplied by the enrolment channel
+   * (attended_comparison, face_match, fingerprint_match). Leaving `required` false keeps
+   * the binding recorded on every credential but does not gate issuance on it; that is
+   * appropriate for demos and low-assurance tiers, not for a real resident credential.
+   */
+  applicantBinding: z
+    .object({
+      required: z.boolean().default(false),
+      acceptedMethods: z
+        .array(bindingMethodEnum)
+        .default([
+          'authoritative_authentication',
+          'face_match',
+          'fingerprint_match',
+          'attended_comparison',
+        ]),
+    })
+    .default({}),
+  /**
+   * Proof-of-residence policy. Omit it entirely and residence is recorded as self-declared
+   * (RAL0) and never gated -- exactly today's behaviour. Opt in to enforce it.
+   */
+  residence: residencePolicySchema.default({}),
 });
 
 const credentialSchema = z.object({

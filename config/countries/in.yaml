@@ -29,11 +29,20 @@ foundational:
     dateOfBirth: kyc.dob
     gender: kyc.gender
   assuranceOnSuccess: high
+  # The OTP is delivered to the mobile registered against the Aadhaar number, so passing
+  # this check authenticates the OWNER, not merely the existence of the record. The adapter
+  # therefore attests `authoritative_authentication` binding on success.
+  authenticatesApplicant: true
 
 residency:
   minAssurance: verified
   proofOfResidence: document
   allowProvisional: false
+  # Refuse issuance unless the applicant was bound to the identity. Aadhaar OTP satisfies
+  # this via authoritative_authentication; an assisted desk could also bind in person.
+  applicantBinding:
+    required: true
+    acceptedMethods: [authoritative_authentication, attended_comparison]
 
 credential:
   issuerDid: did:web:residency.karnataka.gov.in

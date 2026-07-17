@@ -91,6 +91,10 @@ export class GenericRestAdapter implements FoundationalProvider {
       email: pick('email'),
       photo: pick('photo'),
       addressHint: pick('addressHint'),
+      // Residence and origin are mapped from distinct response paths and kept apart: only
+      // residence is ever offered as proof-of-residence evidence downstream.
+      residenceAdminUnit: pick('residenceAdminUnit'),
+      originAdminUnit: pick('originAdminUnit'),
     };
   }
 
@@ -133,6 +137,17 @@ export class GenericRestAdapter implements FoundationalProvider {
         providerCode: this.code,
         assuranceLevel: this.cfg.assuranceOnSuccess ?? 'verified',
         identity: this.mapIdentity(body, input),
+        // Only providers that actually authenticate the owner (an eID/OIDC redirect, or an
+        // OTP to the registered device) attest binding. A plain lookup does not: it leaves
+        // applicantBinding undefined so the residency engine will not mistake a matched
+        // record for a proven owner.
+        applicantBinding: this.cfg.authenticatesApplicant
+          ? {
+              method: 'authoritative_authentication',
+              ref: input.challengeRef,
+              verifiedAt: new Date().toISOString(),
+            }
+          : undefined,
       };
     } catch (err: unknown) {
       const status = axios.isAxiosError(err) ? err.response?.status : undefined;

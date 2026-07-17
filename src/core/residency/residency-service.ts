@@ -14,6 +14,14 @@ import {
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
 import { generateResidentId } from './resident-id';
+import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
+import {
+  DEFAULT_RESIDENCE_POLICY,
+  ResidenceEvidence,
+  ResidencePolicy,
+  evaluateResidence,
+  reconcileUnit,
+} from '../proofing/residence';
 
 /** The credential formats this issuer can produce. */
 export type CredentialFormat = 'jwt_vc_json' | 'ldp_vc';
@@ -41,6 +49,21 @@ export interface IssueResidencyRequest {
   /** did:key the holder controls; falls back to a urn if omitted (custodial wallet). */
   holderId?: string;
   proofOfResidence?: string; // overrides config default when an operator attests
+  /**
+   * Residence evidence the enrolment channel gathered: a ward attestation, an uploaded
+   * document, a geospatial match. Combined with any residence locality the foundational
+   * provider returned (when the policy opts in), reconciled to the claimed unit, and held
+   * to this jurisdiction's proof-of-residence policy. Must originate from a trusted
+   * enrolment context -- a caller cannot self-assert that they reside somewhere.
+   */
+  residenceEvidence?: ResidenceEvidence[];
+  /**
+   * Binding the enrolment channel performed itself: an agent's in-person comparison, a
+   * face/fingerprint match, or an external eID authentication. Combined with any binding
+   * the foundational provider attested; the strongest wins. Must originate from a trusted
+   * enrolment context, not from an unauthenticated caller asserting its own binding.
+   */
+  binding?: ApplicantBinding;
   context?: Record<string, unknown>;
 }
 
@@ -98,9 +121,26 @@ export class ResidencyService {
         assuranceLevel: record.assuranceLevel,
         subjectRef: record.subjectRef,
       },
+      applicantBinding: record.binding,
       person: record.person,
       proofOfResidence: cfg.residency.proofOfResidence,
+      residence: record.residence,
       provisional: record.provisional,
+    };
+  }
+
+  /** The proof-of-residence policy for a country, defaulted when the config omits one. */
+  private residencePolicyFor(cfg: CountryConfig): ResidencePolicy {
+    const p = cfg.residency.residence;
+    if (!p) return DEFAULT_RESIDENCE_POLICY;
+    return {
+      required: p.required,
+      targetLevel: p.targetLevel,
+      acceptedMethods: p.acceptedMethods,
+      unitMatchRequired: p.unitMatchRequired,
+      recencyDays: p.recencyDays,
+      methodCeiling: p.methodCeiling,
+      acceptFoundationalResidence: p.acceptFoundationalResidence,
     };
   }
 
@@ -175,6 +215,7 @@ export class ResidencyService {
       responseMapping: cfg.foundational.responseMapping as any,
       verifiedFlag: cfg.foundational.verifiedFlag,
       assuranceOnSuccess: cfg.foundational.assuranceOnSuccess,
+      authenticatesApplicant: cfg.foundational.authenticatesApplicant,
       extra: cfg.foundational.extra,
     });
   }
@@ -205,15 +246,75 @@ export class ResidencyService {
       return { status: 'rejected', reason: `ASSURANCE_TOO_LOW_${result.assuranceLevel}` };
     }
 
+    // 3. Establish applicant -> identity binding.
+    //
+    // A passed foundational check means the identity RECORD is genuine. It does NOT, on
+    // its own, mean the applicant OWNS it -- a lookup anyone with the number could pass is
+    // not owner proof. Combine any binding the provider attested (an OTP to the registered
+    // device, an eID redirect) with any the enrolment channel performed (an agent's
+    // in-person comparison, a face/fingerprint match), take the strongest, and hold it to
+    // this jurisdiction's policy before issuing anything.
+    const binding = strongestBinding(result.applicantBinding, req.binding);
+    const bindingPolicy = cfg.residency.applicantBinding;
+    if (bindingPolicy.required && !bindingSatisfies(binding, bindingPolicy.acceptedMethods)) {
+      return {
+        status: 'rejected',
+        reason: `APPLICANT_BINDING_REQUIRED_${binding.method.toUpperCase()}`,
+      };
+    }
+
     const identity = result.identity!;
 
-    // 3. One person per (provider subject) per deployment: idempotent issuance.
+    // 4. One person per (provider subject) per deployment: idempotent issuance.
     const existing = await this.store.findBySubjectRef(identity.subjectRef);
     if (existing) {
       return { status: 'exists', residentId: existing.residentId, record: existing };
     }
 
-    // 4. Mint residency id + assign a revocation status index.
+    // 4b. Establish proof of residence.
+    //
+    // A genuine, owner-bound identity still does not establish that the person RESIDES in
+    // the unit they are claiming. Gather residence evidence -- the locality the provider
+    // returned (never the origin field), plus anything the trusted enrolment channel
+    // supplied -- reconcile each to the claimed unit, and hold the result to policy. The
+    // provider's residence field is capped low because it is usually self-declared and
+    // stale; origin is never eligible.
+    const residencePolicy = this.residencePolicyFor(cfg);
+    const residenceEvidence: ResidenceEvidence[] = [];
+    if (residencePolicy.acceptFoundationalResidence && identity.residenceAdminUnit) {
+      residenceEvidence.push({
+        method: 'register_declared_residence',
+        reportedUnit: identity.residenceAdminUnit,
+        adminUnit: reconcileUnit(cfg.subnationalUnits, identity.residenceAdminUnit),
+        // Foundational records rarely carry an as-of date; leaving it undated keeps the
+        // evidence capped by the recency rule rather than silently trusted as fresh.
+      });
+    }
+    for (const ev of req.residenceEvidence ?? []) {
+      residenceEvidence.push({
+        ...ev,
+        adminUnit: ev.adminUnit ?? reconcileUnit(cfg.subnationalUnits, ev.reportedUnit),
+      });
+    }
+    const residence = evaluateResidence(
+      residencePolicy,
+      residenceEvidence,
+      req.subnationalUnit,
+      new Date().toISOString(),
+    );
+    if (residencePolicy.required && !residence.satisfied) {
+      return { status: 'rejected', reason: residence.reason ?? 'PROOF_OF_RESIDENCE_REQUIRED' };
+    }
+    const residenceClaim: {
+      assuranceLevel: typeof residence.level;
+      method: typeof residence.method;
+      unit?: string;
+      asOf?: string;
+    } = { assuranceLevel: residence.level, method: residence.method };
+    if (residence.unit) residenceClaim.unit = residence.unit;
+    if (residence.asOf) residenceClaim.asOf = residence.asOf;
+
+    // 5. Mint residency id + assign a revocation status index.
     const residentId = generateResidentId(req.subnationalUnit);
     const statusListIndex = await this.store.nextStatusIndex(cfg.countryCode);
     const unit = cfg.subnationalUnits.find((u) => u.code === req.subnationalUnit);
@@ -222,7 +323,7 @@ export class ResidencyService {
     const provisional =
       cfg.residency.allowProvisional && req.context?.offline === true ? true : false;
 
-    // 5. Issue the Verifiable Credential.
+    // 5b. Assemble the credential claims, including the achieved binding.
     const claims: ResidencyClaims = {
       holderId,
       residentId,
@@ -237,6 +338,7 @@ export class ResidencyService {
         assuranceLevel: result.assuranceLevel,
         subjectRef: identity.subjectRef,
       },
+      applicantBinding: binding,
       person: {
         fullName: identity.fullName,
         givenName: identity.givenName,
@@ -245,9 +347,11 @@ export class ResidencyService {
         gender: identity.gender,
       },
       proofOfResidence: req.proofOfResidence ?? cfg.residency.proofOfResidence,
+      residence: residenceClaim,
       provisional,
     };
 
+    // 6. Issue the Verifiable Credential.
     const issued = await this.issuer.issue(claims, this.issueOptionsFor(cfg, statusListIndex));
 
     const record: ResidentRecord = {
@@ -258,6 +362,8 @@ export class ResidencyService {
       subnationalUnit: req.subnationalUnit,
       providerCode: result.providerCode,
       assuranceLevel: result.assuranceLevel,
+      binding,
+      residence: residenceClaim,
       provisional,
       credentialId: issued.credentialId,
       statusListIndex,

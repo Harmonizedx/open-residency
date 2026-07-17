@@ -98,6 +98,31 @@ async function main() {
   check('offline verify succeeds (signature + expiry)', v1.valid === true);
   check('verified subject carries residentId', (v1.subject as any)?.residentId === residentId);
 
+  // --- Applicant -> identity binding is recorded, and asserted in the credential ---
+  // The MOCK provider is a bare lookup, so it attests NO binding: a passed lookup is not
+  // owner proof, and the credential must say so rather than imply ownership.
+  check(
+    'lookup-only issuance records binding method "none"',
+    good.status === 'issued' && good.record.binding.method === 'none',
+  );
+  check(
+    'credential asserts applicantBinding to the verifier',
+    (v1.subject as any)?.applicantBinding?.method === 'none',
+  );
+
+  // A config with no residence policy records residence as self-declared (RAL0) and never
+  // gates on it -- the pre-existing behaviour, now made explicit on the credential.
+  check(
+    'default config records self-declared residence (RAL0)',
+    good.status === 'issued' &&
+      good.record.residence.assuranceLevel === 'RAL0' &&
+      good.record.residence.method === 'self_declared',
+  );
+  check(
+    'credential asserts the residence block',
+    (v1.subject as any)?.residence?.assuranceLevel === 'RAL0',
+  );
+
   // --- Tamper detection ---
   const tampered = jwt.slice(0, -4) + (jwt.slice(-4) === 'AAAA' ? 'BBBB' : 'AAAA');
   const vTamper = await verifier.verify(tampered, { offline: true });
@@ -179,6 +204,165 @@ async function main() {
   check('consent can be revoked', revoked?.status === 'revoked');
   const afterList = await consent.listByResident(residentId);
   check('revoked consent is reflected in listing', afterList.some((c) => c.status === 'revoked'));
+
+  // --- Binding policy: a jurisdiction that REQUIRES owner binding refuses a bare lookup ---
+  const boundCfg: CountryConfig = parseCountryConfig({
+    countryCode: 'KE',
+    countryName: 'Kenya',
+    defaultSubnationalUnit: 'NBI',
+    foundational: {
+      provider: 'MOCK',
+      inputs: [{ key: 'id', label: 'ID' }],
+      assuranceOnSuccess: 'verified',
+    },
+    // Owner binding is required; only an in-person comparison is accepted here.
+    residency: {
+      minAssurance: 'verified',
+      proofOfResidence: 'attestation',
+      applicantBinding: { required: true, acceptedMethods: ['attended_comparison'] },
+    },
+    credential: {
+      issuerDid,
+      issuerName: 'Nairobi County Residency Authority',
+      type: 'StateResidencyCredential',
+      validityDays: 365,
+      context: ['https://www.w3.org/ns/credentials/v2'],
+    },
+    subnationalUnits: [{ code: 'NBI', name: 'Nairobi', parent: 'KE', level: 'county' }],
+  });
+  const boundStore = new InMemoryStore();
+  const boundSvc = new ResidencyService(
+    registry,
+    issuer,
+    boundStore,
+    () => 'https://id.nairobi.go.ke/status/ke.json',
+  );
+
+  const unbound = await boundSvc.issue(boundCfg, {
+    countryCode: 'KE',
+    subnationalUnit: 'NBI',
+    identifiers: { id: '22222222222' }, // even => foundational match, but nobody bound the applicant
+  });
+  check(
+    'binding-required jurisdiction rejects an unbound applicant',
+    unbound.status === 'rejected' && unbound.reason === 'APPLICANT_BINDING_REQUIRED_NONE',
+  );
+
+  const bound = await boundSvc.issue(boundCfg, {
+    countryCode: 'KE',
+    subnationalUnit: 'NBI',
+    identifiers: { id: '22222222222' },
+    // An enrolment agent compared the applicant to the identity evidence in person.
+    binding: { method: 'attended_comparison', ref: 'agent-4417' },
+  });
+  check('same applicant issues once bound in person', bound.status === 'issued');
+  check(
+    'issued record carries the binding method',
+    bound.status === 'issued' && bound.record.binding.method === 'attended_comparison',
+  );
+  const boundVerify =
+    bound.status === 'issued' ? await verifier.verify(bound.credentialJwt, { offline: true }) : null;
+  check(
+    'credential asserts the attended_comparison binding',
+    (boundVerify?.subject as any)?.applicantBinding?.method === 'attended_comparison',
+  );
+
+  // --- Proof-of-residence policy: enforced, origin never counts as residence ----------
+  //
+  // A jurisdiction that REQUIRES RAL2 residence. The foundational record is auto-collected
+  // (register-declared residence, capped RAL1) and must reconcile to the claimed unit;
+  // reaching RAL2 needs an authority attestation on top. Origin is deliberately different
+  // from residence here, to prove the engine never uses origin to satisfy residence.
+  const resCfg: CountryConfig = parseCountryConfig({
+    countryCode: 'NG',
+    countryName: 'Nigeria',
+    defaultSubnationalUnit: 'KT',
+    foundational: {
+      provider: 'MOCK',
+      inputs: [{ key: 'nin', label: 'NIN' }],
+      assuranceOnSuccess: 'verified',
+    },
+    residency: {
+      minAssurance: 'verified',
+      proofOfResidence: 'attestation',
+      residence: {
+        required: true,
+        targetLevel: 'RAL2',
+        acceptedMethods: ['register_declared_residence', 'authority_attestation'],
+        unitMatchRequired: true,
+        acceptFoundationalResidence: true,
+      },
+    },
+    credential: {
+      issuerDid,
+      issuerName: 'Katsina State Residency Authority',
+      type: 'StateResidencyCredential',
+      validityDays: 1095,
+      context: ['https://www.w3.org/ns/credentials/v2'],
+    },
+    subnationalUnits: [
+      { code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' },
+      { code: 'ZA', name: 'Zamfara', parent: 'NG', level: 'state' },
+    ],
+  });
+  const resStore = new InMemoryStore();
+  const resSvc = new ResidencyService(
+    registry,
+    issuer,
+    resStore,
+    () => 'https://id.katsina.gov.ng/status/ng.json',
+  );
+
+  // Applicant claims KT. Their NIN record says residence=Zamfara but origin=Katsina. If the
+  // engine (wrongly) used origin, this would pass; because only residence counts, the
+  // register evidence points at the wrong unit and RAL2 is not met.
+  const originNotResidence = await resSvc.issue(resCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '10000000002', residenceUnit: 'ZA', originUnit: 'KT' },
+  });
+  check(
+    'origin is never used to satisfy residence',
+    originNotResidence.status === 'rejected' &&
+      originNotResidence.reason!.startsWith('PROOF_OF_RESIDENCE_BELOW_RAL2'),
+  );
+
+  // NIN residence DOES match the claimed unit, but register-declared residence is capped at
+  // RAL1 -- still short of the required RAL2 on its own.
+  const registerOnly = await resSvc.issue(resCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '10000000004', residenceUnit: 'Katsina' },
+  });
+  check(
+    'register-declared residence alone is capped at RAL1 (below required RAL2)',
+    registerOnly.status === 'rejected' &&
+      registerOnly.reason === 'PROOF_OF_RESIDENCE_BELOW_RAL2_GOT_RAL1',
+  );
+
+  // Add the ward operator's attestation and RAL2 is reached: issuance succeeds.
+  const attested = await resSvc.issue(resCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '10000000006', residenceUnit: 'Katsina' },
+    residenceEvidence: [{ method: 'authority_attestation', reportedUnit: 'Katsina', ref: 'ward-officer-77' }],
+  });
+  check('authority attestation lifts residence to RAL2 and issues', attested.status === 'issued');
+  check(
+    'issued record carries the achieved residence (RAL2, attested, unit KT)',
+    attested.status === 'issued' &&
+      attested.record.residence.assuranceLevel === 'RAL2' &&
+      attested.record.residence.method === 'authority_attestation' &&
+      attested.record.residence.unit === 'KT',
+  );
+  const resVerify =
+    attested.status === 'issued'
+      ? await verifier.verify(attested.credentialJwt, { offline: true })
+      : null;
+  check(
+    'credential asserts the achieved residence assurance to the verifier',
+    (resVerify?.subject as any)?.residence?.assuranceLevel === 'RAL2',
+  );
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);

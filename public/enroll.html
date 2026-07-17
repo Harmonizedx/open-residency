@@ -25,6 +25,19 @@
       <label for="unit">Subnational unit</label>
       <select id="unit"></select>
       <div id="inputs"></div>
+
+      <fieldset id="bindingBox" style="border:1px solid var(--line,#2a2f3a);border-radius:10px;padding:12px;margin:14px 0">
+        <legend style="padding:0 6px;font-size:13px">Applicant verification</legend>
+        <p class="muted" id="bindingHelp" style="margin:0 0 8px">
+          A foundational match proves the record is genuine, not that this applicant owns it.
+          Record how the applicant was verified as the rightful owner.
+        </p>
+        <label for="bindingMethod">Binding method</label>
+        <select id="bindingMethod"></select>
+        <label for="bindingRef" id="bindingRefLabel">Reference (operator ID / match ID)</label>
+        <input id="bindingRef" placeholder="e.g. agent-4417" />
+      </fieldset>
+
       <button id="issue">Verify and issue</button>
       <p class="note">Demo tip: in country <code>ZZ</code> (Demoland, MOCK provider), any National ID
         ending in an even digit verifies.</p>
@@ -44,6 +57,14 @@
 
   <script>
     let configs = [];
+
+    // Human labels for the binding methods the engine understands.
+    const BINDING_LABELS = {
+      attended_comparison: 'Attended — agent compared applicant to the evidence in person',
+      face_match: 'Face match against the authoritative portrait (with liveness)',
+      fingerprint_match: 'Fingerprint / iris 1:1 match',
+      authoritative_authentication: 'Authoritative authentication (eID / OTP to registered device)',
+    };
 
     async function load() {
       configs = await fetch('/residency/countries').then((r) => r.json());
@@ -68,6 +89,36 @@
       inputs.innerHTML = (cfg.inputs || [])
         .map((i) => `<label>${i.label || i.key}</label><input data-key="${i.key}" placeholder="${i.key}" />`)
         .join('');
+      renderBinding(cfg);
+    }
+
+    // Render the applicant-binding selector for the selected country. When the provider
+    // authenticates the owner itself (OTP / eID), the desk has nothing to attest; otherwise
+    // offer the jurisdiction's accepted methods, plus "none" only if binding isn't required.
+    function renderBinding(cfg) {
+      const box = document.getElementById('bindingBox');
+      const help = document.getElementById('bindingHelp');
+      const sel = document.getElementById('bindingMethod');
+      const policy = cfg.applicantBinding || { required: false, acceptedMethods: [] };
+      const accepted = policy.acceptedMethods || [];
+
+      if (cfg.authenticatesApplicant) {
+        // The provider binds the applicant during verification; no operator step.
+        sel.innerHTML = '';
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = 'block';
+
+      const opts = accepted.map((m) => `<option value="${m}">${BINDING_LABELS[m] || m}</option>`);
+      // Only allow "none" when the jurisdiction does not require binding.
+      if (!policy.required) {
+        opts.push('<option value="none">None — lookup only (not owner proof)</option>');
+      }
+      sel.innerHTML = opts.join('');
+      help.textContent = policy.required
+        ? 'This jurisdiction requires the applicant to be bound to the identity before a credential is issued.'
+        : 'A foundational match proves the record is genuine, not that this applicant owns it. Recording the binding is optional here.';
     }
 
     document.getElementById('issue').onclick = async () => {
@@ -81,6 +132,14 @@
         subnationalUnit: document.getElementById('unit').value,
         identifiers,
       };
+      // Attach the operator-attested binding, unless the provider authenticates the owner
+      // itself (in which case the selector is hidden and the provider attests binding).
+      const methodEl = document.getElementById('bindingMethod');
+      if (!cfg.authenticatesApplicant && methodEl.value && methodEl.value !== 'none') {
+        const ref = document.getElementById('bindingRef').value.trim();
+        body.binding = { method: methodEl.value };
+        if (ref) body.binding.ref = ref;
+      }
       const res = await fetch('/residency/issue', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -90,7 +149,9 @@
       document.getElementById('result').style.display = 'block';
       const status = document.getElementById('status');
       if (res.status === 'issued' || res.status === 'exists') {
-        status.innerHTML = `<span class="pill ok">${res.status}</span> Resident ID: <code>${res.residentId}</code>`;
+        const bm = res.record && res.record.binding && res.record.binding.method;
+        const bindingNote = bm ? ` · binding: <code>${bm}</code>` : '';
+        status.innerHTML = `<span class="pill ok">${res.status}</span> Resident ID: <code>${res.residentId}</code>${bindingNote}`;
         const jwt = res.credentialJwt || '';
         document.getElementById('jwt').value = jwt;
         if (jwt) {

@@ -18,6 +18,15 @@ residency:
   minAssurance: verified
   proofOfResidence: attestation
   allowProvisional: true
+  # Applicant->identity binding is RECORDED on every credential regardless; here it is not
+  # REQUIRED, so the full stack runs end-to-end from a browser with no operator step. The
+  # MOCK provider is a bare lookup and attests no binding, so credentials issued here carry
+  # `applicantBinding.method: none` -- which is exactly the point: a demo lookup is not owner
+  # proof. A real deployment sets required: true (see ng.yaml / in.yaml). To simulate an
+  # owner-authenticating source instead, set foundational.authenticatesApplicant: true.
+  applicantBinding:
+    required: false
+    acceptedMethods: [authoritative_authentication, face_match, attended_comparison]
 
 credential:
   issuerDid: did:web:id.demoland.example

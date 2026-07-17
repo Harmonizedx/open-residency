@@ -1,4 +1,6 @@
 import { StatusList } from '../credentials/status-list';
+import { ApplicantBinding } from '../proofing/binding';
+import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
 
 /** A residency record as persisted. Note: no raw national id is ever stored. */
 export interface ResidentRecord {
@@ -9,6 +11,15 @@ export interface ResidentRecord {
   subnationalUnit: string;
   providerCode: string;
   assuranceLevel: string;
+  /** How the applicant was proven to own this identity at enrolment. */
+  binding: ApplicantBinding;
+  /** The proof-of-residence achieved for this resident in their claimed unit. */
+  residence: {
+    assuranceLevel: ResidenceAssuranceLevel;
+    method: ResidenceEvidenceMethod;
+    unit?: string;
+    asOf?: string;
+  };
   provisional: boolean;
   credentialId?: string;
   statusListIndex: number;

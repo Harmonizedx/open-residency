@@ -1,3 +1,8 @@
+
+
+
+
+
 # Architecture
 
 OpenResidency is built as a small framework-agnostic core with thin NestJS delivery
@@ -44,12 +49,22 @@ persistence adapters.
 
 1. Citizen submits foundational identifiers. The foundational adapter verifies against
    the national ID API and returns a NormalizedIdentity with a tokenized `subjectRef`.
-   The raw national ID never leaves the adapter.
-2. ResidencyService enforces the assurance policy, mints a ResidentID, issues a signed
-   VC-JWT, assigns a revocation index, and persists a minimized record. An audit event
-   is recorded.
-3. A sector service verifies the credential (online or fully offline) via the verifier.
-4. For SSO, the citizen signs in once at the OIDC provider. On consent, a first-class
+   The raw national ID never leaves the adapter. This step establishes that the identity
+   **record** is genuine — it does not, on its own, establish that the applicant **owns**
+   it.
+2. ResidencyService establishes applicant→identity binding: it combines any binding the
+   provider attested (an OTP to the registered device, an eID redirect →
+   `authoritative_authentication`) with any the enrolment channel performed (an agent's
+   in-person comparison, a face/fingerprint match), takes the strongest, and holds it to
+   the jurisdiction's `residency.applicantBinding` policy. A bare lookup binds nothing, so
+   a policy with `required: true` refuses to issue on a lookup alone. See
+   `core/proofing/binding.ts`.
+3. ResidencyService enforces the assurance policy, mints a ResidentID, issues a signed
+   VC-JWT that **asserts the binding method** in `credentialSubject.applicantBinding`,
+   assigns a revocation index, and persists a minimized record. An audit event records
+   which binding method was achieved.
+4. A sector service verifies the credential (online or fully offline) via the verifier.
+5. For SSO, the citizen signs in once at the OIDC provider. On consent, a first-class
    ConsentRecord is stored, a signed receipt is minted, and an audit event is recorded.
    The ID token carries residency claims but never the national ID.
 
