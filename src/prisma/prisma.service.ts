@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
 import { BindingMethod } from '../core/proofing/binding';
+import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
@@ -41,6 +42,12 @@ export class PrismaResidencyStore implements ResidencyStore {
         ref: r.bindingRef ?? undefined,
         verifiedAt: r.bindingAt ? r.bindingAt.toISOString() : undefined,
         score: r.bindingScore ?? undefined,
+      },
+      residence: {
+        assuranceLevel: (r.residenceAssurance ?? 'RAL0') as ResidenceAssuranceLevel,
+        method: (r.residenceMethod ?? 'self_declared') as ResidenceEvidenceMethod,
+        unit: r.residenceUnit ?? undefined,
+        asOf: r.residenceAsOf ? r.residenceAsOf.toISOString() : undefined,
       },
       provisional: r.provisional,
       credentialId: r.credentialId ?? undefined,
@@ -95,6 +102,10 @@ export class PrismaResidencyStore implements ResidencyStore {
         bindingRef: record.binding?.ref,
         bindingAt: record.binding?.verifiedAt ? new Date(record.binding.verifiedAt) : undefined,
         bindingScore: record.binding?.score,
+        residenceAssurance: record.residence?.assuranceLevel ?? 'RAL0',
+        residenceMethod: record.residence?.method ?? 'self_declared',
+        residenceUnit: record.residence?.unit,
+        residenceAsOf: record.residence?.asOf ? new Date(record.residence.asOf) : undefined,
         provisional: record.provisional,
         credentialId: record.credentialId,
         statusListIndex: record.statusListIndex,

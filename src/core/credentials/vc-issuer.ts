@@ -1,6 +1,7 @@
 import { SignJWT } from 'jose';
 import { IssuerKey } from './keystore';
 import { ApplicantBinding } from '../proofing/binding';
+import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
 
 /**
  * Issues the State Residency Verifiable Credential.
@@ -41,7 +42,18 @@ export interface ResidencyClaims {
     dateOfBirth?: string;
     gender?: string;
   };
-  proofOfResidence: string; // attestation | document | selfDeclared
+  proofOfResidence: string; // attestation | document | selfDeclared (legacy declared method)
+  /**
+   * Achieved proof of residence: the assurance level reached, the method that produced it,
+   * and the unit it is anchored to. Asserted so a verifier sees not just a declared label
+   * but how strongly (and against which unit) residence was actually established.
+   */
+  residence: {
+    assuranceLevel: ResidenceAssuranceLevel;
+    method: ResidenceEvidenceMethod;
+    unit?: string;
+    asOf?: string;
+  };
   provisional: boolean; // true if issued offline pending reconciliation
 }
 
@@ -101,6 +113,7 @@ export function buildCredentialBody(
       applicantBinding: claims.applicantBinding,
       person: claims.person,
       proofOfResidence: claims.proofOfResidence,
+      residence: claims.residence,
       provisional: claims.provisional,
     },
   };

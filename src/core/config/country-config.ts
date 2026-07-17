@@ -69,6 +69,42 @@ const bindingMethodEnum = z.enum([
   'attended_comparison',
 ]);
 
+const residenceMethodEnum = z.enum([
+  'register_declared_residence',
+  'authority_attestation',
+  'document',
+  'geospatial_match',
+]);
+
+const residenceLevelEnum = z.enum(['RAL0', 'RAL1', 'RAL2', 'RAL3']);
+
+/**
+ * Proof-of-residence policy.
+ *
+ * Where `applicantBinding` gates "does the applicant own this identity?", this gates "does
+ * the applicant actually reside in the claimed unit?". Both are recorded on every
+ * credential; setting `required` turns residence into an accept/reject gate at issuance.
+ *
+ * `acceptFoundationalResidence` opts in to auto-collecting the residence locality the
+ * foundational provider returns (never the origin field) as `register_declared_residence`
+ * evidence -- capped low by default because such a field is typically self-declared to the
+ * source register, undated, and coarser than a ward. `unitMatchRequired` forces that
+ * evidence to reconcile to the claimed unit before it counts.
+ */
+const residencePolicySchema = z.object({
+  required: z.boolean().default(false),
+  targetLevel: residenceLevelEnum.default('RAL1'),
+  acceptedMethods: z
+    .array(residenceMethodEnum)
+    .default(['register_declared_residence', 'authority_attestation', 'document', 'geospatial_match']),
+  unitMatchRequired: z.boolean().default(true),
+  recencyDays: z.number().int().positive().optional(),
+  methodCeiling: z.record(residenceMethodEnum, residenceLevelEnum).optional(),
+  acceptFoundationalResidence: z.boolean().default(false),
+});
+
+export type ResidencePolicyConfig = z.infer<typeof residencePolicySchema>;
+
 const residencySchema = z.object({
   /** Minimum foundational assurance required to issue residency. */
   minAssurance: z.enum(['basic', 'verified', 'high']).default('verified'),
@@ -106,6 +142,11 @@ const residencySchema = z.object({
         ]),
     })
     .default({}),
+  /**
+   * Proof-of-residence policy. Omit it entirely and residence is recorded as self-declared
+   * (RAL0) and never gated -- exactly today's behaviour. Opt in to enforce it.
+   */
+  residence: residencePolicySchema.default({}),
 });
 
 const credentialSchema = z.object({

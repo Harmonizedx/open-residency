@@ -52,6 +52,20 @@ export interface NormalizedIdentity {
   photo?: string;
   /** Provider-reported address, used only as a hint; residency is proven separately. */
   addressHint?: string;
+  /**
+   * Provider-reported CURRENT residence locality (state / province / LGA / ...). This is
+   * residence *evidence* -- usually self-declared to the source register and often stale --
+   * NOT proof. The residency engine offers it to the proof-of-residence policy as
+   * `register_declared_residence`, capped and reconciled against the claimed unit.
+   */
+  residenceAdminUnit?: string;
+  /**
+   * Provider-reported state / place of ORIGIN (indigeneity, heritage). This is NOT
+   * residence and must never be used to prove it -- doing so encodes indigene-vs-settler
+   * discrimination. Captured separately so it can never be mistaken for residence, and by
+   * default it is not carried into the residency credential at all.
+   */
+  originAdminUnit?: string;
 }
 
 export interface FoundationalVerificationResult {

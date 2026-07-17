@@ -26,6 +26,13 @@ model Resident {
   bindingRef      String? // opaque: auth txn, biometric match id, or enrolment operator id
   bindingAt       DateTime?
   bindingScore    Float? // biometric match score, when the subsystem reports one
+  // Proof of residence: the assurance level achieved for this resident in their unit, how
+  // it was established, and the unit it is anchored to. A foundational residence field is
+  // recorded as register_declared_residence, never as origin.
+  residenceAssurance String @default("RAL0")
+  residenceMethod    String @default("self_declared")
+  residenceUnit      String?
+  residenceAsOf      DateTime?
   provisional     Boolean  @default(false)
   credentialId    String?
   statusListIndex Int

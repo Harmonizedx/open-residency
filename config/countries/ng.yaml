@@ -34,6 +34,12 @@ foundational:
     dateOfBirth: data.birthdate
     gender: data.gender
     phone: data.telephoneno
+    # The NIN record carries BOTH residence and origin. They are mapped to distinct fields
+    # and kept apart: only residence is ever offered as proof-of-residence evidence. Origin
+    # (indigeneity) is captured but never used to prove residence, and by default is not
+    # carried into the residency credential.
+    residenceAdminUnit: data.residence_state
+    originAdminUnit: data.self_origin_state
   assuranceOnSuccess: verified
 
 residency:
@@ -48,6 +54,17 @@ residency:
   applicantBinding:
     required: true
     acceptedMethods: [attended_comparison]
+  # Proof of residence is ENFORCED here. The NIN-declared residence state is auto-collected
+  # as evidence, but it is self-declared to NIMC and coarse (state-level), so it only reaches
+  # RAL1 and must reconcile to the claimed unit. Reaching the required RAL2 needs the ward
+  # operator's attestation on top -- the register field lowers friction and cross-checks the
+  # claim, it does not by itself prove ward residence. Origin is never eligible.
+  residence:
+    required: true
+    targetLevel: RAL2
+    acceptedMethods: [register_declared_residence, authority_attestation, document]
+    unitMatchRequired: true
+    acceptFoundationalResidence: true
 
 credential:
   issuerDid: did:web:id.katsina.gov.ng

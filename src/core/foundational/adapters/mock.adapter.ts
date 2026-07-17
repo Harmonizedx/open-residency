@@ -65,6 +65,10 @@ export class MockAdapter implements FoundationalProvider {
         dateOfBirth: (input.identifiers.dateOfBirth as string) ?? '1990-01-01',
         gender: 'F',
         phone: (input.identifiers.phone as string) ?? '+2348000000000',
+        // Simulate a record that carries residence AND origin, so the demo can prove the
+        // engine uses only residence and never origin as proof-of-residence evidence.
+        residenceAdminUnit: (input.identifiers.residenceUnit as string) ?? undefined,
+        originAdminUnit: (input.identifiers.originUnit as string) ?? undefined,
       },
     };
   }

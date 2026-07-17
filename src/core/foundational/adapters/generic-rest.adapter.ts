@@ -91,6 +91,10 @@ export class GenericRestAdapter implements FoundationalProvider {
       email: pick('email'),
       photo: pick('photo'),
       addressHint: pick('addressHint'),
+      // Residence and origin are mapped from distinct response paths and kept apart: only
+      // residence is ever offered as proof-of-residence evidence downstream.
+      residenceAdminUnit: pick('residenceAdminUnit'),
+      originAdminUnit: pick('originAdminUnit'),
     };
   }
 

@@ -15,6 +15,13 @@ import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/
 import { ResidencyStore, ResidentRecord } from './ports';
 import { generateResidentId } from './resident-id';
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
+import {
+  DEFAULT_RESIDENCE_POLICY,
+  ResidenceEvidence,
+  ResidencePolicy,
+  evaluateResidence,
+  reconcileUnit,
+} from '../proofing/residence';
 
 /** The credential formats this issuer can produce. */
 export type CredentialFormat = 'jwt_vc_json' | 'ldp_vc';
@@ -42,6 +49,14 @@ export interface IssueResidencyRequest {
   /** did:key the holder controls; falls back to a urn if omitted (custodial wallet). */
   holderId?: string;
   proofOfResidence?: string; // overrides config default when an operator attests
+  /**
+   * Residence evidence the enrolment channel gathered: a ward attestation, an uploaded
+   * document, a geospatial match. Combined with any residence locality the foundational
+   * provider returned (when the policy opts in), reconciled to the claimed unit, and held
+   * to this jurisdiction's proof-of-residence policy. Must originate from a trusted
+   * enrolment context -- a caller cannot self-assert that they reside somewhere.
+   */
+  residenceEvidence?: ResidenceEvidence[];
   /**
    * Binding the enrolment channel performed itself: an agent's in-person comparison, a
    * face/fingerprint match, or an external eID authentication. Combined with any binding
@@ -109,7 +124,23 @@ export class ResidencyService {
       applicantBinding: record.binding,
       person: record.person,
       proofOfResidence: cfg.residency.proofOfResidence,
+      residence: record.residence,
       provisional: record.provisional,
+    };
+  }
+
+  /** The proof-of-residence policy for a country, defaulted when the config omits one. */
+  private residencePolicyFor(cfg: CountryConfig): ResidencePolicy {
+    const p = cfg.residency.residence;
+    if (!p) return DEFAULT_RESIDENCE_POLICY;
+    return {
+      required: p.required,
+      targetLevel: p.targetLevel,
+      acceptedMethods: p.acceptedMethods,
+      unitMatchRequired: p.unitMatchRequired,
+      recencyDays: p.recencyDays,
+      methodCeiling: p.methodCeiling,
+      acceptFoundationalResidence: p.acceptFoundationalResidence,
     };
   }
 
@@ -240,6 +271,49 @@ export class ResidencyService {
       return { status: 'exists', residentId: existing.residentId, record: existing };
     }
 
+    // 4b. Establish proof of residence.
+    //
+    // A genuine, owner-bound identity still does not establish that the person RESIDES in
+    // the unit they are claiming. Gather residence evidence -- the locality the provider
+    // returned (never the origin field), plus anything the trusted enrolment channel
+    // supplied -- reconcile each to the claimed unit, and hold the result to policy. The
+    // provider's residence field is capped low because it is usually self-declared and
+    // stale; origin is never eligible.
+    const residencePolicy = this.residencePolicyFor(cfg);
+    const residenceEvidence: ResidenceEvidence[] = [];
+    if (residencePolicy.acceptFoundationalResidence && identity.residenceAdminUnit) {
+      residenceEvidence.push({
+        method: 'register_declared_residence',
+        reportedUnit: identity.residenceAdminUnit,
+        adminUnit: reconcileUnit(cfg.subnationalUnits, identity.residenceAdminUnit),
+        // Foundational records rarely carry an as-of date; leaving it undated keeps the
+        // evidence capped by the recency rule rather than silently trusted as fresh.
+      });
+    }
+    for (const ev of req.residenceEvidence ?? []) {
+      residenceEvidence.push({
+        ...ev,
+        adminUnit: ev.adminUnit ?? reconcileUnit(cfg.subnationalUnits, ev.reportedUnit),
+      });
+    }
+    const residence = evaluateResidence(
+      residencePolicy,
+      residenceEvidence,
+      req.subnationalUnit,
+      new Date().toISOString(),
+    );
+    if (residencePolicy.required && !residence.satisfied) {
+      return { status: 'rejected', reason: residence.reason ?? 'PROOF_OF_RESIDENCE_REQUIRED' };
+    }
+    const residenceClaim: {
+      assuranceLevel: typeof residence.level;
+      method: typeof residence.method;
+      unit?: string;
+      asOf?: string;
+    } = { assuranceLevel: residence.level, method: residence.method };
+    if (residence.unit) residenceClaim.unit = residence.unit;
+    if (residence.asOf) residenceClaim.asOf = residence.asOf;
+
     // 5. Mint residency id + assign a revocation status index.
     const residentId = generateResidentId(req.subnationalUnit);
     const statusListIndex = await this.store.nextStatusIndex(cfg.countryCode);
@@ -273,6 +347,7 @@ export class ResidencyService {
         gender: identity.gender,
       },
       proofOfResidence: req.proofOfResidence ?? cfg.residency.proofOfResidence,
+      residence: residenceClaim,
       provisional,
     };
 
@@ -288,6 +363,7 @@ export class ResidencyService {
       providerCode: result.providerCode,
       assuranceLevel: result.assuranceLevel,
       binding,
+      residence: residenceClaim,
       provisional,
       credentialId: issued.credentialId,
       statusListIndex,

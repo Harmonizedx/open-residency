@@ -22,6 +22,16 @@
 
         "residentId": "orv:residentId",
         "proofOfResidence": "orv:proofOfResidence",
+        "residence": {
+          "@id": "orv:residence",
+          "@context": {
+            "@protected": true,
+            "assuranceLevel": "orv:residenceAssuranceLevel",
+            "method": "orv:residenceMethod",
+            "unit": "orv:residenceUnit",
+            "asOf": "orv:residenceAsOf"
+          }
+        },
         "provisional": {
           "@id": "orv:provisional",
           "@type": "http://www.w3.org/2001/XMLSchema#boolean"
