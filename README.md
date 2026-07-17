@@ -34,7 +34,7 @@ This repository is the generic public infrastructure, not a single-country app:
 
 ## Why this is different from a bespoke state ID system
 
-1. **Bring your own foundational ID.** NIN is just one adapter. A new country is onboarded with a YAML file. If its national ID API is a normal REST call, no code is written at all.
+1. **Bring your own foundational ID, from any kind of source.** NIN is just one adapter. A new jurisdiction is onboarded with a YAML file, and the source can be a **REST/JSON API** (`GENERIC_REST`), an **XML/SOAP service** (`GENERIC_XML`, common in government and X-Road deployments), or an **imported register extract** — CSV, JSON, or YAML — for authorities that hand over a data dump rather than an endpoint, or for air-gapped pilots (`DATASET_FILE`, alias `IMPORT`). All three are configured the same declarative way and share one mapping, so no code is written at all.
 2. **Verifiable Credentials, not a lookup database.** Residency is issued as a signed W3C VC. A verifier confirms authenticity cryptographically, without phoning home. Credentials are issued over **OpenID4VCI** and presented over **OpenID4VP**, so a citizen can hold their residency credential in [Inji](https://github.com/mosip/inji-wallet) or any OpenWallet-compatible wallet, and any relying party can verify it without integrating anything OpenResidency-specific. See [`docs/INTEROP.md`](docs/INTEROP.md).
 3. **Offline-first inclusion.** Credentials fit in a single QR code, verify against a cached issuer key with zero connectivity, and revocation is checked against a synced status list. Feature phones are served over USSD and SMS.
 4. **SSO across sectors.** The residency system is an OpenID Connect Identity Provider. "Sign in with Katsina" lets Health, Tax, Permits, and Subsidy trust one login, and the citizen's national ID number is never shared with them.
@@ -117,9 +117,19 @@ curl -s localhost:3000/residency/verify -H 'content-type: application/json' -d '
 
 ## Onboarding a new country
 
-Add one file to `config/countries/`. For any REST-based national ID API, point `provider: GENERIC_REST` and describe the call declaratively. See `config/countries/ke.yaml` for a fully code-free example, `ng.yaml` for a NIN deployment, and `in.yaml` for a two-step OTP provider (Aadhaar).
+Add one file to `config/countries/`. Pick the source that matches the authority:
 
-The config controls: which adapter, the endpoint and auth, what the citizen submits, how the response maps to a normalized identity, the assurance policy for issuing residency, and the credential profile (issuer DID, validity, type).
+| Source | `provider` | When | Example |
+|---|---|---|---|
+| REST / JSON API | `GENERIC_REST` | The national ID API is an ordinary REST call | `ke.yaml` (code-free), `ng.yaml` (NIN), `in.yaml` (Aadhaar OTP) |
+| XML / SOAP API | `GENERIC_XML` | The service speaks SOAP/XML (common in government and X-Road stacks) | `xm-xml.yaml` |
+| Imported extract | `DATASET_FILE` / `IMPORT` | The authority hands over a CSV/JSON/YAML data dump, or the deployment is air-gapped | `xf-import.yaml` (+ `config/datasets/`) |
+
+All three are described declaratively and share one mapping layer, so the response-mapping and
+success-flag dot-paths are written the same way regardless of source; XML simply addresses
+parsed elements, and a dataset addresses record fields.
+
+The config controls: which source, the endpoint/auth or dataset path, what the citizen submits, how the response maps to a normalized identity, the assurance policy for issuing residency, and the credential profile (issuer DID, validity, type).
 
 ## SSO / OpenID Connect
 

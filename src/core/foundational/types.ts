@@ -102,11 +102,46 @@ export interface ProviderConfig {
     clientSecretEnv?: string;
   };
   timeoutMs?: number;
-  /** Generic-REST adapters use these to shape the request/response. */
+  /**
+   * Response wire format. `json` (default) and `xml` share the same `responseMapping` /
+   * `verifiedFlag` dot-paths -- for `xml`, they address parsed elements. Selecting the
+   * GENERIC_XML provider implies `xml`; DATASET_FILE ignores this entirely.
+   */
+  responseFormat?: 'json' | 'xml';
+  /** XML-parsing options for XML/SOAP providers. */
+  xml?: {
+    /** Strip namespace prefixes so `ns2:Body` maps as `Body`. Default true. */
+    stripNamespaces?: boolean;
+  };
+  /**
+   * Source for the DATASET_FILE / IMPORT provider: an imported register extract instead of a
+   * live API. The file is read and indexed once at init.
+   */
+  dataset?: {
+    /** Path to the extract; absolute, or relative to the process working directory. */
+    path: string;
+    /** Defaults to the file extension (`.csv` / `.json` / `.yaml`|`.yml`). */
+    format?: 'csv' | 'json' | 'yaml';
+    /** Dot-path to the record array/map inside a JSON/YAML file (omit if it is the root). */
+    recordsPath?: string;
+    /** Record field used as the lookup key (dot-path). */
+    keyField: string;
+    /** Which submitted identifier is compared to keyField. Defaults to the first submitted. */
+    identifierKey?: string;
+    /** Demographic cross-checks: each submitted identifier must equal the named record field. */
+    matchFields?: { identifierKey: string; recordField: string }[];
+    /** Compare keys/fields case-insensitively (and trimmed). */
+    caseInsensitive?: boolean;
+  };
+  /** Generic-REST/XML adapters use these to shape the request/response. */
   request?: {
     method?: 'GET' | 'POST';
     path?: string; // appended to baseUrl; may contain {placeholders} from identifiers
     bodyTemplate?: Record<string, string>; // values may reference {identifiers.x}
+    /** Raw request body (e.g. a SOAP envelope) with {identifiers.x} placeholders; XML providers. */
+    bodyRaw?: string;
+    /** Content-Type for a raw body. Defaults to text/xml for the XML provider. */
+    contentType?: string;
     headers?: Record<string, string>;
   };
   /** Dot-path mapping from provider response JSON -> NormalizedIdentity fields. */

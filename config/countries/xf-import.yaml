@@ -1,0 +1,57 @@
+# Example: verify against an IMPORTED register extract, not a live API.
+#
+# Some identity authorities do not expose a callable endpoint at all -- they hand over a
+# signed data dump on a schedule, and some pilots / air-gapped deployments have no
+# connectivity. The DATASET_FILE (alias IMPORT) provider loads that extract once and
+# verifies against it. The residency, credential, and SSO layers are unchanged: the source
+# of truth is a file instead of an endpoint.
+#
+# The file may be CSV, JSON, or YAML. Here it is the sample CSV in config/datasets/.
+
+countryCode: XF
+countryName: Example (Imported Register)
+defaultSubnationalUnit: KT
+
+foundational:
+  provider: IMPORT # alias for DATASET_FILE
+  dataset:
+    path: config/datasets/example-registry.csv
+    format: csv
+    keyField: national_id # record column used as the lookup key
+    identifierKey: nin # the submitted identifier compared to keyField
+    matchFields: # demographic cross-check
+      - { identifierKey: lastName, recordField: last_name }
+    caseInsensitive: true
+  inputs:
+    - { key: nin, label: National ID }
+    - { key: lastName, label: Surname }
+  responseMapping:
+    givenName: first_name
+    familyName: last_name
+    dateOfBirth: dob
+    gender: sex
+    phone: phone
+    residenceAdminUnit: residence_state # residence evidence only -- never origin
+    originAdminUnit: origin_state # kept separate; never used to prove residence
+  assuranceOnSuccess: verified
+  extra:
+    subjectSourcePath: national_id # tokenized before leaving the adapter
+
+residency:
+  minAssurance: verified
+  proofOfResidence: attestation
+  # A file match proves the record exists, not that the applicant owns it. Bind at the desk.
+  applicantBinding:
+    required: true
+    acceptedMethods: [attended_comparison]
+
+credential:
+  issuerDid: did:web:id.example.gov
+  issuerName: Example State Residency Authority
+  type: StateResidencyCredential
+  validityDays: 1095
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: KT, name: Katsina, parent: XF, level: state }

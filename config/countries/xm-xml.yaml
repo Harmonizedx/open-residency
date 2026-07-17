@@ -1,0 +1,76 @@
+# Example: verify against an XML / SOAP national-ID service.
+#
+# Many government identity systems -- and most X-Road-style deployments -- speak SOAP/XML
+# rather than REST/JSON. GENERIC_XML issues the request, parses the XML response (namespace
+# prefixes stripped by default), and maps it with the SAME dot-path `responseMapping` and
+# `verifiedFlag` a REST provider uses; they simply address elements now.
+#
+# The SOAP envelope goes in request.bodyRaw with {identifiers.x} placeholders. For a plain
+# XML-over-GET service, set request.method: GET and a templated request.path instead.
+
+countryCode: XM
+countryName: Example (XML/SOAP Registry)
+defaultSubnationalUnit: KT
+
+foundational:
+  provider: GENERIC_XML
+  baseUrl: https://id-registry.example.gov
+  timeoutMs: 8000
+  responseFormat: xml
+  xml:
+    stripNamespaces: true
+  auth:
+    type: apiKey
+    headerName: x-api-key
+    secretEnv: XM_REGISTRY_API_KEY
+  inputs:
+    - { key: nationalId, label: National ID }
+    - { key: lastName, label: Surname }
+  request:
+    method: POST
+    path: /IdentityService
+    contentType: application/soap+xml; charset=utf-8
+    headers:
+      SOAPAction: verifyIdentity
+    bodyRaw: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
+                     xmlns:id="urn:example:id">
+        <soap:Body>
+          <id:VerifyIdentity>
+            <id:nationalId>{identifiers.nationalId}</id:nationalId>
+            <id:lastName>{identifiers.lastName}</id:lastName>
+          </id:VerifyIdentity>
+        </soap:Body>
+      </soap:Envelope>
+  # Paths are into the parsed, namespace-stripped tree:
+  # Envelope > Body > VerifyIdentityResponse > ...
+  verifiedFlag: { path: Envelope.Body.VerifyIdentityResponse.match, equals: true }
+  responseMapping:
+    givenName: Envelope.Body.VerifyIdentityResponse.person.firstName
+    familyName: Envelope.Body.VerifyIdentityResponse.person.lastName
+    dateOfBirth: Envelope.Body.VerifyIdentityResponse.person.dob
+    gender: Envelope.Body.VerifyIdentityResponse.person.sex
+    residenceAdminUnit: Envelope.Body.VerifyIdentityResponse.person.residenceState
+  assuranceOnSuccess: verified
+  extra:
+    subjectSourcePath: Envelope.Body.VerifyIdentityResponse.person.nationalId
+
+residency:
+  minAssurance: verified
+  proofOfResidence: attestation
+  # A registry match is a lookup, not proof of ownership. Bind the applicant at the desk.
+  applicantBinding:
+    required: true
+    acceptedMethods: [attended_comparison]
+
+credential:
+  issuerDid: did:web:id.example.gov
+  issuerName: Example State Residency Authority
+  type: StateResidencyCredential
+  validityDays: 1095
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: KT, name: Katsina, parent: XM, level: state }

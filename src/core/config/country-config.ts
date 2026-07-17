@@ -31,11 +31,31 @@ const inputFieldSchema = z.object({
   secret: z.boolean().default(false), // e.g. OTP - do not log
 });
 
+const datasetSchema = z.object({
+  path: z.string(),
+  format: z.enum(['csv', 'json', 'yaml']).optional(),
+  recordsPath: z.string().optional(),
+  keyField: z.string(),
+  identifierKey: z.string().optional(),
+  matchFields: z
+    .array(z.object({ identifierKey: z.string(), recordField: z.string() }))
+    .optional(),
+  caseInsensitive: z.boolean().default(false),
+});
+
 const foundationalSchema = z.object({
-  provider: z.string(), // e.g. NG_NIN, IN_AADHAAR, GENERIC_REST, MOCK
+  // e.g. NG_NIN, IN_AADHAAR, GENERIC_REST (JSON API), GENERIC_XML (XML/SOAP API),
+  // DATASET_FILE / IMPORT (register extract), MOCK
+  provider: z.string(),
   baseUrl: z.string().optional(),
   auth: authSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /** Response wire format; `xml` uses the same mapping dot-paths over parsed elements. */
+  responseFormat: z.enum(['json', 'xml']).optional(),
+  /** XML-parsing options (XML/SOAP providers). */
+  xml: z.object({ stripNamespaces: z.boolean().default(true) }).optional(),
+  /** Imported register extract, for the DATASET_FILE / IMPORT provider. */
+  dataset: datasetSchema.optional(),
   /** Fields the citizen must submit; also drives auto-generated UIs. */
   inputs: z.array(inputFieldSchema).default([]),
   request: z
@@ -43,6 +63,10 @@ const foundationalSchema = z.object({
       method: z.enum(['GET', 'POST']).default('POST'),
       path: z.string().default(''),
       bodyTemplate: z.record(z.string()).optional(),
+      /** Raw request body (e.g. a SOAP envelope) with {identifiers.x} placeholders. */
+      bodyRaw: z.string().optional(),
+      /** Content-Type for a raw body; defaults to text/xml for XML providers. */
+      contentType: z.string().optional(),
       headers: z.record(z.string()).optional(),
     })
     .optional(),
