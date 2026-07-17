@@ -296,6 +296,94 @@ const presentationSchema = z.object({
     .default(['dcql', 'presentation_definition']),
 });
 
+/**
+ * Resident ID format ruleset.
+ *
+ * The default reproduces the original `KT-7F3A-9K2P-4` scheme exactly. A state can instead
+ * declare its own house style -- e.g. a 12-digit numeric KRID with a Luhn check. There is
+ * deliberately NO free-form template: the random body is the only variable part, so the
+ * foundational number can never be embedded in a public identifier.
+ */
+const idAlphabetEnum = z.enum(['crockford32', 'numeric', 'alphanumeric', 'hex']);
+const checksumEnum = z.enum(['crockford-sha256', 'luhn', 'mod97-10', 'none']);
+const ID_ALPHABET_SIZE: Record<string, number> = {
+  crockford32: 32,
+  numeric: 10,
+  alphanumeric: 36,
+  hex: 16,
+};
+/** Minimum bits of randomness in the body; ~32 admits a 12-digit numeric KRID. */
+const MIN_ID_ENTROPY_BITS = 32;
+
+const residentIdSchema = z
+  .object({
+    alphabet: idAlphabetEnum.default('crockford32'),
+    customAlphabet: z.string().min(2).optional(),
+    groups: z.array(z.number().int().positive()).nonempty().default([4, 4]),
+    separator: z.string().default('-'),
+    case: z.enum(['upper', 'lower']).default('upper'),
+    prefix: z
+      .object({
+        mode: z.enum(['unit', 'static', 'country', 'none']).default('unit'),
+        value: z.string().optional(),
+      })
+      .default({}),
+    checkDigit: z
+      .object({
+        enabled: z.boolean().default(true),
+        algorithm: checksumEnum.default('crockford-sha256'),
+      })
+      .default({}),
+  })
+  .superRefine((v, ctx) => {
+    // Collision safety: too short a random body risks duplicate IDs.
+    const size =
+      v.customAlphabet && v.customAlphabet.length >= 2
+        ? v.customAlphabet.length
+        : ID_ALPHABET_SIZE[v.alphabet];
+    const bodyLen = v.groups.reduce((a, b) => a + b, 0);
+    const bits = bodyLen * Math.log2(size);
+    if (bits < MIN_ID_ENTROPY_BITS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['groups'],
+        message: `resident id body has ~${bits.toFixed(0)} bits of entropy; lengthen groups to reach >= ${MIN_ID_ENTROPY_BITS} bits`,
+      });
+    }
+    // Numeric checksums operate on digits, so they need a numeric body and no alpha prefix.
+    const numericChecksum =
+      v.checkDigit.algorithm === 'luhn' || v.checkDigit.algorithm === 'mod97-10';
+    if (v.checkDigit.enabled && numericChecksum) {
+      if (v.alphabet !== 'numeric' || v.customAlphabet) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['checkDigit', 'algorithm'],
+          message: `${v.checkDigit.algorithm} requires alphabet: numeric`,
+        });
+      }
+      const alphaPrefix =
+        v.prefix.mode === 'unit' ||
+        v.prefix.mode === 'country' ||
+        (v.prefix.mode === 'static' && /\D/.test(v.prefix.value ?? ''));
+      if (alphaPrefix) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['prefix'],
+          message: `${v.checkDigit.algorithm} cannot be computed over a non-numeric prefix; use prefix.mode: none`,
+        });
+      }
+    }
+    if (v.prefix.mode === 'static' && !v.prefix.value) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['prefix', 'value'],
+        message: 'prefix.mode: static requires prefix.value',
+      });
+    }
+  });
+
+export type ResidentIdConfig = z.infer<typeof residentIdSchema>;
+
 export const countryConfigSchema = z.object({
   countryCode: z.string().length(2),
   countryName: z.string(),
@@ -303,6 +391,8 @@ export const countryConfigSchema = z.object({
   foundational: foundationalSchema,
   residency: residencySchema.default({}),
   credential: credentialSchema,
+  // Resident ID format. Omit it for the default KT-XXXX-XXXX-C scheme.
+  residentId: residentIdSchema.default({}),
   // Both default to today's behaviour, so a config that omits them is unchanged.
   wallet: walletSchema.default({}),
   presentation: presentationSchema.default({}),

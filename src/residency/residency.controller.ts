@@ -1,6 +1,7 @@
 import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
 import { ApplicantBinding } from '../core/proofing/binding';
+import { residentIdPattern } from '../core/residency/resident-id';
 
 interface IssueBody {
   countryCode: string;
@@ -48,6 +49,10 @@ export class ResidencyController {
       // True when the foundational provider authenticates the owner itself (OTP / eID),
       // so the desk does not need to bind the applicant manually.
       authenticatesApplicant: c.foundational.authenticatesApplicant,
+      // The resident id format this jurisdiction issues, plus a validation regex an MDA
+      // system or capture UI can use without reimplementing the rules.
+      residentIdFormat: c.residentId,
+      residentIdPattern: residentIdPattern(c.residentId),
     }));
   }
 

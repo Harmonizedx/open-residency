@@ -8,6 +8,7 @@ import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
 import { StatusList } from '../src/core/credentials/status-list';
 import { InMemoryStore } from '../src/core/residency/ports';
 import { ResidencyService } from '../src/core/residency/residency-service';
+import { generateResidentId, isValidResidentId, IdFormat } from '../src/core/residency/resident-id';
 import { encodeCredentialQr } from '../src/core/offline/qr';
 import { handleUssd } from '../src/core/offline/ussd';
 import { AuditLog, InMemoryAuditStore } from '../src/core/audit/audit-log';
@@ -362,6 +363,80 @@ async function main() {
   check(
     'credential asserts the achieved residence assurance to the verifier',
     (resVerify?.subject as any)?.residence?.assuranceLevel === 'RAL2',
+  );
+
+  // --- Configurable Resident ID format ------------------------------------------------
+  //
+  // The default is unchanged (KT-XXXX-XXXX-C, Crockford + check char). A state can instead
+  // declare a statutory scheme -- here a 12-digit numeric KRID with a Luhn check.
+  const defaultId = generateResidentId('KT');
+  check('default id keeps the KT-XXXX-XXXX-C shape', /^KT-[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]$/.test(defaultId));
+  check('default id validates its own check char', isValidResidentId(defaultId));
+  check(
+    'a mistyped default check char is caught',
+    !isValidResidentId(defaultId.slice(0, -1) + (defaultId.slice(-1) === 'Z' ? 'Y' : 'Z')),
+  );
+
+  const kridFormat: IdFormat = {
+    alphabet: 'numeric',
+    groups: [11],
+    separator: '',
+    case: 'upper',
+    prefix: { mode: 'none' },
+    checkDigit: { enabled: true, algorithm: 'luhn' },
+  };
+  const krid = generateResidentId('KT', kridFormat);
+  check('numeric KRID renders as 12 digits', /^\d{12}$/.test(krid));
+  check('numeric KRID passes its Luhn check', isValidResidentId(krid, kridFormat));
+  check(
+    'a single mistyped KRID digit is caught by Luhn',
+    !isValidResidentId((krid[0] === '0' ? '1' : '0') + krid.slice(1), kridFormat),
+  );
+
+  // Config guardrails: entropy floor, and numeric-checksum/alphabet coherence.
+  const idBase = {
+    countryCode: 'NG',
+    countryName: 'Nigeria',
+    defaultSubnationalUnit: 'KT',
+    foundational: { provider: 'MOCK', inputs: [], assuranceOnSuccess: 'verified' },
+    credential: { issuerDid, issuerName: 'X', context: ['https://www.w3.org/ns/credentials/v2'] },
+    subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
+  };
+  const parseThrows = (residentId: unknown): boolean => {
+    try {
+      parseCountryConfig({ ...idBase, residentId });
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  check('id config rejects a sub-entropy format', parseThrows({ alphabet: 'numeric', groups: [4], checkDigit: { enabled: false } }));
+  check('id config rejects Luhn over a non-numeric alphabet', parseThrows({ alphabet: 'crockford32', checkDigit: { enabled: true, algorithm: 'luhn' } }));
+  check(
+    'id config accepts a valid 12-digit KRID ruleset',
+    !parseThrows({ alphabet: 'numeric', groups: [11], separator: '', prefix: { mode: 'none' }, checkDigit: { enabled: true, algorithm: 'luhn' } }),
+  );
+
+  // End-to-end: issuance honours the configured format.
+  const kridCfg: CountryConfig = parseCountryConfig({
+    ...idBase,
+    residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
+    residentId: { alphabet: 'numeric', groups: [11], separator: '', prefix: { mode: 'none' }, checkDigit: { enabled: true, algorithm: 'luhn' } },
+    credential: { issuerDid, issuerName: 'Katsina State Residency Authority', type: 'StateResidencyCredential', validityDays: 1095, context: ['https://www.w3.org/ns/credentials/v2'] },
+    foundational: { provider: 'MOCK', inputs: [{ key: 'nin', label: 'NIN' }], assuranceOnSuccess: 'verified' },
+  });
+  const kridStore = new InMemoryStore();
+  const kridSvc = new ResidencyService(registry, issuer, kridStore, () => 'https://id.katsina.gov.ng/status/ng.json');
+  const kridIssue = await kridSvc.issue(kridCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '12345678902' },
+  });
+  check(
+    'issuance mints the configured 12-digit KRID',
+    kridIssue.status === 'issued' &&
+      /^\d{12}$/.test(kridIssue.residentId) &&
+      isValidResidentId(kridIssue.residentId, kridCfg.residentId),
   );
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
