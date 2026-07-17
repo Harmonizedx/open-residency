@@ -40,6 +40,14 @@ residency:
   minAssurance: verified
   proofOfResidence: attestation # ward-level operator or existing register vouches
   allowProvisional: true # permit offline issuance, reconcile when back online
+  # A NIN match is a bare registry lookup: anyone who knows the number passes it, so it does
+  # NOT prove the applicant owns the identity. Binding must come from the enrolment desk --
+  # the same ward operator who attests residence compares the applicant to the NIN record.
+  # If NIMC later exposes an owner-authenticating flow (device OTP / eID), add
+  # authoritative_authentication here and set foundational.authenticatesApplicant: true.
+  applicantBinding:
+    required: true
+    acceptedMethods: [attended_comparison]
 
 credential:
   issuerDid: did:web:id.katsina.gov.ng

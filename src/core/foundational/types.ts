@@ -8,6 +8,8 @@
  * touching the residency, credential, or SSO layers.
  */
 
+import { ApplicantBinding } from '../proofing/binding';
+
 export type AssuranceLevel = 'none' | 'basic' | 'verified' | 'high';
 
 /** What the citizen (or an operator on their behalf) submits to prove foundational identity. */
@@ -57,6 +59,14 @@ export interface FoundationalVerificationResult {
   providerCode: string;
   assuranceLevel: AssuranceLevel;
   identity?: NormalizedIdentity;
+  /**
+   * Set only when the verification act itself authenticated the applicant as the OWNER
+   * of this identity -- an eID / OIDC redirect, or an OTP delivered to the device
+   * registered against the record. A bare lookup adapter leaves this undefined: passing
+   * the lookup proves the record is genuine, not that the applicant owns it. The
+   * residency engine reads this as one possible source of applicant->identity binding.
+   */
+  applicantBinding?: ApplicantBinding;
   /** When the provider needs a second factor (OTP / biometric) before it will confirm. */
   pendingChallenge?: { type: 'otp' | 'biometric' | 'push'; channel: string; challengeRef: string };
   /** Machine-readable reason on failure, safe to surface to operators. */
@@ -91,6 +101,13 @@ export interface ProviderConfig {
   verifiedFlag?: { path: string; equals?: unknown };
   /** Assurance level this provider yields on success. */
   assuranceOnSuccess?: AssuranceLevel;
+  /**
+   * Declares that this provider's verification authenticates the applicant as the OWNER
+   * (an eID / OIDC redirect, or an OTP to the registered device), not merely that the
+   * record exists. When true, a successful verify() attests
+   * `authoritative_authentication` binding. Lookup-only providers must leave this false.
+   */
+  authenticatesApplicant?: boolean;
   /** Adapter-specific extras. */
   extra?: Record<string, unknown>;
 }

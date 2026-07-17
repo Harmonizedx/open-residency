@@ -621,6 +621,22 @@ components:
         holderId: { type: string, description: did:key the holder controls }
         challengeRef: { type: string }
         proofOfResidence: { type: string }
+        binding:
+          type: object
+          description: >-
+            Applicant->identity binding performed by the enrolment channel (an agent's
+            in-person comparison, a face/fingerprint match). Combined with any binding the
+            foundational provider attested; the strongest is enforced against the
+            jurisdiction's policy and recorded in the credential. Only meaningful from a
+            trusted enrolment context.
+          properties:
+            method:
+              type: string
+              enum: [authoritative_authentication, face_match, fingerprint_match, attended_comparison, none]
+            ref: { type: string, description: opaque reference to the binding act }
+            verifiedAt: { type: string, format: date-time }
+            score: { type: number, description: biometric match score, if reported }
+          required: [method]
         offline: { type: boolean }
     IssueResult:
       type: object

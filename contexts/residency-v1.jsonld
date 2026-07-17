@@ -48,6 +48,23 @@
           }
         },
 
+        "applicantBinding": {
+          "@id": "orv:applicantBinding",
+          "@context": {
+            "@protected": true,
+            "method": "orv:bindingMethod",
+            "ref": "orv:bindingRef",
+            "verifiedAt": {
+              "@id": "orv:bindingVerifiedAt",
+              "@type": "http://www.w3.org/2001/XMLSchema#dateTime"
+            },
+            "score": {
+              "@id": "orv:bindingScore",
+              "@type": "http://www.w3.org/2001/XMLSchema#double"
+            }
+          }
+        },
+
         "person": {
           "@id": "orv:person",
           "@context": {

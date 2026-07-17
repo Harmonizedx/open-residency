@@ -14,6 +14,7 @@ import {
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
 import { generateResidentId } from './resident-id';
+import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
 
 /** The credential formats this issuer can produce. */
 export type CredentialFormat = 'jwt_vc_json' | 'ldp_vc';
@@ -41,6 +42,13 @@ export interface IssueResidencyRequest {
   /** did:key the holder controls; falls back to a urn if omitted (custodial wallet). */
   holderId?: string;
   proofOfResidence?: string; // overrides config default when an operator attests
+  /**
+   * Binding the enrolment channel performed itself: an agent's in-person comparison, a
+   * face/fingerprint match, or an external eID authentication. Combined with any binding
+   * the foundational provider attested; the strongest wins. Must originate from a trusted
+   * enrolment context, not from an unauthenticated caller asserting its own binding.
+   */
+  binding?: ApplicantBinding;
   context?: Record<string, unknown>;
 }
 
@@ -98,6 +106,7 @@ export class ResidencyService {
         assuranceLevel: record.assuranceLevel,
         subjectRef: record.subjectRef,
       },
+      applicantBinding: record.binding,
       person: record.person,
       proofOfResidence: cfg.residency.proofOfResidence,
       provisional: record.provisional,
@@ -175,6 +184,7 @@ export class ResidencyService {
       responseMapping: cfg.foundational.responseMapping as any,
       verifiedFlag: cfg.foundational.verifiedFlag,
       assuranceOnSuccess: cfg.foundational.assuranceOnSuccess,
+      authenticatesApplicant: cfg.foundational.authenticatesApplicant,
       extra: cfg.foundational.extra,
     });
   }
@@ -205,15 +215,32 @@ export class ResidencyService {
       return { status: 'rejected', reason: `ASSURANCE_TOO_LOW_${result.assuranceLevel}` };
     }
 
+    // 3. Establish applicant -> identity binding.
+    //
+    // A passed foundational check means the identity RECORD is genuine. It does NOT, on
+    // its own, mean the applicant OWNS it -- a lookup anyone with the number could pass is
+    // not owner proof. Combine any binding the provider attested (an OTP to the registered
+    // device, an eID redirect) with any the enrolment channel performed (an agent's
+    // in-person comparison, a face/fingerprint match), take the strongest, and hold it to
+    // this jurisdiction's policy before issuing anything.
+    const binding = strongestBinding(result.applicantBinding, req.binding);
+    const bindingPolicy = cfg.residency.applicantBinding;
+    if (bindingPolicy.required && !bindingSatisfies(binding, bindingPolicy.acceptedMethods)) {
+      return {
+        status: 'rejected',
+        reason: `APPLICANT_BINDING_REQUIRED_${binding.method.toUpperCase()}`,
+      };
+    }
+
     const identity = result.identity!;
 
-    // 3. One person per (provider subject) per deployment: idempotent issuance.
+    // 4. One person per (provider subject) per deployment: idempotent issuance.
     const existing = await this.store.findBySubjectRef(identity.subjectRef);
     if (existing) {
       return { status: 'exists', residentId: existing.residentId, record: existing };
     }
 
-    // 4. Mint residency id + assign a revocation status index.
+    // 5. Mint residency id + assign a revocation status index.
     const residentId = generateResidentId(req.subnationalUnit);
     const statusListIndex = await this.store.nextStatusIndex(cfg.countryCode);
     const unit = cfg.subnationalUnits.find((u) => u.code === req.subnationalUnit);
@@ -222,7 +249,7 @@ export class ResidencyService {
     const provisional =
       cfg.residency.allowProvisional && req.context?.offline === true ? true : false;
 
-    // 5. Issue the Verifiable Credential.
+    // 5b. Assemble the credential claims, including the achieved binding.
     const claims: ResidencyClaims = {
       holderId,
       residentId,
@@ -237,6 +264,7 @@ export class ResidencyService {
         assuranceLevel: result.assuranceLevel,
         subjectRef: identity.subjectRef,
       },
+      applicantBinding: binding,
       person: {
         fullName: identity.fullName,
         givenName: identity.givenName,
@@ -248,6 +276,7 @@ export class ResidencyService {
       provisional,
     };
 
+    // 6. Issue the Verifiable Credential.
     const issued = await this.issuer.issue(claims, this.issueOptionsFor(cfg, statusListIndex));
 
     const record: ResidentRecord = {
@@ -258,6 +287,7 @@ export class ResidencyService {
       subnationalUnit: req.subnationalUnit,
       providerCode: result.providerCode,
       assuranceLevel: result.assuranceLevel,
+      binding,
       provisional,
       credentialId: issued.credentialId,
       statusListIndex,

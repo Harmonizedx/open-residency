@@ -1,5 +1,6 @@
 import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
+import { ApplicantBinding } from '../core/proofing/binding';
 
 interface IssueBody {
   countryCode: string;
@@ -8,6 +9,14 @@ interface IssueBody {
   holderId?: string;
   challengeRef?: string;
   proofOfResidence?: string;
+  /**
+   * Applicant->identity binding performed by the enrolment channel (an agent's in-person
+   * comparison, a face/fingerprint match). Only meaningful from a trusted enrolment
+   * context: for the attended/biometric methods this endpoint must sit behind operator
+   * authentication, so a citizen cannot self-assert that they were bound. The strongest
+   * of this and any provider-attested binding is what the engine enforces and records.
+   */
+  binding?: ApplicantBinding;
   offline?: boolean;
 }
 
@@ -33,6 +42,12 @@ export class ResidencyController {
       provider: c.foundational.provider,
       inputs: c.foundational.inputs,
       subnationalUnits: c.subnationalUnits,
+      // Applicant->identity binding policy, so an enrolment UI knows whether an operator
+      // must attest binding and which methods this jurisdiction accepts.
+      applicantBinding: c.residency.applicantBinding,
+      // True when the foundational provider authenticates the owner itself (OTP / eID),
+      // so the desk does not need to bind the applicant manually.
+      authenticatesApplicant: c.foundational.authenticatesApplicant,
     }));
   }
 
@@ -48,6 +63,7 @@ export class ResidencyController {
       holderId: body.holderId,
       challengeRef: body.challengeRef,
       proofOfResidence: body.proofOfResidence,
+      binding: body.binding,
       context: { offline: body.offline === true },
     });
     await this.platform.getAudit().record({
@@ -56,7 +72,14 @@ export class ResidencyController {
       target: 'residentId' in result ? result.residentId : undefined,
       countryCode: cfg.countryCode,
       outcome: result.status === 'issued' || result.status === 'exists' ? 'success' : 'failure',
-      metadata: { status: result.status, subnationalUnit: body.subnationalUnit },
+      metadata: {
+        status: result.status,
+        subnationalUnit: body.subnationalUnit,
+        // Record which binding method was achieved (or why issuance was refused) so the
+        // proofing decision is auditable, not just the pass/fail outcome.
+        bindingMethod: result.status === 'issued' ? result.record.binding.method : undefined,
+        reason: result.status === 'rejected' ? result.reason : undefined,
+      },
     });
     return result;
   }

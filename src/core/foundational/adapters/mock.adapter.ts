@@ -18,12 +18,13 @@ import { tokenizeSubject } from '../util';
 export class MockAdapter implements FoundationalProvider {
   readonly code = 'MOCK';
   private pepper: string;
+  private authenticatesApplicant = false;
   constructor(pepper = process.env.SUBJECT_PEPPER ?? 'dev-pepper') {
     this.pepper = pepper;
   }
 
-  init(_config: ProviderConfig): void {
-    /* nothing to initialize */
+  init(config: ProviderConfig): void {
+    this.authenticatesApplicant = config.authenticatesApplicant === true;
   }
 
   async verify(
@@ -46,6 +47,16 @@ export class MockAdapter implements FoundationalProvider {
       verified: true,
       providerCode: this.code,
       assuranceLevel: 'verified',
+      // Honour the same binding contract as real adapters: a mock "authenticatesApplicant"
+      // config simulates an owner-authenticating source; otherwise the mock is a bare
+      // lookup and attests no binding.
+      applicantBinding: this.authenticatesApplicant
+        ? {
+            method: 'authoritative_authentication',
+            ref: input.challengeRef,
+            verifiedAt: new Date().toISOString(),
+          }
+        : undefined,
       identity: {
         subjectRef: tokenizeSubject(this.code, primary, this.pepper),
         fullName: (input.identifiers.fullName as string) ?? 'Amina Test Citizen',

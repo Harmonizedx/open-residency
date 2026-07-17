@@ -51,8 +51,23 @@ const foundationalSchema = z.object({
     .object({ path: z.string(), equals: z.unknown().optional() })
     .optional(),
   assuranceOnSuccess: z.enum(['none', 'basic', 'verified', 'high']).optional(),
+  /**
+   * True only for providers whose verification authenticates the APPLICANT as the owner
+   * (an eID / OIDC redirect, or an OTP to the device registered against the record). Such
+   * a provider attests `authoritative_authentication` binding on success. A lookup-only
+   * provider (a NIN/registry match) must leave this false: passing the lookup is not
+   * proof the applicant owns the identity.
+   */
+  authenticatesApplicant: z.boolean().default(false),
   extra: z.record(z.unknown()).optional(),
 });
+
+const bindingMethodEnum = z.enum([
+  'authoritative_authentication',
+  'face_match',
+  'fingerprint_match',
+  'attended_comparison',
+]);
 
 const residencySchema = z.object({
   /** Minimum foundational assurance required to issue residency. */
@@ -67,6 +82,30 @@ const residencySchema = z.object({
     .default('attestation'),
   /** Allow provisional issuance offline, to be reconciled when connectivity returns. */
   allowProvisional: z.boolean().default(true),
+  /**
+   * Applicant -> identity binding policy.
+   *
+   * Foundational verification proves the identity RECORD is genuine; on its own it does
+   * NOT prove the applicant OWNS it. When `required` is true, issuance is refused unless
+   * an accepted binding method was achieved -- either attested by the foundational
+   * provider (authoritative_authentication) or supplied by the enrolment channel
+   * (attended_comparison, face_match, fingerprint_match). Leaving `required` false keeps
+   * the binding recorded on every credential but does not gate issuance on it; that is
+   * appropriate for demos and low-assurance tiers, not for a real resident credential.
+   */
+  applicantBinding: z
+    .object({
+      required: z.boolean().default(false),
+      acceptedMethods: z
+        .array(bindingMethodEnum)
+        .default([
+          'authoritative_authentication',
+          'face_match',
+          'fingerprint_match',
+          'attended_comparison',
+        ]),
+    })
+    .default({}),
 });
 
 const credentialSchema = z.object({

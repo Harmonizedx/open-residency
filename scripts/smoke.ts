@@ -98,6 +98,18 @@ async function main() {
   check('offline verify succeeds (signature + expiry)', v1.valid === true);
   check('verified subject carries residentId', (v1.subject as any)?.residentId === residentId);
 
+  // --- Applicant -> identity binding is recorded, and asserted in the credential ---
+  // The MOCK provider is a bare lookup, so it attests NO binding: a passed lookup is not
+  // owner proof, and the credential must say so rather than imply ownership.
+  check(
+    'lookup-only issuance records binding method "none"',
+    good.status === 'issued' && good.record.binding.method === 'none',
+  );
+  check(
+    'credential asserts applicantBinding to the verifier',
+    (v1.subject as any)?.applicantBinding?.method === 'none',
+  );
+
   // --- Tamper detection ---
   const tampered = jwt.slice(0, -4) + (jwt.slice(-4) === 'AAAA' ? 'BBBB' : 'AAAA');
   const vTamper = await verifier.verify(tampered, { offline: true });
@@ -179,6 +191,68 @@ async function main() {
   check('consent can be revoked', revoked?.status === 'revoked');
   const afterList = await consent.listByResident(residentId);
   check('revoked consent is reflected in listing', afterList.some((c) => c.status === 'revoked'));
+
+  // --- Binding policy: a jurisdiction that REQUIRES owner binding refuses a bare lookup ---
+  const boundCfg: CountryConfig = parseCountryConfig({
+    countryCode: 'KE',
+    countryName: 'Kenya',
+    defaultSubnationalUnit: 'NBI',
+    foundational: {
+      provider: 'MOCK',
+      inputs: [{ key: 'id', label: 'ID' }],
+      assuranceOnSuccess: 'verified',
+    },
+    // Owner binding is required; only an in-person comparison is accepted here.
+    residency: {
+      minAssurance: 'verified',
+      proofOfResidence: 'attestation',
+      applicantBinding: { required: true, acceptedMethods: ['attended_comparison'] },
+    },
+    credential: {
+      issuerDid,
+      issuerName: 'Nairobi County Residency Authority',
+      type: 'StateResidencyCredential',
+      validityDays: 365,
+      context: ['https://www.w3.org/ns/credentials/v2'],
+    },
+    subnationalUnits: [{ code: 'NBI', name: 'Nairobi', parent: 'KE', level: 'county' }],
+  });
+  const boundStore = new InMemoryStore();
+  const boundSvc = new ResidencyService(
+    registry,
+    issuer,
+    boundStore,
+    () => 'https://id.nairobi.go.ke/status/ke.json',
+  );
+
+  const unbound = await boundSvc.issue(boundCfg, {
+    countryCode: 'KE',
+    subnationalUnit: 'NBI',
+    identifiers: { id: '22222222222' }, // even => foundational match, but nobody bound the applicant
+  });
+  check(
+    'binding-required jurisdiction rejects an unbound applicant',
+    unbound.status === 'rejected' && unbound.reason === 'APPLICANT_BINDING_REQUIRED_NONE',
+  );
+
+  const bound = await boundSvc.issue(boundCfg, {
+    countryCode: 'KE',
+    subnationalUnit: 'NBI',
+    identifiers: { id: '22222222222' },
+    // An enrolment agent compared the applicant to the identity evidence in person.
+    binding: { method: 'attended_comparison', ref: 'agent-4417' },
+  });
+  check('same applicant issues once bound in person', bound.status === 'issued');
+  check(
+    'issued record carries the binding method',
+    bound.status === 'issued' && bound.record.binding.method === 'attended_comparison',
+  );
+  const boundVerify =
+    bound.status === 'issued' ? await verifier.verify(bound.credentialJwt, { offline: true }) : null;
+  check(
+    'credential asserts the attended_comparison binding',
+    (boundVerify?.subject as any)?.applicantBinding?.method === 'attended_comparison',
+  );
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);

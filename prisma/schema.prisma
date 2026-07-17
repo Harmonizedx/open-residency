@@ -20,6 +20,12 @@ model Resident {
   subnationalUnit String
   providerCode    String
   assuranceLevel  String
+  // Applicant -> identity binding: HOW the applicant was proven to own this identity.
+  // A foundational match alone is not owner proof, so the method is recorded explicitly.
+  bindingMethod   String   @default("none")
+  bindingRef      String? // opaque: auth txn, biometric match id, or enrolment operator id
+  bindingAt       DateTime?
+  bindingScore    Float? // biometric match score, when the subsystem reports one
   provisional     Boolean  @default(false)
   credentialId    String?
   statusListIndex Int

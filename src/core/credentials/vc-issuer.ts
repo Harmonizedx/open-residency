@@ -1,5 +1,6 @@
 import { SignJWT } from 'jose';
 import { IssuerKey } from './keystore';
+import { ApplicantBinding } from '../proofing/binding';
 
 /**
  * Issues the State Residency Verifiable Credential.
@@ -27,6 +28,12 @@ export interface ResidencyClaims {
     // NB: never the raw national id. A one-way subject reference only.
     subjectRef: string;
   };
+  /**
+   * How the holder was bound to this identity as its rightful owner. Asserted in the
+   * signed credential so a verifier can see not just that the record was validated, but
+   * that (and how) the applicant was proven to own it.
+   */
+  applicantBinding: ApplicantBinding;
   person: {
     fullName?: string;
     givenName?: string;
@@ -91,6 +98,7 @@ export function buildCredentialBody(
       residentId: claims.residentId,
       subnationalUnit: claims.subnationalUnit,
       foundationalAssurance: claims.foundational,
+      applicantBinding: claims.applicantBinding,
       person: claims.person,
       proofOfResidence: claims.proofOfResidence,
       provisional: claims.provisional,

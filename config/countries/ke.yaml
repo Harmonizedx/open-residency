@@ -43,6 +43,11 @@ residency:
   minAssurance: verified
   proofOfResidence: attestation
   allowProvisional: true
+  # Huduma verification here is a lookup (number + name -> match), which proves the record
+  # is genuine but not that the applicant owns it. Bind the applicant at the enrolment desk.
+  applicantBinding:
+    required: true
+    acceptedMethods: [attended_comparison]
 
 credential:
   issuerDid: did:web:id.nairobi.go.ke
