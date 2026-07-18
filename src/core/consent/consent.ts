@@ -28,6 +28,17 @@ export interface ConsentRecord {
   expiresAt?: string;
   revokedAt?: string;
   receiptId: string;
+  /**
+   * The OIDC grant this consent authorized, when it was created through the SSO consent
+   * step.
+   *
+   * Without it the consent record and the grant that actually releases claims are two
+   * independent stores with no link, so withdrawing consent leaves the grant live and the
+   * citizen keeps being read for the life of the tokens. Recording it is what lets the
+   * delivery layer revoke both together. Absent for consents created directly over the
+   * consent API, which authorize no session.
+   */
+  grantId?: string;
 }
 
 export interface ConsentStore {
@@ -46,6 +57,8 @@ export interface GrantInput {
   purpose: string;
   scopes: string[];
   validityDays?: number;
+  /** OIDC grant this consent authorizes, when created through the SSO consent step. */
+  grantId?: string;
 }
 
 export class ConsentService {
@@ -59,6 +72,15 @@ export class ConsentService {
     // Reuse an existing active consent for the same resident+RP+scopes if present.
     const existing = await this.store.findActive(input.residentId, input.relyingParty);
     if (existing && sameScopes(existing.scopes, input.scopes)) {
+      // Adopt the caller's grant id if this reuse authorized a different grant than the one
+      // on record. Letting the record keep a stale id would quietly untrack the live grant,
+      // and revoking the consent would then destroy an already-dead grant while the real
+      // session carried on -- the exact failure this linkage exists to prevent.
+      if (input.grantId && input.grantId !== existing.grantId) {
+        const updated = { ...existing, grantId: input.grantId };
+        await this.store.update(updated);
+        return { record: updated, receipt: await this.signReceipt(updated) };
+      }
       const receipt = await this.signReceipt(existing);
       return { record: existing, receipt };
     }
@@ -78,6 +100,7 @@ export class ConsentService {
         ? new Date(now.getTime() + input.validityDays * 86400_000).toISOString()
         : undefined,
       receiptId: randomId('rcpt'),
+      grantId: input.grantId,
     };
     await this.store.save(record);
     const receipt = await this.signReceipt(record);
@@ -94,6 +117,11 @@ export class ConsentService {
 
   listByResident(residentId: string): Promise<ConsentRecord[]> {
     return this.store.listByResident(residentId);
+  }
+
+  /** The active consent for a resident+RP pair, if any. */
+  findActive(residentId: string, relyingParty: string): Promise<ConsentRecord | null> {
+    return this.store.findActive(residentId, relyingParty);
   }
 
   /**

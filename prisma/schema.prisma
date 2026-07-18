@@ -165,6 +165,10 @@ model ConsentRecord {
   expiresAt        DateTime?
   revokedAt        DateTime?
   receiptId        String
+  // The OIDC grant this consent authorizes, when created through the SSO consent step.
+  // Revoking the consent revokes this grant and every token issued under it; without the
+  // link the two stores drift and a withdrawn consent keeps releasing claims.
+  grantId          String?
 
   @@index([residentId])
   @@index([relyingParty])

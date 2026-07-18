@@ -194,6 +194,9 @@ This repository is the generic public infrastructure, not a single-country app:
 - Credentials are signed with Ed25519 for small, offline-verifiable proofs.
 - Revocation uses a Bitstring Status List that verifiers cache, so no per-check callback is needed.
 - Every claim release over SSO is consent-gated and recorded in the tamper-evident audit log.
+  Consent is revocable and revocation is enforced, not just noted: withdrawing a consent
+  destroys the OIDC grant it authorized and revokes every token issued under it, so the
+  relying party stops receiving claims immediately rather than at token expiry.
 
 ## Honest caveats (this is a foundation, not a finished national system)
 

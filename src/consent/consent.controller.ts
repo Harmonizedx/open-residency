@@ -1,4 +1,14 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import type Provider from 'oidc-provider';
 import { AdminKeyGuard } from '../common/api-key.guard';
 import { PlatformService } from '../platform/platform.service';
 
@@ -23,7 +33,10 @@ import { PlatformService } from '../platform/platform.service';
 @UseGuards(AdminKeyGuard)
 @Controller('consent')
 export class ConsentController {
-  constructor(private platform: PlatformService) {}
+  constructor(
+    private platform: PlatformService,
+    @Inject('OIDC_PROVIDER') private provider: Provider,
+  ) {}
 
   @Get('resident/:residentId')
   async listForResident(@Param('residentId') residentId: string) {
@@ -69,13 +82,31 @@ export class ConsentController {
   async revoke(@Param('id') id: string) {
     const updated = await this.platform.getConsent().revoke(id);
     if (!updated) throw new NotFoundException('Unknown consent id');
+
+    // Withdrawing consent has to stop the claim release, not just record that it was
+    // withdrawn. The consent record and the OIDC grant were previously independent, so a
+    // revoked consent left the grant live and the relying party kept reading residency
+    // claims for the life of its tokens -- up to the refresh-token TTL. Destroy the grant
+    // and revoke everything issued under it.
+    let sessionRevoked = false;
+    if (updated.grantId) {
+      const grant = await this.provider.Grant.find(updated.grantId);
+      if (grant) await grant.destroy();
+      await Promise.all([
+        this.provider.AccessToken.revokeByGrantId(updated.grantId),
+        this.provider.RefreshToken.revokeByGrantId(updated.grantId),
+        this.provider.AuthorizationCode.revokeByGrantId(updated.grantId),
+      ]);
+      sessionRevoked = true;
+    }
+
     await this.platform.getAudit().record({
       action: 'consent.revoke',
       actor: updated.residentId,
       target: updated.relyingParty,
       outcome: 'success',
-      metadata: { consentId: id },
+      metadata: { consentId: id, sessionRevoked },
     });
-    return { consent: updated };
+    return { consent: updated, sessionRevoked };
   }
 }

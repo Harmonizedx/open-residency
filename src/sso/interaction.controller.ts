@@ -151,11 +151,21 @@ export class InteractionController {
     const clientId = String(params.client_id);
     const requested = String(params.scope ?? 'openid');
 
-    const grant = new this.provider.Grant({ accountId, clientId });
+    // Reuse the grant this resident's active consent already authorizes, rather than
+    // minting a fresh one on every sign-in. A new grant per login would leave the earlier
+    // ones live and untracked, so withdrawing consent would revoke only the most recent
+    // session. One consent record, one grant, revoked together.
+    const resident = await this.platform.getStore().findByResidentId(accountId);
+    const priorConsent = resident
+      ? await this.platform.getConsent().findActive(resident.residentId, clientId)
+      : null;
+    const grant =
+      (priorConsent?.grantId
+        ? await this.provider.Grant.find(priorConsent.grantId)
+        : undefined) ?? new this.provider.Grant({ accountId, clientId });
     grant.addOIDCScope(requested);
     const grantId = await grant.save();
 
-    const resident = await this.platform.getStore().findByResidentId(accountId);
     if (resident) {
       const scopes = requested.split(' ').filter((s) => s !== 'openid');
       const { record: consent } = await this.platform.getConsent().grant({
@@ -164,6 +174,7 @@ export class InteractionController {
         relyingParty: clientId,
         purpose: `Cross-sector access requested by ${clientId}`,
         scopes,
+        grantId,
       });
       await this.platform.getAudit().record({
         action: 'consent.grant',

@@ -420,6 +420,7 @@ export class PrismaConsentStore implements ConsentStore {
     expiresAt: r.expiresAt ? r.expiresAt.toISOString() : undefined,
     revokedAt: r.revokedAt ? r.revokedAt.toISOString() : undefined,
     receiptId: r.receiptId,
+    grantId: r.grantId ?? undefined,
   });
 
   async save(record: ConsentRecord): Promise<ConsentRecord> {
@@ -466,6 +467,7 @@ export class PrismaConsentStore implements ConsentStore {
       expiresAt: record.expiresAt ? new Date(record.expiresAt) : null,
       revokedAt: record.revokedAt ? new Date(record.revokedAt) : null,
       receiptId: record.receiptId,
+      grantId: record.grantId ?? null,
     };
   }
 }
