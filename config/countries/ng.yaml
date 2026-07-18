@@ -74,7 +74,23 @@ credential:
   context:
     - https://www.w3.org/ns/credentials/v2
 
+# The Resident ID format is set at the country level (see `residentId:` above -- omitted
+# here, so every unit defaults to the Crockford `KT-XXXX-XXXX-C` scheme). A federation lets
+# each state run its own statutory numbering: a unit may carry its own `residentId` block to
+# override the country default wholesale. It is validated exactly like the country format
+# (entropy floor, checksum/alphabet coherence), so a state cannot configure an unsafe ID.
 subnationalUnits:
-  - { code: KT, name: Katsina, parent: NG, level: state }
-  - { code: NG-NI, name: Niger, parent: NG, level: state }
-  - { code: ZA, name: Zamfara, parent: NG, level: state }
+  - { code: KT, name: Katsina, parent: NG, level: state } # inherits the country default
+  # Niger runs a statutory 12-digit numeric ID with a Luhn check instead of the Crockford
+  # default -- no prefix, so it is pure digits (e.g. 481930274516).
+  - code: NG-NI
+    name: Niger
+    parent: NG
+    level: state
+    residentId:
+      alphabet: numeric
+      groups: [11] # 11 random digits + 1 Luhn check = 12
+      separator: ''
+      prefix: { mode: none }
+      checkDigit: { enabled: true, algorithm: luhn }
+  - { code: ZA, name: Zamfara, parent: NG, level: state } # inherits the country default
