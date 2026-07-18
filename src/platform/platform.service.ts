@@ -78,7 +78,17 @@ export class PlatformService {
       this.log.warn('No ISSUER_PRIVATE_JWK set: generated an ephemeral dev key. Do NOT use in production.');
     }
 
+    // Subject pepper: the HMAC key that makes a subjectRef non-reversible and
+    // non-correlatable across deployments. Falling back silently is the worst case -- the
+    // default is in the public source, so every subjectRef becomes reproducible by anyone
+    // and the whole tokenization design is void. Warn as loudly as the issuer key does.
     const pepper = process.env.SUBJECT_PEPPER ?? 'dev-pepper';
+    if (!process.env.SUBJECT_PEPPER) {
+      this.log.warn(
+        'No SUBJECT_PEPPER set: using the well-known dev pepper. Subject references are ' +
+          'reproducible by anyone with the source. Do NOT use in production.',
+      );
+    }
     this.registry = new ProviderRegistry(pepper);
     this.issuer = new VcIssuer(this.key);
     this.ldpIssuer = new LdpIssuer(this.key);

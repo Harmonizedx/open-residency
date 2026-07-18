@@ -1,4 +1,20 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { createHash, timingSafeEqual } from 'node:crypto';
+
+/**
+ * Compare two secrets without leaking their contents through timing.
+ *
+ * `a !== b` returns as soon as it finds a differing byte, so how long it takes is a
+ * function of how much of the key the caller got right -- enough, over many requests, to
+ * recover the key a byte at a time. Hashing first gives both sides a fixed 32-byte length
+ * (timingSafeEqual throws on a length mismatch, which would itself be an oracle) and the
+ * comparison is then constant-time regardless of input.
+ */
+function secretsEqual(presented: string, required: string): boolean {
+  const a = createHash('sha256').update(presented).digest();
+  const b = createHash('sha256').update(required).digest();
+  return timingSafeEqual(a, b);
+}
 
 /**
  * Minimal bearer/api-key guard for privileged endpoints (admin listing, audit read).
@@ -20,7 +36,7 @@ export class AdminKeyGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const header: string = req.headers['authorization'] ?? req.headers['x-admin-key'] ?? '';
     const presented = header.startsWith('Bearer ') ? header.slice(7) : header;
-    if (!presented || presented !== required) {
+    if (!presented || !secretsEqual(presented, required)) {
       throw new UnauthorizedException('Invalid or missing admin API key');
     }
     return true;

@@ -155,13 +155,15 @@
         const jwt = res.credentialJwt || '';
         document.getElementById('jwt').value = jwt;
         if (jwt) {
-          const svg = await fetch('/offline/qr', {
+          // /offline/qr answers JSON ({mode, svg}), not a bare SVG document. Reading it as
+          // text and injecting that painted the JSON source into the QR pane.
+          const qr = await fetch('/offline/qr', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ credential: jwt, residentId: res.residentId }),
-          }).then((r) => r.text());
-          document.getElementById('qr').innerHTML = svg;
-          document.getElementById('qrwrap').style.display = 'block';
+          }).then((r) => r.json());
+          document.getElementById('qr').innerHTML = qr.svg || '';
+          document.getElementById('qrwrap').style.display = qr.svg ? 'block' : 'none';
         }
       } else {
         status.innerHTML = `<span class="pill bad">${res.status}</span> ${res.reason || ''}`;

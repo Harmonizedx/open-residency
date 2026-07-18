@@ -466,6 +466,29 @@ async function main() {
     laIssue.status === 'issued' && /^\d{12}$/.test(laIssue.residentId) && isValidResidentId(laIssue.residentId, federCfg.subnationalUnits[1].residentId!),
   );
 
+  // The claimed subnational unit is request-controlled but is persisted, asserted into the
+  // credential, and rendered in the admin console. It must be validated at the engine, not
+  // just wherever it happens to be displayed -- output escaping is the second line of
+  // defence, and only the second.
+  const injection = await federSvc.issue(federCfg, {
+    countryCode: 'NG',
+    subnationalUnit: '<img src=x onerror=alert(1)>',
+    identifiers: { nin: '12345678906' },
+  });
+  const unknownUnit = await federSvc.issue(federCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'ZZ',
+    identifiers: { nin: '12345678908' },
+  });
+  check(
+    'a subnational unit carrying markup is refused',
+    injection.status === 'rejected' && injection.reason === 'INVALID_SUBNATIONAL_UNIT',
+  );
+  check(
+    'a well-formed but undeclared subnational unit is refused',
+    unknownUnit.status === 'rejected' && unknownUnit.reason === 'UNKNOWN_SUBNATIONAL_UNIT',
+  );
+
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);
 }

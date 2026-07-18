@@ -32,6 +32,14 @@ export function buildAuthHeaders(cfg: ProviderConfig): Record<string, string> {
       const pw = auth.clientSecretEnv ? process.env[auth.clientSecretEnv] : '';
       return { authorization: 'Basic ' + Buffer.from(`${id}:${pw}`).toString('base64') };
     }
+    case 'mtls':
+      // Declared in the schema but not implemented. Returning {} here would send the
+      // request with no credentials at all, and a gateway that rejects it reads as
+      // "provider unreachable" -- a config error disguised as an outage. Fail loudly.
+      throw new Error(
+        'auth.type: mtls is declared in the config schema but not implemented; ' +
+          'configure apiKey/bearer/basic, or terminate mTLS at the egress proxy',
+      );
     default:
       return {};
   }

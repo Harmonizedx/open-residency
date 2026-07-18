@@ -1,15 +1,26 @@
-import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import { AdminKeyGuard } from '../common/api-key.guard';
 import { PlatformService } from '../platform/platform.service';
 
 /**
  * Consent API for the citizen-facing side.
  *
  * Grants are normally created during the SSO consent step, but they are first-class
- * revocable records here: a citizen can see everything they have shared and withdraw
- * it. In a hardened deployment these routes sit behind citizen authentication (the
- * same OIDC login); left open here for the reference build, and every action is
- * audited.
+ * revocable records here: a citizen can see everything they have shared and withdraw it.
+ *
+ * These were previously unauthenticated, on the reasoning that they are citizen-facing.
+ * That does not hold: with no caller identity, "citizen-facing" means anyone can read any
+ * resident's entire sharing history from their (semi-public) residency ID, revoke someone
+ * else's consent, or write a forged grant record. Nothing legitimate depended on the open
+ * routes -- the SSO consent step calls ConsentService directly rather than over HTTP, so
+ * the only HTTP caller was the admin console.
+ *
+ * Admin-guarding is the conservative interim: it closes the hole without inventing a
+ * citizen auth model. The intended end state is still per-citizen authentication (the same
+ * OIDC login), at which point a resident should reach only their OWN records and this
+ * guard becomes the operator-facing path.
  */
+@UseGuards(AdminKeyGuard)
 @Controller('consent')
 export class ConsentController {
   constructor(private platform: PlatformService) {}

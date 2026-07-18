@@ -62,6 +62,19 @@
     };
     const H = () => ({ 'x-admin-key': adminKey });
 
+    /**
+     * Escape a value for interpolation into innerHTML.
+     *
+     * Every field rendered below is server data that originated in a request body --
+     * a relying-party name, a unit code, an audit target. This console holds the admin
+     * key in sessionStorage, so an unescaped value here is not a cosmetic bug: it is a
+     * path from "anyone who can POST" to "attacker reads the admin key".
+     */
+    const esc = (v) =>
+      String(v ?? '').replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+      );
+
     document.getElementById('loadResidents').onclick = async () => {
       const el = document.getElementById('residents');
       try {
@@ -70,8 +83,8 @@
           return r.json();
         });
         if (!data.residents.length) { el.textContent = 'No residents yet.'; return; }
-        el.innerHTML = `<div class="muted">${data.total} total</div><table><tr><th>Resident ID</th><th>Country</th><th>Unit</th><th>Assurance</th><th>Provisional</th></tr>` +
-          data.residents.map((r) => `<tr><td><code>${r.residentId}</code></td><td>${r.countryCode}</td><td>${r.subnationalUnit}</td><td>${r.assuranceLevel}</td><td>${r.provisional ? 'yes' : 'no'}</td></tr>`).join('') +
+        el.innerHTML = `<div class="muted">${esc(data.total)} total</div><table><tr><th>Resident ID</th><th>Country</th><th>Unit</th><th>Assurance</th><th>Provisional</th></tr>` +
+          data.residents.map((r) => `<tr><td><code>${esc(r.residentId)}</code></td><td>${esc(r.countryCode)}</td><td>${esc(r.subnationalUnit)}</td><td>${esc(r.assuranceLevel)}</td><td>${r.provisional ? 'yes' : 'no'}</td></tr>`).join('') +
           '</table>';
       } catch (e) { el.textContent = 'Error: ' + e.message + ' (check admin key)'; }
     };
@@ -82,7 +95,7 @@
         const data = await fetch('/audit?limit=100', { headers: H() }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
         if (!data.events.length) { el.textContent = 'No events yet.'; return; }
         el.innerHTML = '<table><tr><th>#</th><th>Action</th><th>Actor</th><th>Target</th><th>Outcome</th><th>Time</th></tr>' +
-          data.events.map((e) => `<tr><td>${e.seq}</td><td><code>${e.action}</code></td><td>${e.actor}</td><td>${e.target || ''}</td><td>${e.outcome === 'success' ? '<span class="pill ok">ok</span>' : '<span class="pill bad">fail</span>'}</td><td class="muted">${new Date(e.timestamp).toLocaleString()}</td></tr>`).join('') +
+          data.events.map((e) => `<tr><td>${esc(e.seq)}</td><td><code>${esc(e.action)}</code></td><td>${esc(e.actor)}</td><td>${esc(e.target || '')}</td><td>${e.outcome === 'success' ? '<span class="pill ok">ok</span>' : '<span class="pill bad">fail</span>'}</td><td class="muted">${esc(new Date(e.timestamp).toLocaleString())}</td></tr>`).join('') +
           '</table>';
       } catch (e) { el.textContent = 'Error: ' + e.message + ' (check admin key)'; }
     };
@@ -92,9 +105,9 @@
       try {
         const data = await fetch('/audit/verify', { headers: H() }).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
         el.innerHTML = data.ok
-          ? `<span class="pill ok">chain intact</span> ${data.length} events`
-          : `<span class="pill bad">chain broken</span> at seq ${data.brokenAtSeq}`;
-      } catch (e) { el.innerHTML = '<span class="pill bad">error</span> ' + e.message; }
+          ? `<span class="pill ok">chain intact</span> ${esc(data.length)} events`
+          : `<span class="pill bad">chain broken</span> at seq ${esc(data.brokenAtSeq)}`;
+      } catch (e) { el.innerHTML = '<span class="pill bad">error</span> ' + esc(e.message); }
     };
 
     document.getElementById('loadConsents').onclick = async () => {
@@ -102,16 +115,26 @@
       const el = document.getElementById('consents');
       if (!rid) return;
       try {
-        const data = await fetch('/consent/resident/' + encodeURIComponent(rid)).then((r) => r.json());
+        const data = await fetch('/consent/resident/' + encodeURIComponent(rid), { headers: H() }).then((r) => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        });
         if (!data.consents || !data.consents.length) { el.textContent = 'No consents for this resident.'; return; }
+        // The revoke button carries its id in a data attribute rather than an inline
+        // onclick. HTML-escaping alone would not be enough there: the parser decodes
+        // entities before the JS is compiled, so an escaped quote inside an attribute
+        // still breaks out of the handler string.
         el.innerHTML = '<table><tr><th>Relying party</th><th>Scopes</th><th>Status</th><th>Granted</th><th></th></tr>' +
-          data.consents.map((c) => `<tr><td>${c.relyingParty}</td><td>${(c.scopes || []).join(', ')}</td><td>${c.status === 'active' ? '<span class="pill ok">active</span>' : '<span class="pill bad">' + c.status + '</span>'}</td><td class="muted">${new Date(c.grantedAt).toLocaleDateString()}</td><td>${c.status === 'active' ? `<button class="danger" style="margin:0;padding:4px 10px" onclick="revoke('${c.id}')">Revoke</button>` : ''}</td></tr>`).join('') +
+          data.consents.map((c) => `<tr><td>${esc(c.relyingParty)}</td><td>${esc((c.scopes || []).join(', '))}</td><td>${c.status === 'active' ? '<span class="pill ok">active</span>' : '<span class="pill bad">' + esc(c.status) + '</span>'}</td><td class="muted">${esc(new Date(c.grantedAt).toLocaleDateString())}</td><td>${c.status === 'active' ? `<button class="danger" style="margin:0;padding:4px 10px" data-revoke="${esc(c.id)}">Revoke</button>` : ''}</td></tr>`).join('') +
           '</table>';
+        el.querySelectorAll('button[data-revoke]').forEach((b) => {
+          b.addEventListener('click', () => revoke(b.getAttribute('data-revoke')));
+        });
       } catch (e) { el.textContent = 'Error: ' + e.message; }
     };
 
     async function revoke(id) {
-      await fetch('/consent/' + encodeURIComponent(id) + '/revoke', { method: 'POST' });
+      await fetch('/consent/' + encodeURIComponent(id) + '/revoke', { method: 'POST', headers: H() });
       document.getElementById('loadConsents').click();
     }
     window.revoke = revoke;

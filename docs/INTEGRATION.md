@@ -189,9 +189,10 @@ not surrender your domain logic.
 
 ## Before you go live — checklist
 
-- [ ] **Real authentication factor.** The reference build's interaction login is a placeholder that
-      only checks a ResidentID exists. A production IdP must bind a real factor (SMS/USSD OTP, or a
-      Verifiable Presentation) — see the caveat in the main [README](../README.md).
+- [ ] **OTP delivery.** Sign-in already binds a real factor (Verifiable Presentation primary,
+      one-time code fallback; a bare ResidentID does not authenticate). What is still a stub is
+      *delivery* — `LoggingOtpSender` prints codes to the console. Wire your SMS/USSD aggregator
+      before production.
 - [ ] **Cross-service correlation.** The OIDC `sub` currently equals `resident_id`, stable across
       every relying party. If independent services must not be able to correlate the same citizen,
       the IdP should issue **pairwise (PPID)** subject identifiers and release the real `resident_id`

@@ -1,6 +1,8 @@
-import { Body, Controller, Get, NotFoundException, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, UseGuards } from '@nestjs/common';
+import { AdminKeyGuard } from '../common/api-key.guard';
 import { PlatformService } from '../platform/platform.service';
 import { ApplicantBinding } from '../core/proofing/binding';
+import { ResidenceEvidence } from '../core/proofing/residence';
 import { residentIdPattern } from '../core/residency/resident-id';
 
 interface IssueBody {
@@ -18,6 +20,17 @@ interface IssueBody {
    * of this and any provider-attested binding is what the engine enforces and records.
    */
   binding?: ApplicantBinding;
+  /**
+   * Proof-of-residence evidence gathered by the enrolment channel -- a ward operator's
+   * attestation, a sighted utility bill, a geospatial match.
+   *
+   * Carries the same trust requirement as `binding`: only meaningful from an authenticated
+   * operator context, since a citizen who could post their own `authority_attestation`
+   * would be attesting their own residence. Evidence the foundational source supplies is
+   * collected separately by the engine and capped at RAL1; anything above that has to
+   * arrive here, which is why a jurisdiction configured for RAL2 cannot issue without it.
+   */
+  residenceEvidence?: ResidenceEvidence[];
   offline?: boolean;
 }
 
@@ -69,6 +82,7 @@ export class ResidencyController {
       challengeRef: body.challengeRef,
       proofOfResidence: body.proofOfResidence,
       binding: body.binding,
+      residenceEvidence: body.residenceEvidence,
       context: { offline: body.offline === true },
     });
     await this.platform.getAudit().record({
@@ -104,6 +118,16 @@ export class ResidencyController {
     };
   }
 
+  /**
+   * Revoke a residency credential.
+   *
+   * Admin-guarded: revocation is a privileged, destructive act on someone else's identity,
+   * and residency IDs are semi-public by design (printed on cards, carried in QR codes), so
+   * an unguarded route would let anyone who can read an ID cancel that person's credential.
+   * The audit entry has always recorded this as `actor: 'admin'` -- the guard is what makes
+   * that record true.
+   */
+  @UseGuards(AdminKeyGuard)
   @Post('revoke/:residentId')
   async revoke(@Param('residentId') residentId: string) {
     const record = await this.platform.getStore().findByResidentId(residentId);

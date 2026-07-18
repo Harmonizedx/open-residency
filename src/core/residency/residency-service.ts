@@ -41,6 +41,28 @@ const ASSURANCE_RANK: Record<AssuranceLevel, number> = {
   high: 3,
 };
 
+/** Unit codes are short identifiers (KT, NG-NI), never free text. */
+const UNIT_CODE_PATTERN = /^[A-Za-z0-9-]{1,32}$/;
+
+/**
+ * Check a requested subnational unit, returning a rejection reason or `undefined`.
+ *
+ * Two independent checks, deliberately not collapsed into one. Membership is the real
+ * rule: a jurisdiction declares its units, and you cannot be issued residency of a unit
+ * that does not exist. The character-class check is the backstop for a config that
+ * declares no units at all (`subnationalUnits` defaults to an empty array), where there is
+ * no list to match against but still no reason to accept markup or control characters.
+ */
+function validateSubnationalUnit(cfg: CountryConfig, unitCode: string): string | undefined {
+  if (typeof unitCode !== 'string' || !UNIT_CODE_PATTERN.test(unitCode)) {
+    return 'INVALID_SUBNATIONAL_UNIT';
+  }
+  if (cfg.subnationalUnits.length > 0 && !cfg.subnationalUnits.some((u) => u.code === unitCode)) {
+    return 'UNKNOWN_SUBNATIONAL_UNIT';
+  }
+  return undefined;
+}
+
 export interface IssueResidencyRequest {
   countryCode: string;
   subnationalUnit: string; // unit code, e.g. KT
@@ -224,6 +246,16 @@ export class ResidencyService {
   }
 
   async issue(cfg: CountryConfig, req: IssueResidencyRequest): Promise<IssueResidencyResult> {
+    // 0. Validate the claimed subnational unit before anything else consumes it.
+    //
+    // This value arrives from the request body and is persisted on the record, asserted
+    // into the credential, and rendered in the admin console. Enrolling into a unit the
+    // jurisdiction has not declared is meaningless on its own terms, and accepting an
+    // arbitrary string here is what turns an unvalidated field into a stored-injection
+    // vector for anything downstream that renders it.
+    const unitRejection = validateSubnationalUnit(cfg, req.subnationalUnit);
+    if (unitRejection) return { status: 'rejected', reason: unitRejection };
+
     // 1. Resolve the foundational provider from country config and verify.
     const provider = this.getProvider(cfg);
 

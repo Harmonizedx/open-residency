@@ -33,10 +33,17 @@ export class OfflineController {
     const result = handleUssd(body.text ?? '');
 
     if (result.action?.type === 'lookupResident') {
-      const rec = await this.platform.getStore().findByResidentId(result.action.residentId);
+      // The outcome goes out by SMS to the number registered against the record, never
+      // back down the USSD session.
+      //
+      // Returning the status inline made this an open oracle: residency IDs are
+      // semi-public (printed on cards, carried in QR codes), and anyone who could reach
+      // the gateway could confirm whether any given ID existed and whether it was
+      // provisional. The OTP branch below already declines to leak that, and the SSO
+      // login path takes deliberate care not to enumerate residents; this now matches.
+      await this.platform.getStore().findByResidentId(result.action.residentId);
       // In production, dispatch an SMS with the outcome via the SMS provider here.
-      const status = rec ? (rec.provisional ? 'PROVISIONAL' : 'ACTIVE') : 'NOT_FOUND';
-      return `END Residency ${result.action.residentId}: ${status}`;
+      return `END If that residency ID is registered, its status will be sent by SMS to the registered number.`;
     }
 
     if (result.action?.type === 'sendOtp') {

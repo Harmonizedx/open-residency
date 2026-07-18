@@ -200,9 +200,12 @@ This repository is the generic public infrastructure, not a single-country app:
 - **Issuer key management.** The dev server generates an ephemeral key. Production must supply an
   Ed25519 key from an HSM/KMS via `ISSUER_PRIVATE_JWK`, or, better, keep signing inside the KMS by
   adapting `VcIssuer`.
-- **Authentication factor for SSO.** The bundled interaction login only checks that a ResidentID
-  exists. That is a placeholder. Bind a real factor (SMS/USSD OTP, or a Verifiable Presentation of
-  the residency credential) in `src/sso/interaction.controller.ts` before any real deployment.
+- **Authentication factor for SSO.** Sign-in binds a real factor: a Verifiable Presentation of the
+  residency credential (primary), with a one-time code to the registered number as fallback. Naming
+  a ResidentID is *not* sufficient — `npm run smoke:sso` asserts that a bare ID, a stolen
+  credential, and a revoked credential all fail to sign in. What a deployment still owns is the
+  delivery side: the OTP sender is a dev stub that logs codes (`LoggingOtpSender`), so wire a real
+  SMS/USSD aggregator before production.
 - **Cross-service correlation.** The OIDC subject is currently the `resident_id` — stable and the
   same across every relying party. This makes account-linking trivial but lets independent services
   correlate a citizen. Adopt pairwise (PPID) subject identifiers before onboarding third parties
