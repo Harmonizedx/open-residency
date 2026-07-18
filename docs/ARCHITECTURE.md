@@ -1,8 +1,3 @@
-
-
-
-
-
 # Architecture
 
 OpenResidency is built as a small framework-agnostic core with thin NestJS delivery

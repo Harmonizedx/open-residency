@@ -211,6 +211,9 @@ export class ResidencyService {
       baseUrl: cfg.foundational.baseUrl,
       auth: cfg.foundational.auth,
       timeoutMs: cfg.foundational.timeoutMs,
+      responseFormat: cfg.foundational.responseFormat,
+      xml: cfg.foundational.xml,
+      dataset: cfg.foundational.dataset,
       request: cfg.foundational.request,
       responseMapping: cfg.foundational.responseMapping as any,
       verifiedFlag: cfg.foundational.verifiedFlag,
@@ -315,7 +318,7 @@ export class ResidencyService {
     if (residence.asOf) residenceClaim.asOf = residence.asOf;
 
     // 5. Mint residency id + assign a revocation status index.
-    const residentId = generateResidentId(req.subnationalUnit);
+    const residentId = await this.generateUniqueResidentId(cfg, req.subnationalUnit);
     const statusListIndex = await this.store.nextStatusIndex(cfg.countryCode);
     const unit = cfg.subnationalUnits.find((u) => u.code === req.subnationalUnit);
 
@@ -373,6 +376,21 @@ export class ResidencyService {
     await this.store.save(record);
 
     return { status: 'issued', residentId, credentialJwt: issued.jwt, record };
+  }
+
+  /**
+   * Mint a resident id in the jurisdiction's configured format, retrying on the (rare)
+   * chance of a collision. The store's `residentId` is unique, so this closes the gap a
+   * low-entropy custom format could otherwise open.
+   */
+  private async generateUniqueResidentId(cfg: CountryConfig, unitCode: string): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const id = generateResidentId(unitCode, cfg.residentId, cfg.countryCode);
+      if (!(await this.store.findByResidentId(id))) return id;
+    }
+    throw new Error(
+      'exhausted attempts generating a unique resident id; increase residentId entropy in config',
+    );
   }
 
   /** Revoke a residency credential by flipping its status-list bit. */
