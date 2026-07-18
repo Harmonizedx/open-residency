@@ -384,8 +384,11 @@ export class ResidencyService {
    * low-entropy custom format could otherwise open.
    */
   private async generateUniqueResidentId(cfg: CountryConfig, unitCode: string): Promise<string> {
+    // The unit's own format wins; absent one, it inherits the country default.
+    const unit = cfg.subnationalUnits.find((u) => u.code === unitCode);
+    const format = unit?.residentId ?? cfg.residentId;
     for (let attempt = 0; attempt < 5; attempt++) {
-      const id = generateResidentId(unitCode, cfg.residentId, cfg.countryCode);
+      const id = generateResidentId(unitCode, format, cfg.countryCode);
       if (!(await this.store.findByResidentId(id))) return id;
     }
     throw new Error(

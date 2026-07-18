@@ -186,13 +186,6 @@ const credentialSchema = z.object({
   context: z.array(z.string()).default(['https://www.w3.org/ns/credentials/v2']),
 });
 
-const subnationalUnitSchema = z.object({
-  code: z.string(), // e.g. KT for Katsina
-  name: z.string(),
-  parent: z.string().optional(), // country code
-  level: z.enum(['state', 'province', 'region', 'lga', 'ward', 'county']),
-});
-
 /**
  * Wallet interoperability profile (OpenID4VCI).
  *
@@ -408,6 +401,22 @@ const residentIdSchema = z
 
 export type ResidentIdConfig = z.infer<typeof residentIdSchema>;
 
+const subnationalUnitSchema = z.object({
+  code: z.string(), // e.g. KT for Katsina
+  name: z.string(),
+  parent: z.string().optional(), // country code
+  level: z.enum(['state', 'province', 'region', 'lga', 'ward', 'county']),
+  /**
+   * Per-unit Resident ID format. A federation lets each subnational unit run its own
+   * numbering scheme -- one state on the Crockford default, another on a statutory 12-digit
+   * numeric ID -- so a unit may override the country format wholesale. Omit it and the unit
+   * inherits the country-level `residentId`. When present, it is a complete ruleset (each
+   * omitted field takes the same default as the country format) and is validated the same
+   * way, so a unit cannot configure an unsafe or incoherent format.
+   */
+  residentId: residentIdSchema.optional(),
+});
+
 export const countryConfigSchema = z.object({
   countryCode: z.string().length(2),
   countryName: z.string(),
@@ -415,7 +424,8 @@ export const countryConfigSchema = z.object({
   foundational: foundationalSchema,
   residency: residencySchema.default({}),
   credential: credentialSchema,
-  // Resident ID format. Omit it for the default KT-XXXX-XXXX-C scheme.
+  // Country-default Resident ID format; a subnationalUnit may override it. Omit it for the
+  // default KT-XXXX-XXXX-C scheme.
   residentId: residentIdSchema.default({}),
   // Both default to today's behaviour, so a config that omits them is unchanged.
   wallet: walletSchema.default({}),

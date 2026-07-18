@@ -439,6 +439,33 @@ async function main() {
       isValidResidentId(kridIssue.residentId, kridCfg.residentId),
   );
 
+  // Per-subnational override: two units in one country, each on its own format. KT keeps
+  // the country default (Crockford, unit prefix); LA overrides to a 12-digit numeric KRID.
+  const perUnitFormat = { alphabet: 'numeric', groups: [11], separator: '', prefix: { mode: 'none' }, checkDigit: { enabled: true, algorithm: 'luhn' } };
+  const federCfg: CountryConfig = parseCountryConfig({
+    ...idBase,
+    residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
+    // Country default stays Crockford (residentId omitted); only LA overrides.
+    credential: { issuerDid, issuerName: 'Nigeria Residency Authority', type: 'StateResidencyCredential', validityDays: 1095, context: ['https://www.w3.org/ns/credentials/v2'] },
+    foundational: { provider: 'MOCK', inputs: [{ key: 'nin', label: 'NIN' }], assuranceOnSuccess: 'verified' },
+    subnationalUnits: [
+      { code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' },
+      { code: 'LA', name: 'Lagos', parent: 'NG', level: 'state', residentId: perUnitFormat },
+    ],
+  });
+  const federStore = new InMemoryStore();
+  const federSvc = new ResidencyService(registry, issuer, federStore, () => 'https://id.gov.ng/status/ng.json');
+  const ktIssue = await federSvc.issue(federCfg, { countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin: '12345678902' } });
+  const laIssue = await federSvc.issue(federCfg, { countryCode: 'NG', subnationalUnit: 'LA', identifiers: { nin: '12345678904' } });
+  check(
+    'unit without an override inherits the country-default format',
+    ktIssue.status === 'issued' && /^KT-/.test(ktIssue.residentId) && isValidResidentId(ktIssue.residentId, federCfg.residentId),
+  );
+  check(
+    'unit with an override mints its own format',
+    laIssue.status === 'issued' && /^\d{12}$/.test(laIssue.residentId) && isValidResidentId(laIssue.residentId, federCfg.subnationalUnits[1].residentId!),
+  );
+
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);
 }
