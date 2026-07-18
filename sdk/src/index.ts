@@ -11,8 +11,26 @@ export type AssuranceLevel = 'none' | 'basic' | 'verified' | 'high';
 
 export interface ClientOptions {
   baseUrl: string;
-  /** Admin key, required only for audit and admin endpoints. */
+  /**
+   * Per-operator API key (`ork_...`), minted at POST /operator/keys.
+   *
+   * This is the credential to use: it identifies WHICH operator is calling, so privileged
+   * actions are attributable in the audit log, it carries only the roles that operator
+   * holds, and it can be rotated with an overlap window rather than a hard cutover.
+   */
+  operatorKey?: string;
+  /**
+   * Legacy shared admin key. Works only where the deployment still runs
+   * `operatorAuth.mode: sharedKey`, and carries no identity or roles. Prefer operatorKey.
+   *
+   * @deprecated Use `operatorKey`.
+   */
   adminKey?: string;
+  /**
+   * Bearer token from an operator SSO sign-in (`operatorAuth.mode: oidc` or `local`).
+   * Send this when the caller is a person in a console rather than a machine.
+   */
+  operatorToken?: string;
   /** Optional custom fetch (for tests or non-standard runtimes). */
   fetch?: typeof fetch;
 }
@@ -42,6 +60,11 @@ export interface IssueRequest {
   holderId?: string;
   challengeRef?: string;
   proofOfResidence?: string;
+  /**
+   * Applicant phone in E.164, for one-time-code delivery. What is retained depends on the
+   * deployment's `contactDirectory.mode`; it never reaches the credential or the audit log.
+   */
+  phone?: string;
   offline?: boolean;
 }
 
@@ -107,12 +130,16 @@ export class OpenResidencyError extends Error {
 
 export class OpenResidencyClient {
   private baseUrl: string;
+  private operatorKey?: string;
   private adminKey?: string;
+  private operatorToken?: string;
   private doFetch: typeof fetch;
 
   constructor(opts: ClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
+    this.operatorKey = opts.operatorKey;
     this.adminKey = opts.adminKey;
+    this.operatorToken = opts.operatorToken;
     this.doFetch = opts.fetch ?? fetch;
   }
 
@@ -133,7 +160,7 @@ export class OpenResidencyClient {
       Array<{ countryCode: string; countryName: string; provider: string; inputs: unknown[] }>
     >('/residency/countries');
   }
-  /** Operator action: requires `adminKey` in ClientOptions. */
+  /** Operator action: needs the `registrar` role. */
   issueResidency(req: IssueRequest) {
     return this.post<IssueResult>('/residency/issue', req, true);
   }
@@ -143,7 +170,7 @@ export class OpenResidencyClient {
   verifyCredential(credential: string, offline = false) {
     return this.post<CredentialVerifyOutcome>('/residency/verify', { credential, offline });
   }
-  /** Operator action: requires `adminKey` in ClientOptions. */
+  /** Operator action: needs the `revoker` role. */
   revokeResidency(residentId: string) {
     return this.post<{ revoked: boolean }>(
       `/residency/revoke/${encodeURIComponent(residentId)}`,
@@ -153,9 +180,12 @@ export class OpenResidencyClient {
   }
 
   // ---- consent ----
+  // The consent routes are operator-guarded server-side (support role), so they carry
+  // credentials like the admin ones. They previously did not, and 401'd.
   listConsents(residentId: string) {
     return this.get<{ residentId: string; consents: ConsentRecord[] }>(
       `/consent/resident/${encodeURIComponent(residentId)}`,
+      true,
     );
   }
   grantConsent(req: {
@@ -166,13 +196,17 @@ export class OpenResidencyClient {
     relyingPartyName?: string;
     validityDays?: number;
   }) {
-    return this.post<{ consent: ConsentRecord; receipt: string }>('/consent/grant', req);
+    return this.post<{ consent: ConsentRecord; receipt: string }>('/consent/grant', req, true);
   }
   revokeConsent(id: string) {
-    return this.post<{ consent: ConsentRecord }>(`/consent/${encodeURIComponent(id)}/revoke`, {});
+    return this.post<{ consent: ConsentRecord }>(
+      `/consent/${encodeURIComponent(id)}/revoke`,
+      {},
+      true,
+    );
   }
 
-  // ---- admin (requires adminKey) ----
+  // ---- admin (operator-authenticated) ----
   listResidents(params: { countryCode?: string; limit?: number; offset?: number } = {}) {
     const q = new URLSearchParams();
     if (params.countryCode) q.set('countryCode', params.countryCode);
@@ -210,8 +244,20 @@ export class OpenResidencyClient {
     const headers: Record<string, string> = { accept: 'application/json' };
     if (body !== undefined) headers['content-type'] = 'application/json';
     if (admin) {
-      if (!this.adminKey) throw new Error('This endpoint requires an adminKey in ClientOptions');
-      headers['x-admin-key'] = this.adminKey;
+      // Preference order matches how much the deployment can tell about the caller:
+      // an operator key or SSO token names a person; the shared key names nobody.
+      if (this.operatorKey) {
+        headers['x-operator-key'] = this.operatorKey;
+      } else if (this.operatorToken) {
+        headers['authorization'] = `Bearer ${this.operatorToken}`;
+      } else if (this.adminKey) {
+        headers['x-admin-key'] = this.adminKey;
+      } else {
+        throw new Error(
+          'This endpoint requires operator authentication: set operatorKey (preferred), ' +
+            'operatorToken, or the legacy adminKey in ClientOptions',
+        );
+      }
     }
     const res = await this.doFetch(`${this.baseUrl}${path}`, {
       method,

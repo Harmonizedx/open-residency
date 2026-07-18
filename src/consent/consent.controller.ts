@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type Provider from 'oidc-provider';
-import { AdminKeyGuard } from '../common/api-key.guard';
+import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
 
 /**
@@ -30,7 +30,8 @@ import { PlatformService } from '../platform/platform.service';
  * OIDC login), at which point a resident should reach only their OWN records and this
  * guard becomes the operator-facing path.
  */
-@UseGuards(AdminKeyGuard)
+@UseGuards(OperatorGuard)
+@RequireRoles('support')
 @Controller('consent')
 export class ConsentController {
   constructor(

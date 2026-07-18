@@ -21,15 +21,32 @@ import { getPath, tokenizeSubject } from './util';
 export function buildAuthHeaders(cfg: ProviderConfig): Record<string, string> {
   const auth = cfg.auth;
   if (!auth || auth.type === 'none') return {};
-  const secret = auth.secretEnv ? process.env[auth.secretEnv] : undefined;
+  /**
+   * A configured secret that is missing from the environment is a deployment error, and
+   * it used to be invisible: the header went out empty, the gateway answered 401, and the
+   * adapter surfaced that as PROVIDER_HTTP_401 -- indistinguishable from a genuinely
+   * rejected credential, and a long way from "you forgot to set NIN_GATEWAY_KEY". Same
+   * reasoning as the mtls branch below: fail where the mistake is, not three layers away.
+   */
+  const requireEnv = (name: string | undefined, role: string): string => {
+    const value = name ? process.env[name] : undefined;
+    if (!value) {
+      throw new Error(
+        `Foundational provider ${cfg.code} needs ${role} in ${name ?? '<no secretEnv configured>'}, ` +
+          `which is not set in the environment.`,
+      );
+    }
+    return value;
+  };
+
   switch (auth.type) {
     case 'apiKey':
-      return { [auth.headerName ?? 'x-api-key']: secret ?? '' };
+      return { [auth.headerName ?? 'x-api-key']: requireEnv(auth.secretEnv, 'an API key') };
     case 'bearer':
-      return { authorization: `Bearer ${secret ?? ''}` };
+      return { authorization: `Bearer ${requireEnv(auth.secretEnv, 'a bearer token')}` };
     case 'basic': {
-      const id = auth.clientIdEnv ? process.env[auth.clientIdEnv] : '';
-      const pw = auth.clientSecretEnv ? process.env[auth.clientSecretEnv] : '';
+      const id = requireEnv(auth.clientIdEnv, 'a client id');
+      const pw = requireEnv(auth.clientSecretEnv, 'a client secret');
       return { authorization: 'Basic ' + Buffer.from(`${id}:${pw}`).toString('base64') };
     }
     case 'mtls':

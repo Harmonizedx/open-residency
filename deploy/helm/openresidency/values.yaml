@@ -23,6 +23,12 @@ secrets:
   oidcCookieSecret: "CHANGE_ME_COOKIE"
   adminApiKey: "CHANGE_ME_ADMIN_KEY"
   ussdGatewaySecret: "CHANGE_ME_USSD_SECRET" # shared secret for the USSD webhook
+  # Only for contactDirectory.mode: encrypted. openssl rand -hex 32.
+  contactEncryptionKey: ""
+  # Extra secrets passed straight through as environment variables: messaging aggregator
+  # credentials (AFRICASTALKING_API_KEY, TERMII_API_KEY, TWILIO_*), foundational provider
+  # keys (NIN_GATEWAY_KEY), and operator bootstrap for operatorAuth.mode: local.
+  extraEnv: {}
   issuerPrivateJwk: "" # leave empty to source from KMS at runtime
   # One entry per relying party across all loaded country configs, keyed by client id.
   # The app refuses to start if any configured RP is missing its secret, rather than fall

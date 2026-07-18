@@ -76,7 +76,9 @@ Then open the reference UI at `http://localhost:3000/app/index.html` (enroll, ve
 consoles) and the API docs at `http://localhost:3000/docs`.
 
 Or issue a residency in the demo jurisdiction (MOCK provider, even last digit verifies).
-Issuance is an operator action, so it needs the admin key from your `.env`:
+Issuance is an operator action. The shipped demo config runs `operatorAuth.mode: sharedKey`,
+so the key from your `.env` works; a real deployment uses operator SSO and per-operator
+API keys instead (see `docs/API.md`):
 
 ```bash
 curl -s localhost:3000/residency/issue -H 'content-type: application/json' \
@@ -117,10 +119,15 @@ An existing platform — a ministry service, an education or health portal — t
 first authentication. Three integration paths, usable together:
 
 - **Sign in with State (OpenID Connect).** Register the service as a relying party in the country
-  YAML (`oidc.relyingParties`: `clientId`, `sector`, `redirectUris`; secret via env). It then uses
-  any standard OIDC library to run Authorization Code + PKCE, requesting `openid profile residency
-  <sector>`. It receives residency claims (`resident_id`, `subnational_unit`, `assurance_level`, …)
-  and **never** the national ID. On first login it maps `resident_id` ⇄ its local account.
+  YAML (`oidc.relyingParties`: `clientId`, `sector`, `scopes`, `redirectUris`; secret via env). It
+  then uses any standard OIDC library to run Authorization Code + PKCE, requesting `openid profile
+  <sector>`. It receives residency claims (`subnational_unit`, `assurance_level`, …) and **never**
+  the national ID. On first login it maps the `sub` ⇄ its local account.
+
+  The `sub` is **pairwise**: each service sees a different, stable identifier for the same citizen,
+  so two MDAs cannot join their records on it. The `resident_id` claim — which *is* the same
+  everywhere — comes from the `residency` scope and is granted only to relying parties with a
+  lawful basis for holding the number itself.
 - **Credential presentation (OpenID4VP).** If the citizen holds the residency VC in a wallet, the
   service acts as a verifier: request a presentation, verify signature + revocation **offline**
   against the issuer DID. Good for in-person or low-connectivity.
@@ -208,13 +215,15 @@ This repository is the generic public infrastructure, not a single-country app:
 - **Authentication factor for SSO.** Sign-in binds a real factor: a Verifiable Presentation of the
   residency credential (primary), with a one-time code to the registered number as fallback. Naming
   a ResidentID is *not* sufficient — `npm run smoke:sso` asserts that a bare ID, a stolen
-  credential, and a revoked credential all fail to sign in. What a deployment still owns is the
-  delivery side: the OTP sender is a dev stub that logs codes (`LoggingOtpSender`), so wire a real
-  SMS/USSD aggregator before production.
-- **Cross-service correlation.** The OIDC subject is currently the `resident_id` — stable and the
-  same across every relying party. This makes account-linking trivial but lets independent services
-  correlate a citizen. Adopt pairwise (PPID) subject identifiers before onboarding third parties
-  that should not be able to correlate.
+  credential, and a revoked credential all fail to sign in. Delivery is configured, not stubbed:
+  name an SMS aggregator in the `messaging` block (Africa's Talking, Twilio, Termii, or any REST
+  gateway via `GENERIC_HTTP`) and a `contactDirectory`. What a deployment still owns is the
+  aggregator contract itself.
+- **Cross-service correlation.** The OIDC subject is **pairwise**: each relying party sees a
+  different, stable identifier for the same citizen, so independent services cannot join records on
+  it. The correlatable `resident_id` claim is granted per relying party via `scopes`, not to
+  everyone by default — both halves are needed, since a universally readable `resident_id` would
+  defeat pairwise subjects entirely.
 - **Proof of residence.** Establishing that a verified person actually resides in a given ward is a
   policy problem this system records but does not solve on its own. Configure
   `residency.residence` and wire it to your attestation or register source.

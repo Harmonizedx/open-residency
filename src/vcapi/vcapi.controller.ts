@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, HttpException, Post, UseGuards } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
-import { AdminKeyGuard } from '../common/api-key.guard';
+import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { LdpIssuer, LdpCredential } from '../core/credentials/ldp-issuer';
 import { keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { issuerIdOf, typesOf, validateCredentialShape } from '../core/credentials/data-model';
@@ -44,7 +44,8 @@ interface VerifyResult {
 }
 
 @Controller()
-@UseGuards(AdminKeyGuard)
+@UseGuards(OperatorGuard)
+@RequireRoles('registrar')
 export class VcApiController {
   constructor(private platform: PlatformService) {}
 

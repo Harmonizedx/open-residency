@@ -19,11 +19,13 @@
 
     <div class="card">
       <h2>Operator key</h2>
-      <p class="muted">Issuance is an operator action, so it requires the admin key configured on the
-        deployment (<code>ADMIN_API_KEY</code>). It is sent as <code>x-admin-key</code> and never stored
-        by this page beyond the current session. Shared with the Admin console.</p>
-      <label for="key">Admin key</label>
-      <input id="key" type="password" placeholder="admin key" />
+      <p class="muted">Issuance is an operator action and needs the <code>registrar</code> role.
+        Paste a per-operator API key (<code>ork_&hellip;</code>) from <code>POST /operator/keys</code> —
+        it names you in the audit log and can be rotated. On a deployment still running
+        <code>operatorAuth.mode: sharedKey</code>, the shared <code>ADMIN_API_KEY</code> also works.
+        Never stored beyond the current session; shared with the Admin console.</p>
+      <label for="key">Operator key</label>
+      <input id="key" type="password" placeholder="ork_… or the legacy admin key" />
       <button id="saveKey" class="secondary">Use key</button>
     </div>
 
@@ -47,6 +49,12 @@
         <label for="bindingRef" id="bindingRefLabel">Reference (operator ID / match ID)</label>
         <input id="bindingRef" placeholder="e.g. agent-4417" />
       </fieldset>
+
+      <label for="phone">Phone (optional, E.164)</label>
+      <input id="phone" placeholder="+2348030000001" />
+      <p class="note" style="margin-top:4px">Used only to deliver one-time sign-in codes. What is kept
+        depends on the deployment's <code>contactDirectory.mode</code>; it never enters the credential
+        or the audit log.</p>
 
       <button id="issue">Verify and issue</button>
       <p class="note">Demo tip: in country <code>ZZ</code> (Demoland, MOCK provider), any National ID
@@ -151,6 +159,8 @@
         subnationalUnit: document.getElementById('unit').value,
         identifiers,
       };
+      const phone = document.getElementById('phone').value.trim();
+      if (phone) body.phone = phone;
       // Attach the operator-attested binding, unless the provider authenticates the owner
       // itself (in which case the selector is hidden and the provider attests binding).
       const methodEl = document.getElementById('bindingMethod');
@@ -161,14 +171,20 @@
       }
       const res = await fetch('/residency/issue', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
+        // An ork_ key goes in x-operator-key; anything else is the legacy shared key.
+        headers: Object.assign(
+          { 'content-type': 'application/json' },
+          adminKey.startsWith('ork_') ? { 'x-operator-key': adminKey } : { 'x-admin-key': adminKey },
+        ),
         body: JSON.stringify(body),
       }).then((r) => r.json());
 
       document.getElementById('result').style.display = 'block';
       const status = document.getElementById('status');
-      if (res.statusCode === 401) {
-        status.innerHTML = `<span class="pill bad">unauthorized</span> Set the operator key above.`;
+      if (res.statusCode === 401 || res.statusCode === 403) {
+        status.innerHTML = res.statusCode === 403
+          ? `<span class="pill bad">forbidden</span> That operator lacks the <code>registrar</code> role.`
+          : `<span class="pill bad">unauthorized</span> Set a valid operator key above.`;
         document.getElementById('jwt').value = '';
         document.getElementById('qrwrap').style.display = 'none';
         return;

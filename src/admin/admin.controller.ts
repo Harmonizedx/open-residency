@@ -1,19 +1,29 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
-import { AdminKeyGuard } from '../common/api-key.guard';
+import {
+  OperatorGuard,
+  RequireRoles,
+  RequestWithOperator,
+  requireOperator,
+} from '../common/operator.guard';
+import { operatorActor } from '../core/operator/operator';
 
 /**
- * Administrative view over the Resident Registry. Guarded by the admin key.
- * Returns only non-sensitive registry fields (never raw national IDs, which are
- * not stored at all).
+ * Administrative view over the Resident Registry.
+ *
+ * Requires the `support` role. Returns only non-sensitive registry fields (never raw
+ * national IDs, which are not stored at all). Reads are audited against the operator who
+ * made them: who looked at the register is itself something an auditor asks about.
  */
 @Controller('admin')
-@UseGuards(AdminKeyGuard)
+@UseGuards(OperatorGuard)
+@RequireRoles('support')
 export class AdminController {
   constructor(private platform: PlatformService) {}
 
   @Get('residents')
   async residents(
+    @Req() req: RequestWithOperator,
     @Query('countryCode') countryCode?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
@@ -25,7 +35,7 @@ export class AdminController {
     });
     await this.platform.getAudit().record({
       action: 'admin.read',
-      actor: 'admin',
+      actor: operatorActor(requireOperator(req)),
       outcome: 'success',
       metadata: { view: 'residents', countryCode },
     });

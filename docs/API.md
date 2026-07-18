@@ -28,7 +28,19 @@ quick orientation.
   automatically during the SSO consent step).
 - `POST /consent/{id}/revoke` — withdraw a consent.
 
-## Audit and admin (require `x-admin-key`)
+## Operator identity
+
+- `POST /operator/login` — local sign-in (password + TOTP) for a short-lived session
+  token. Only when `operatorAuth.mode: local`.
+- `GET /operator/me` — the calling operator's identity and roles.
+- `GET|POST /operator/operators` — list and create operators (`admin`).
+- `POST /operator/operators/:id/disable` — disable an account (`admin`).
+- `GET|POST /operator/keys` — list and mint per-operator API keys.
+- `POST /operator/keys/rotate` — mint a replacement and retire the old key after an
+  overlap window, so callers cut over one at a time.
+- `POST /operator/keys/revoke` — kill a key immediately.
+
+## Audit and admin (operator-authenticated)
 
 - `GET /audit` — read the audit log (newest first).
 - `GET /audit/verify` — confirm the hash chain is intact.
@@ -51,19 +63,42 @@ quick orientation.
 ## Auth model
 
 Endpoints that are public by specification (wallet-facing OpenID4VCI/VP routes,
-`.well-known` documents, credential verification) are open. Privileged routes require
-the admin key via `x-admin-key` or `Authorization: Bearer <key>`: `/admin`, `/audit`,
-`/consent`, the VC-API, credential-offer and presentation-request creation, and both
-residency issuance and revocation. `POST /offline/ussd` takes a separate gateway secret.
+`.well-known` documents, credential verification) are open. Everything privileged
+requires an authenticated **operator**: `/admin`, `/audit`, `/consent`, the VC-API,
+credential-offer and presentation-request creation, and both residency issuance and
+revocation. `POST /offline/ussd` takes a separate gateway secret.
 
-Two known limits of this reference build, both on the path to a production deployment:
+### How an operator authenticates
 
-- The admin key is a single shared static secret. There is no per-operator identity, so
-  every privileged action audits to the same actor, and there are no roles and no
-  rotation. Replace it with operator SSO (OIDC-protected admin scopes or mTLS) before
-  government staff use it.
-- The OIDC `sub` is the resident id, identical across every relying party — see
-  `INTEGRATION.md` on pairwise identifiers.
+Set by `operatorAuth.mode` in the country config:
+
+| Mode | Credential | Notes |
+|---|---|---|
+| `oidc` | `Authorization: Bearer <IdP access token>` | **Recommended.** Validated against the IdP's JWKS. Staff accounts, MFA and de-provisioning stay in the ministry's directory; this system stores no staff credentials. |
+| `local` | `Authorization: Bearer <session token>` from `POST /operator/login` | Accounts in Postgres: scrypt passwords, TOTP, lockout. For deployments with no IdP yet. |
+| any | `x-operator-key: ork_...` | Per-operator API key for machine callers. Identified, role-scoped, expiring, rotatable. |
+| `sharedKey` | `x-admin-key: <ADMIN_API_KEY>` | **Legacy.** No identity, no roles, no rotation. Warns on every boot. |
+
+### Roles
+
+`@RequireRoles` on each route; `admin` satisfies every check.
+
+| Role | Grants |
+|---|---|
+| `registrar` | residency issuance, credential offers, VC-API issuance |
+| `revoker` | residency revocation |
+| `auditor` | the audit log and its chain verification |
+| `support` | registry reads, consent administration, presentation requests |
+| `admin` | everything, plus operator and key management |
+
+### Correlation
+
+The OIDC `sub` is **pairwise** by default: each relying party sees a different, stable,
+unguessable identifier for the same citizen, derived as HMAC(pepper, clientId +
+residentId). The `residency` scope — which releases the correlatable `resident_id` — is
+no longer granted to every RP automatically; it is opt-in per RP via `scopes` in the
+config. Both halves are needed: pairwise subjects alone buy nothing while every service
+can still read the same `resident_id`.
 
 In production, also put citizen-facing consent routes behind the OIDC login and keep
 admin behind edge restrictions (see `deploy/k8s/ingress.yaml`).

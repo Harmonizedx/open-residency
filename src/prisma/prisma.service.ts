@@ -9,6 +9,7 @@ import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
+import { OperatorKeyRecord, OperatorRecord, OperatorStore } from '../core/operator/operator';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -148,6 +149,43 @@ export class PrismaResidencyStore implements ResidencyStore {
       }),
     ]);
     return { total, items: rows.map((r) => this.toRecord(r)) };
+  }
+
+  // ---- contact data -------------------------------------------------------
+  //
+  // Kept off the ResidencyStore port on purpose. The core residency service has no reason
+  // to touch contact details, and not handing it the capability is the cheapest way to
+  // guarantee a phone number never reaches a credential or an audit record.
+
+  /** The stored ciphertext for a resident's number, for the contact directory to decrypt. */
+  async loadEncryptedContact(residentId: string): Promise<string | null> {
+    const r = await this.prisma.resident.findUnique({
+      where: { residentId },
+      select: { phoneEnc: true },
+    });
+    return r?.phoneEnc ?? null;
+  }
+
+  /**
+   * Record a resident's contact number: the hash for matching, and the ciphertext for
+   * delivery. Both are derived by the caller, so this layer never sees a policy decision
+   * about which of them a deployment is allowed to keep.
+   */
+  async setContact(
+    residentId: string,
+    phoneHash: string | null,
+    phoneEnc: string | null,
+  ): Promise<void> {
+    await this.prisma.resident.update({
+      where: { residentId },
+      data: { phoneHash, phoneEnc },
+    });
+  }
+
+  /** Resolve a resident by the hash of their phone number (the USSD entry point). */
+  async findByPhoneHash(phoneHash: string): Promise<ResidentRecord | null> {
+    const r = await this.prisma.resident.findFirst({ where: { phoneHash } });
+    return r ? this.toRecord(r) : null;
   }
 }
 
@@ -469,5 +507,138 @@ export class PrismaConsentStore implements ConsentStore {
       receiptId: record.receiptId,
       grantId: record.grantId ?? null,
     };
+  }
+}
+
+/**
+ * Prisma-backed OperatorStore: the staff identities behind privileged actions.
+ *
+ * Nothing here stores a presentable credential. Passwords are scrypt hashes and API keys
+ * are SHA-256 hashes, so a dump of these two tables yields nothing that can be used to
+ * authenticate.
+ */
+@Injectable()
+export class PrismaOperatorStore implements OperatorStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toRecord = (r: any): OperatorRecord => ({
+    id: r.id,
+    email: r.email,
+    displayName: r.displayName,
+    roles: r.roles,
+    passwordHash: r.passwordHash,
+    totpSecret: r.totpSecret,
+    totpConfirmedAt: r.totpConfirmedAt ? r.totpConfirmedAt.toISOString() : null,
+    failedLogins: r.failedLogins,
+    lockedUntil: r.lockedUntil ? r.lockedUntil.toISOString() : null,
+    disabledAt: r.disabledAt ? r.disabledAt.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+  });
+
+  private toKey = (r: any): OperatorKeyRecord => ({
+    id: r.id,
+    operatorId: r.operatorId,
+    label: r.label,
+    keyHash: r.keyHash,
+    expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+    lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : null,
+    revokedAt: r.revokedAt ? r.revokedAt.toISOString() : null,
+    rotatedFrom: r.rotatedFrom,
+    createdAt: r.createdAt.toISOString(),
+  });
+
+  async findById(id: string): Promise<OperatorRecord | null> {
+    const r = await this.prisma.operator.findUnique({ where: { id } });
+    return r ? this.toRecord(r) : null;
+  }
+
+  async findByEmail(email: string): Promise<OperatorRecord | null> {
+    const r = await this.prisma.operator.findUnique({ where: { email } });
+    return r ? this.toRecord(r) : null;
+  }
+
+  async list(): Promise<OperatorRecord[]> {
+    const rows = await this.prisma.operator.findMany({ orderBy: { createdAt: 'asc' } });
+    return rows.map(this.toRecord);
+  }
+
+  async count(): Promise<number> {
+    return this.prisma.operator.count();
+  }
+
+  async create(record: OperatorRecord): Promise<void> {
+    await this.prisma.operator.create({
+      data: {
+        id: record.id,
+        email: record.email,
+        displayName: record.displayName,
+        roles: record.roles,
+        passwordHash: record.passwordHash,
+        totpSecret: record.totpSecret,
+        totpConfirmedAt: record.totpConfirmedAt ? new Date(record.totpConfirmedAt) : null,
+        failedLogins: record.failedLogins,
+        lockedUntil: record.lockedUntil ? new Date(record.lockedUntil) : null,
+        disabledAt: record.disabledAt ? new Date(record.disabledAt) : null,
+      },
+    });
+  }
+
+  async update(record: OperatorRecord): Promise<void> {
+    await this.prisma.operator.update({
+      where: { id: record.id },
+      data: {
+        displayName: record.displayName,
+        roles: record.roles,
+        passwordHash: record.passwordHash,
+        totpSecret: record.totpSecret,
+        totpConfirmedAt: record.totpConfirmedAt ? new Date(record.totpConfirmedAt) : null,
+        failedLogins: record.failedLogins,
+        lockedUntil: record.lockedUntil ? new Date(record.lockedUntil) : null,
+        disabledAt: record.disabledAt ? new Date(record.disabledAt) : null,
+      },
+    });
+  }
+
+  async findKeyByHash(keyHash: string): Promise<OperatorKeyRecord | null> {
+    const r = await this.prisma.operatorKey.findUnique({ where: { keyHash } });
+    return r ? this.toKey(r) : null;
+  }
+
+  async findKeyById(id: string): Promise<OperatorKeyRecord | null> {
+    const r = await this.prisma.operatorKey.findUnique({ where: { id } });
+    return r ? this.toKey(r) : null;
+  }
+
+  async listKeys(operatorId: string): Promise<OperatorKeyRecord[]> {
+    const rows = await this.prisma.operatorKey.findMany({
+      where: { operatorId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(this.toKey);
+  }
+
+  async createKey(record: OperatorKeyRecord): Promise<void> {
+    await this.prisma.operatorKey.create({
+      data: {
+        id: record.id,
+        operatorId: record.operatorId,
+        label: record.label,
+        keyHash: record.keyHash,
+        expiresAt: record.expiresAt ? new Date(record.expiresAt) : null,
+        rotatedFrom: record.rotatedFrom,
+      },
+    });
+  }
+
+  async updateKey(record: OperatorKeyRecord): Promise<void> {
+    await this.prisma.operatorKey.update({
+      where: { id: record.id },
+      data: {
+        label: record.label,
+        expiresAt: record.expiresAt ? new Date(record.expiresAt) : null,
+        lastUsedAt: record.lastUsedAt ? new Date(record.lastUsedAt) : null,
+        revokedAt: record.revokedAt ? new Date(record.revokedAt) : null,
+      },
+    });
   }
 }

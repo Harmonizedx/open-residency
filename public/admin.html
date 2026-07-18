@@ -20,7 +20,7 @@
     <div class="card">
       <h2>Admin key</h2>
       <p class="muted">Registry and audit endpoints require the admin key configured on the deployment
-        (<code>ADMIN_API_KEY</code>). It is sent as <code>x-admin-key</code> and never stored by this page
+        (a per-operator <code>ork_&hellip;</code> key, or the legacy <code>ADMIN_API_KEY</code>). Never stored by this page
         beyond the current session.</p>
       <label>Admin key</label>
       <input id="key" type="password" placeholder="admin key" />
@@ -60,7 +60,9 @@
       sessionStorage.setItem('or_admin_key', adminKey);
       alert('Key set for this session.');
     };
-    const H = () => ({ 'x-admin-key': adminKey });
+    // A per-operator key (ork_...) identifies who is reading the registry; the legacy
+    // shared key does not. Send whichever the operator pasted.
+    const H = () => (adminKey.startsWith('ork_') ? { 'x-operator-key': adminKey } : { 'x-admin-key': adminKey });
 
     /**
      * Escape a value for interpolation into innerHTML.

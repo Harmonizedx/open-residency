@@ -21,6 +21,12 @@ stringData:
   OIDC_COOKIE_SECRET: {{ .Values.secrets.oidcCookieSecret | quote }}
   ADMIN_API_KEY: {{ .Values.secrets.adminApiKey | quote }}
   USSD_GATEWAY_SECRET: {{ .Values.secrets.ussdGatewaySecret | quote }}
+{{- if .Values.secrets.contactEncryptionKey }}
+  CONTACT_ENCRYPTION_KEY: {{ .Values.secrets.contactEncryptionKey | quote }}
+{{- end }}
+{{- range $name, $value := .Values.secrets.extraEnv }}
+  {{ $name }}: {{ $value | quote }}
+{{- end }}
 {{- range $clientId, $secret := .Values.secrets.relyingPartySecrets }}
   {{ upper $clientId }}_CLIENT_SECRET: {{ $secret | quote }}
 {{- end }}

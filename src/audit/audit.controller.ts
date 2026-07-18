@@ -1,6 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
-import { AdminKeyGuard } from '../common/api-key.guard';
+import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 
 /**
  * Audit read API. Privileged: guarded by the admin key. The log itself is written
@@ -8,7 +8,8 @@ import { AdminKeyGuard } from '../common/api-key.guard';
  * exposes it for oversight and lets an auditor verify the hash chain is intact.
  */
 @Controller('audit')
-@UseGuards(AdminKeyGuard)
+@UseGuards(OperatorGuard)
+@RequireRoles('auditor')
 export class AuditController {
   constructor(private platform: PlatformService) {}
 

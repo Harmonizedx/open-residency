@@ -46,16 +46,32 @@ export class OfflineController {
       // the gateway could confirm whether any given ID existed and whether it was
       // provisional. The OTP branch below already declines to leak that, and the SSO
       // login path takes deliberate care not to enumerate residents; this now matches.
-      await this.platform.getStore().findByResidentId(result.action.residentId);
-      // In production, dispatch an SMS with the outcome via the SMS provider here.
+      const record = await this.platform.getStore().findByResidentId(result.action.residentId);
+      if (record) {
+        await this.platform.notify(
+          record.residentId,
+          `Your residency ${record.residentId} is ${record.provisional ? 'provisional' : 'active'} ` +
+            `in ${record.subnationalUnit}.`,
+        );
+      }
+      // Answered identically either way: the reply must not reveal whether the ID exists,
+      // nor whether a message was actually dispatched.
       return `END If that residency ID is registered, its status will be sent by SMS to the registered number.`;
     }
 
     if (result.action?.type === 'sendOtp') {
-      // In production, generate + persist an OtpChallenge and send via SMS.
-      // The resulting code can then be exchanged at the SSO token endpoint as an
-      // offline-friendly authentication factor.
-      return `END A login code has been sent by SMS to your registered number.`;
+      // Issue a real one-time code through the same OTP service the web sign-in uses, so
+      // a code obtained over USSD is redeemable at the SSO login step. This used to be a
+      // comment and a reassuring message -- the citizen was told a code had been sent when
+      // nothing had been generated at all.
+      try {
+        await this.platform.getSsoAuth().beginOtpLogin(result.action.residentId);
+      } catch {
+        // Unknown resident, no contact on file, or an aggregator failure. Swallowed on
+        // purpose: distinguishing them here would rebuild the enumeration oracle the
+        // lookup branch above was fixed to remove.
+      }
+      return `END If that residency ID is registered, a login code has been sent by SMS to the registered number.`;
     }
 
     return `${result.continueSession ? 'CON' : 'END'} ${result.message}`;

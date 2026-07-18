@@ -87,11 +87,28 @@ export class InteractionController {
   /**
    * Request a one-time code. Responds identically whether or not the residency ID exists,
    * so it cannot be used to enumerate valid residency IDs.
+   *
+   * The catch is load-bearing, not defensive tidiness. Delivery now really happens, and it
+   * fails for reasons that correlate with the resident EXISTING -- no contact number on
+   * file, an aggregator rejection for that number -- while an unknown residency ID fails
+   * silently and early. Letting those raise would answer 500 for a real resident and 200
+   * for an invented one, which is a cleaner enumeration oracle than the one this endpoint
+   * was written to avoid. The failure is recorded in the audit log instead, where an
+   * operator can see it and the caller cannot.
    */
   @Post(':uid/otp/start')
   async otpStart(@Body() body: { residentId?: string }) {
     if (body?.residentId) {
-      await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
+      try {
+        await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
+      } catch (e) {
+        await this.platform.getAudit().record({
+          action: 'sso.login',
+          actor: body.residentId,
+          outcome: 'failure',
+          metadata: { factor: 'otp', stage: 'delivery', reason: (e as Error).message },
+        });
+      }
     }
     return { sent: true };
   }

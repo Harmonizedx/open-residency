@@ -97,27 +97,118 @@ presentation:
 # thing about a country that needed a code change. It is now config, like everything else.
 #
 # The client SECRET is never here: it is read from <CLIENT_ID>_CLIENT_SECRET in the
-# environment (e.g. HEALTH_CLIENT_SECRET), falling back to a dev placeholder if unset.
+# environment (e.g. HEALTH_CLIENT_SECRET). The app refuses to start if one is missing.
+#
+# Note `scopes` on each RP. `residency` releases resident_id -- the same value at every
+# service -- so it is granted only where there is a reason to hold the number itself.
+# Health and Permits get `profile` and their sector scope and can read the assurance
+# claims without ever seeing the residency number.
 # ---------------------------------------------------------------------------
 oidc:
+  # Each RP sees a different `sub` for the same citizen, so two services cannot join
+  # their records on it.
+  subjectType: pairwise
   relyingParties:
     - clientId: health
       name: Demoland Health Service
       sector: health
+      scopes: [profile]
       redirectUris: [http://localhost:4001/callback]
       postLogoutRedirectUris: [http://localhost:4001]
     - clientId: tax
       name: Demoland Revenue Authority
       sector: tax
+      # Statutory basis for holding the residency number itself.
+      scopes: [profile, residency]
       redirectUris: [http://localhost:4002/callback]
       postLogoutRedirectUris: [http://localhost:4002]
     - clientId: permits
       name: Demoland Permits Office
       sector: permits
+      scopes: [profile]
       redirectUris: [http://localhost:4003/callback]
       postLogoutRedirectUris: [http://localhost:4003]
     - clientId: subsidy
       name: Demoland Subsidy Program
       sector: subsidy
+      scopes: [profile, residency]
       redirectUris: [http://localhost:4004/callback]
       postLogoutRedirectUris: [http://localhost:4004]
+
+# ---------------------------------------------------------------------------
+# Operator authentication (deployment-wide; read from the default country config)
+# ---------------------------------------------------------------------------
+# The demo runs `local` so it works with no external IdP: operator accounts live in
+# Postgres with scrypt passwords and TOTP. Bootstrap the first admin by setting
+# OPERATOR_BOOTSTRAP_EMAIL and OPERATOR_BOOTSTRAP_PASSWORD -- the TOTP secret is logged
+# once, on the boot that creates it.
+#
+# A real deployment should use `oidc` instead, so staff identity, MFA and de-provisioning
+# stay in the ministry's directory and this system holds no staff credentials:
+#
+#   operatorAuth:
+#     mode: oidc
+#     oidc:
+#       issuer: https://login.katsina.gov.ng/realms/staff
+#       audience: openresidency
+#       roleClaim: realm_access.roles
+#       roleMap:
+#         REGISTRY_CLERK: registrar
+#         REGISTRY_SUPERVISOR: revoker
+#         INTERNAL_AUDIT: auditor
+#
+# The demo ships `sharedKey` so the quickstart in the README works with nothing but
+# ADMIN_API_KEY set. It is the weakest mode and warns loudly on every boot: no operator
+# identity, no roles, no rotation. Do not carry it into a real deployment.
+#
+# To try real operator accounts locally, switch mode to `local` and set
+# OPERATOR_BOOTSTRAP_EMAIL / OPERATOR_BOOTSTRAP_PASSWORD -- the first admin is created on
+# the next boot and its TOTP secret is logged once:
+#
+#   operatorAuth:
+#     mode: local
+#     issuerName: Demoland Residency
+#     local:
+#       requireMfa: true
+operatorAuth:
+  mode: sharedKey
+  issuerName: Demoland Residency
+
+# ---------------------------------------------------------------------------
+# Messaging and contact directory
+# ---------------------------------------------------------------------------
+# The demo uses the LOG provider, which prints codes instead of sending them, and has to
+# say so explicitly -- the acknowledgement is what stops this block being copied into a
+# real deployment unnoticed.
+#
+# A real deployment picks an aggregator. Any of these works without a code change:
+#
+#   messaging:
+#     provider: AFRICASTALKING       # secret in AFRICASTALKING_API_KEY
+#     sender: your-at-username
+#   messaging:
+#     provider: TERMII               # secret in TERMII_API_KEY
+#     sender: Katsina
+#   messaging:
+#     provider: TWILIO               # TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN
+#     sender: ACxxxxxxxx             # the Account SID, used in the path
+#   messaging:
+#     provider: GENERIC_HTTP         # any aggregator with a REST endpoint
+#     baseUrl: https://sms.example.ng
+#     sender: Katsina
+#     auth: { type: bearer, secretEnv: SMS_GATEWAY_TOKEN }
+#     request:
+#       method: POST
+#       path: /v1/messages
+#       bodyTemplate: { to: '{to}', from: '{sender}', text: '{body}' }
+#       messageIdPath: data.id
+#       successFlag: { path: status, equals: accepted }
+messaging:
+  provider: LOG
+  acknowledgeInsecureLogProvider: true
+
+# Where a resident's number comes from at send time. `none` means OTP delivery is off.
+# `encrypted` stores the number AES-256-GCM under CONTACT_ENCRYPTION_KEY; `external`
+# resolves it from a contact service the ministry already runs and stores nothing here.
+contactDirectory:
+  mode: none
