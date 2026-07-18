@@ -14,14 +14,38 @@ import { RelyingPartyConfig } from '../core/config/country-config';
  * client, and the resulting ID token / userinfo carries just those claims.
  */
 
+/**
+ * Read a required secret from the environment, or refuse to boot.
+ *
+ * These used to fall back to a placeholder derived from public data so local development
+ * worked with no .env at all. That silently produced guessable credentials: a deployment
+ * that forgot one env var got a working, wrong-secret provider and no signal anywhere
+ * that it had. Unlike the issuer key and subject pepper -- which warn loudly but can
+ * degrade to a usable dev mode -- there is no safe degraded mode for a client secret or
+ * a cookie key, so this fails closed. `.env.example` carries dev values, and the
+ * documented `cp .env.example .env` path still works out of the box.
+ */
+function requireSecret(name: string, purpose: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is not set. ${purpose} Refusing to start rather than fall back to a ` +
+        `guessable placeholder. Copy .env.example to .env for local development.`,
+    );
+  }
+  return value;
+}
+
 /** Translate one config-declared relying party into oidc-provider client metadata. */
 function toClientMetadata(rp: RelyingPartyConfig): ClientMetadata {
   return {
     client_id: rp.clientId,
-    // The secret lives in the environment, never in config or git. Falls back to a dev
-    // placeholder only when the env var is unset, so local development works out of the box.
-    client_secret:
-      process.env[`${rp.clientId.toUpperCase()}_CLIENT_SECRET`] ?? `${rp.clientId}-dev-secret`,
+    // The secret lives in the environment, never in config or git.
+    client_secret: requireSecret(
+      `${rp.clientId.toUpperCase()}_CLIENT_SECRET`,
+      `It is the client secret for relying party "${rp.clientId}", which authenticates ` +
+        `that service at the token endpoint.`,
+    ),
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     redirect_uris: rp.redirectUris,
@@ -114,7 +138,12 @@ export async function buildOidcConfiguration(
     pkce: { required: () => true },
 
     cookies: {
-      keys: [process.env.OIDC_COOKIE_SECRET ?? 'dev-cookie-secret-change-me'],
+      keys: [
+        requireSecret(
+          'OIDC_COOKIE_SECRET',
+          'It signs OIDC session cookies; a known key lets anyone forge a session.',
+        ),
+      ],
     },
 
     ttl: {

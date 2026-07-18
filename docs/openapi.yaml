@@ -87,6 +87,11 @@ paths:
     post:
       tags: [residency]
       summary: Verify foundational identity and issue a residency credential
+      description: >
+        Operator action. Accepts `binding` and `residenceEvidence` attestations that a
+        self-serving caller must not be able to assert about themselves, so it is
+        admin-guarded like revocation.
+      security: [{ adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -136,6 +141,7 @@ paths:
     post:
       tags: [residency]
       summary: Revoke a residency credential
+      security: [{ adminKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResidentId'
       responses:
@@ -302,6 +308,10 @@ paths:
     post:
       tags: [offline]
       summary: USSD webhook for feature phones
+      description: >
+        Called by the USSD aggregator only. The handler trusts the caller's word for
+        `phoneNumber`, so it requires the shared gateway secret.
+      security: [{ ussdSecret: [] }]
       requestBody:
         required: true
         content:
@@ -553,6 +563,13 @@ components:
       type: apiKey
       in: header
       name: x-admin-key
+    ussdSecret:
+      type: apiKey
+      in: header
+      name: x-ussd-secret
+      description: >
+        Shared secret the USSD aggregator returns on webhook callbacks. Set as
+        USSD_GATEWAY_SECRET; the route fails closed when it is unset.
     walletToken:
       type: http
       scheme: bearer

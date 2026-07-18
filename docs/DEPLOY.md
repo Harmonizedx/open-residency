@@ -57,7 +57,15 @@ Swap the ingress for Kong / APISIX / a cloud gateway without changing the app.
 ## Production checklist
 
 - Strong `SUBJECT_PEPPER`, `OIDC_COOKIE_SECRET`, `ADMIN_API_KEY`.
+- A `<CLIENT_ID>_CLIENT_SECRET` for every relying party in your country configs, and
+  `USSD_GATEWAY_SECRET` if you expose the USSD webhook. The app refuses to start
+  without the RP secrets and the cookie key, so a missing one fails the deploy rather
+  than silently running on a guessable placeholder.
 - `ISSUER_PRIVATE_JWK` from a KMS/HSM, not the ephemeral dev key.
+- Operator authentication in front of `/admin`, `/audit`, and residency
+  issuance/revocation. The built-in admin key is a single shared static secret with no
+  per-operator identity, roles, or rotation — every privileged action audits to the same
+  actor. Replace it with operator SSO before government staff use the system.
 - A real SSO authentication factor in `src/sso/interaction.controller.ts`.
 - Confirmed national ID API contract and legal basis with each identity authority.
 - A data protection impact assessment and records of processing.

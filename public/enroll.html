@@ -18,6 +18,16 @@
     </nav>
 
     <div class="card">
+      <h2>Operator key</h2>
+      <p class="muted">Issuance is an operator action, so it requires the admin key configured on the
+        deployment (<code>ADMIN_API_KEY</code>). It is sent as <code>x-admin-key</code> and never stored
+        by this page beyond the current session. Shared with the Admin console.</p>
+      <label for="key">Admin key</label>
+      <input id="key" type="password" placeholder="admin key" />
+      <button id="saveKey" class="secondary">Use key</button>
+    </div>
+
+    <div class="card">
       <h2>Enroll a resident</h2>
       <p class="muted">Pick a country, verify against its foundational ID, and issue a residency credential.</p>
       <label for="country">Country</label>
@@ -57,6 +67,15 @@
 
   <script>
     let configs = [];
+
+    // Same session key the admin console uses, so an operator sets it once per session.
+    let adminKey = sessionStorage.getItem('or_admin_key') || '';
+    document.getElementById('key').value = adminKey;
+    document.getElementById('saveKey').onclick = () => {
+      adminKey = document.getElementById('key').value.trim();
+      sessionStorage.setItem('or_admin_key', adminKey);
+      alert('Key set for this session.');
+    };
 
     // Human labels for the binding methods the engine understands.
     const BINDING_LABELS = {
@@ -142,12 +161,18 @@
       }
       const res = await fetch('/residency/issue', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-admin-key': adminKey },
         body: JSON.stringify(body),
       }).then((r) => r.json());
 
       document.getElementById('result').style.display = 'block';
       const status = document.getElementById('status');
+      if (res.statusCode === 401) {
+        status.innerHTML = `<span class="pill bad">unauthorized</span> Set the operator key above.`;
+        document.getElementById('jwt').value = '';
+        document.getElementById('qrwrap').style.display = 'none';
+        return;
+      }
       if (res.status === 'issued' || res.status === 'exists') {
         const bm = res.record && res.record.binding && res.record.binding.method;
         const bindingNote = bm ? ` · binding: <code>${bm}</code>` : '';

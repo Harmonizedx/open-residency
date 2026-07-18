@@ -10,7 +10,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
  * (timingSafeEqual throws on a length mismatch, which would itself be an oracle) and the
  * comparison is then constant-time regardless of input.
  */
-function secretsEqual(presented: string, required: string): boolean {
+export function secretsEqual(presented: string, required: string): boolean {
   const a = createHash('sha256').update(presented).digest();
   const b = createHash('sha256').update(required).digest();
   return timingSafeEqual(a, b);

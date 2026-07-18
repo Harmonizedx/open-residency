@@ -27,6 +27,14 @@ services:
       PUBLIC_BASE_URL: http://localhost:3000
       SUBJECT_PEPPER: change-me-in-production
       OIDC_COOKIE_SECRET: change-me-cookie-secret
+      ADMIN_API_KEY: change-me-admin-key
+      USSD_GATEWAY_SECRET: change-me-ussd-secret
+      # One per relying party in config/countries. The app refuses to start if any is
+      # missing rather than fall back to a placeholder derived from the public client id.
+      HEALTH_CLIENT_SECRET: change-me-health-secret
+      TAX_CLIENT_SECRET: change-me-tax-secret
+      PERMITS_CLIENT_SECRET: change-me-permits-secret
+      SUBSIDY_CLIENT_SECRET: change-me-subsidy-secret
     ports:
       - "3000:3000"
     command: sh -c "npx prisma migrate deploy && node dist/main.js"

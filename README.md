@@ -75,10 +75,12 @@ npm run start:dev
 Then open the reference UI at `http://localhost:3000/app/index.html` (enroll, verify, admin
 consoles) and the API docs at `http://localhost:3000/docs`.
 
-Or issue a residency in the demo jurisdiction (MOCK provider, even last digit verifies):
+Or issue a residency in the demo jurisdiction (MOCK provider, even last digit verifies).
+Issuance is an operator action, so it needs the admin key from your `.env`:
 
 ```bash
-curl -s localhost:3000/residency/issue -H 'content-type: application/json' -d '{
+curl -s localhost:3000/residency/issue -H 'content-type: application/json' \
+  -H "x-admin-key: $ADMIN_API_KEY" -d '{
   "countryCode": "ZZ",
   "subnationalUnit": "DX",
   "identifiers": { "nationalId": "12345678902" }

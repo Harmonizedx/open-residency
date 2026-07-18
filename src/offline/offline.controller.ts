@@ -1,4 +1,5 @@
-import { Body, Controller, Header, Post } from '@nestjs/common';
+import { Body, Controller, Header, Post, UseGuards } from '@nestjs/common';
+import { UssdGatewayGuard } from '../common/ussd-gateway.guard';
 import { PlatformService } from '../platform/platform.service';
 import { encodeCredentialQr } from '../core/offline/qr';
 import { handleUssd } from '../core/offline/ussd';
@@ -26,7 +27,11 @@ export class OfflineController {
    * USSD gateway webhook. Adapts a generic gateway payload (sessionId, phoneNumber,
    * text) to the pure state machine, then performs any side effect (lookup / OTP).
    * Response body follows the common CON/END convention used by African aggregators.
+   *
+   * Gateway-guarded: the handler trusts the caller's word for `phoneNumber`, so only the
+   * aggregator may call it. See UssdGatewayGuard.
    */
+  @UseGuards(UssdGatewayGuard)
   @Post('ussd')
   @Header('content-type', 'text/plain')
   async ussd(@Body() body: { sessionId?: string; phoneNumber?: string; text?: string }) {

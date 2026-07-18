@@ -22,7 +22,16 @@ secrets:
   subjectPepper: "CHANGE_ME_STRONG_RANDOM"
   oidcCookieSecret: "CHANGE_ME_COOKIE"
   adminApiKey: "CHANGE_ME_ADMIN_KEY"
+  ussdGatewaySecret: "CHANGE_ME_USSD_SECRET" # shared secret for the USSD webhook
   issuerPrivateJwk: "" # leave empty to source from KMS at runtime
+  # One entry per relying party across all loaded country configs, keyed by client id.
+  # The app refuses to start if any configured RP is missing its secret, rather than fall
+  # back to a placeholder derived from the public client id. Rendered as <ID>_CLIENT_SECRET.
+  relyingPartySecrets:
+    health: "CHANGE_ME_HEALTH_SECRET"
+    tax: "CHANGE_ME_TAX_SECRET"
+    permits: "CHANGE_ME_PERMITS_SECRET"
+    subsidy: "CHANGE_ME_SUBSIDY_SECRET"
 
 migrations:
   enabled: true

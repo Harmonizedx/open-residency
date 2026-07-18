@@ -69,6 +69,23 @@ export class ResidencyController {
     }));
   }
 
+  /**
+   * Issue a residency credential for an applicant.
+   *
+   * Admin-guarded, for the same reason `revoke` is: minting a credential in someone's
+   * name is at least as privileged as cancelling one. Two of this endpoint's own inputs
+   * say so directly -- `binding` and `residenceEvidence` are documented above as only
+   * meaningful from an authenticated operator context, because a caller who can post
+   * their own `authority_attestation` is attesting their own residence, and one who can
+   * self-assert `binding` clears the proofing bar a jurisdiction set at RAL2 without an
+   * operator ever having looked at them.
+   *
+   * The audit entry records `actor: 'operator'`; the guard is what makes that record
+   * true. Note it cannot yet say *which* operator -- the shared admin key carries no
+   * per-operator identity, so every enrolment is attributed to the same actor. That is a
+   * known gap ahead of real operator SSO, not a property of this route.
+   */
+  @UseGuards(AdminKeyGuard)
   @Post('issue')
   async issue(@Body() body: IssueBody) {
     const cfg = this.platform.getConfig(body.countryCode);
@@ -87,7 +104,7 @@ export class ResidencyController {
     });
     await this.platform.getAudit().record({
       action: 'residency.issue',
-      actor: 'citizen',
+      actor: 'operator',
       target: 'residentId' in result ? result.residentId : undefined,
       countryCode: cfg.countryCode,
       outcome: result.status === 'issued' || result.status === 'exists' ? 'success' : 'failure',

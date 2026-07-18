@@ -133,8 +133,9 @@ export class OpenResidencyClient {
       Array<{ countryCode: string; countryName: string; provider: string; inputs: unknown[] }>
     >('/residency/countries');
   }
+  /** Operator action: requires `adminKey` in ClientOptions. */
   issueResidency(req: IssueRequest) {
-    return this.post<IssueResult>('/residency/issue', req);
+    return this.post<IssueResult>('/residency/issue', req, true);
   }
   residencyStatus(residentId: string) {
     return this.get<ResidencyStatus>(`/residency/${encodeURIComponent(residentId)}`);
@@ -142,8 +143,13 @@ export class OpenResidencyClient {
   verifyCredential(credential: string, offline = false) {
     return this.post<CredentialVerifyOutcome>('/residency/verify', { credential, offline });
   }
+  /** Operator action: requires `adminKey` in ClientOptions. */
   revokeResidency(residentId: string) {
-    return this.post<{ revoked: boolean }>(`/residency/revoke/${encodeURIComponent(residentId)}`, {});
+    return this.post<{ revoked: boolean }>(
+      `/residency/revoke/${encodeURIComponent(residentId)}`,
+      {},
+      true,
+    );
   }
 
   // ---- consent ----
