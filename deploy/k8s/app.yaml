@@ -27,6 +27,25 @@ stringData:
   SUBJECT_PEPPER: "CHANGE_ME_STRONG_RANDOM"
   OIDC_COOKIE_SECRET: "CHANGE_ME_COOKIE"
   ADMIN_API_KEY: "CHANGE_ME_ADMIN_KEY"
+  # Shared secret the USSD aggregator returns on webhook callbacks. The route fails
+  # closed without it.
+  USSD_GATEWAY_SECRET: "CHANGE_ME_USSD_SECRET"
+  # Encrypts residents' phone numbers at rest (contactDirectory.mode: encrypted).
+  # Prefer contactDirectory.mode: external where a contact service already exists, and
+  # then drop this entirely -- no recoverable number is stored here at all.
+  # CONTACT_ENCRYPTION_KEY: "CHANGE_ME_openssl_rand_hex_32"
+  # Messaging aggregator credential. Set the pair your `messaging.provider` needs.
+  # AFRICASTALKING_API_KEY: "CHANGE_ME"
+  # TERMII_API_KEY: "CHANGE_ME"
+  # Foundational provider secret, named by foundational.auth.secretEnv in the config.
+  # NIN_GATEWAY_KEY: "CHANGE_ME_NIMC_GATEWAY_KEY"
+  # One per relying party across all loaded country configs. The app refuses to start if
+  # any is missing rather than fall back to a placeholder derived from the public client
+  # id. Add or remove lines to match your configs.
+  HEALTH_CLIENT_SECRET: "CHANGE_ME_HEALTH_SECRET"
+  TAX_CLIENT_SECRET: "CHANGE_ME_TAX_SECRET"
+  PERMITS_CLIENT_SECRET: "CHANGE_ME_PERMITS_SECRET"
+  SUBSIDY_CLIENT_SECRET: "CHANGE_ME_SUBSIDY_SECRET"
   # ISSUER_PRIVATE_JWK sourced from KMS in production:
   # ISSUER_PRIVATE_JWK: '{"kty":"OKP","crv":"Ed25519","x":"...","d":"..."}'
 ---

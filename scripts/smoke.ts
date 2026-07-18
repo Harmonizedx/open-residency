@@ -201,6 +201,32 @@ async function main() {
   });
   check('identical consent is idempotent (same record)', g2.record.id === g1.record.id);
 
+  // A consent created through the SSO step records the grant it authorizes, so that
+  // withdrawing it can revoke the session rather than only noting the withdrawal. Signing
+  // in again reuses the record, and the record must then track the CURRENT grant -- a
+  // stale id would revoke a dead grant and leave the live one releasing claims.
+  const gs1 = await consent.grant({
+    subjectRef: 'subject-sso',
+    residentId: 'KT-SSO-0001-X',
+    relyingParty: 'tax',
+    purpose: 'Sign in',
+    scopes: ['residency', 'tax'],
+    grantId: 'grant-first',
+  });
+  check('consent records the OIDC grant it authorized', gs1.record.grantId === 'grant-first');
+  const gs2 = await consent.grant({
+    subjectRef: 'subject-sso',
+    residentId: 'KT-SSO-0001-X',
+    relyingParty: 'tax',
+    purpose: 'Sign in',
+    scopes: ['residency', 'tax'],
+    grantId: 'grant-second',
+  });
+  check(
+    'reusing a consent adopts the current grant instead of keeping a stale one',
+    gs2.record.id === gs1.record.id && gs2.record.grantId === 'grant-second',
+  );
+
   const revoked = await consent.revoke(g1.record.id);
   check('consent can be revoked', revoked?.status === 'revoked');
   const afterList = await consent.listByResident(residentId);
@@ -464,6 +490,29 @@ async function main() {
   check(
     'unit with an override mints its own format',
     laIssue.status === 'issued' && /^\d{12}$/.test(laIssue.residentId) && isValidResidentId(laIssue.residentId, federCfg.subnationalUnits[1].residentId!),
+  );
+
+  // The claimed subnational unit is request-controlled but is persisted, asserted into the
+  // credential, and rendered in the admin console. It must be validated at the engine, not
+  // just wherever it happens to be displayed -- output escaping is the second line of
+  // defence, and only the second.
+  const injection = await federSvc.issue(federCfg, {
+    countryCode: 'NG',
+    subnationalUnit: '<img src=x onerror=alert(1)>',
+    identifiers: { nin: '12345678906' },
+  });
+  const unknownUnit = await federSvc.issue(federCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'ZZ',
+    identifiers: { nin: '12345678908' },
+  });
+  check(
+    'a subnational unit carrying markup is refused',
+    injection.status === 'rejected' && injection.reason === 'INVALID_SUBNATIONAL_UNIT',
+  );
+  check(
+    'a well-formed but undeclared subnational unit is refused',
+    unknownUnit.status === 'rejected' && unknownUnit.reason === 'UNKNOWN_SUBNATIONAL_UNIT',
   );
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);

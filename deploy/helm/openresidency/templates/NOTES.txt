@@ -11,6 +11,13 @@ OpenResidency is deploying.
 
 Before production, confirm you have:
   - Set strong SUBJECT_PEPPER, OIDC_COOKIE_SECRET, ADMIN_API_KEY
+  - A secrets.relyingPartySecrets entry per relying party in your country configs
+    (the app refuses to start if one is missing), and secrets.ussdGatewaySecret if you
+    expose the USSD webhook
   - Sourced ISSUER_PRIVATE_JWK from a KMS/HSM (not the ephemeral dev key)
+  - operatorAuth.mode set to `oidc` in the country config, pointed at your staff
+    directory -- the `sharedKey` default has no operator identity, roles, or rotation
+  - A `messaging` block naming a real SMS aggregator plus a `contactDirectory`, or the
+    one-time-code sign-in fallback stays switched off
   - A real SSO authentication factor wired in src/sso/interaction.controller.ts
   - The national ID API contract and legal basis with each identity authority

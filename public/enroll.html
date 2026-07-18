@@ -18,6 +18,18 @@
     </nav>
 
     <div class="card">
+      <h2>Operator key</h2>
+      <p class="muted">Issuance is an operator action and needs the <code>registrar</code> role.
+        Paste a per-operator API key (<code>ork_&hellip;</code>) from <code>POST /operator/keys</code> —
+        it names you in the audit log and can be rotated. On a deployment still running
+        <code>operatorAuth.mode: sharedKey</code>, the shared <code>ADMIN_API_KEY</code> also works.
+        Never stored beyond the current session; shared with the Admin console.</p>
+      <label for="key">Operator key</label>
+      <input id="key" type="password" placeholder="ork_… or the legacy admin key" />
+      <button id="saveKey" class="secondary">Use key</button>
+    </div>
+
+    <div class="card">
       <h2>Enroll a resident</h2>
       <p class="muted">Pick a country, verify against its foundational ID, and issue a residency credential.</p>
       <label for="country">Country</label>
@@ -38,6 +50,12 @@
         <input id="bindingRef" placeholder="e.g. agent-4417" />
       </fieldset>
 
+      <label for="phone">Phone (optional, E.164)</label>
+      <input id="phone" placeholder="+2348030000001" />
+      <p class="note" style="margin-top:4px">Used only to deliver one-time sign-in codes. What is kept
+        depends on the deployment's <code>contactDirectory.mode</code>; it never enters the credential
+        or the audit log.</p>
+
       <button id="issue">Verify and issue</button>
       <p class="note">Demo tip: in country <code>ZZ</code> (Demoland, MOCK provider), any National ID
         ending in an even digit verifies.</p>
@@ -57,6 +75,15 @@
 
   <script>
     let configs = [];
+
+    // Same session key the admin console uses, so an operator sets it once per session.
+    let adminKey = sessionStorage.getItem('or_admin_key') || '';
+    document.getElementById('key').value = adminKey;
+    document.getElementById('saveKey').onclick = () => {
+      adminKey = document.getElementById('key').value.trim();
+      sessionStorage.setItem('or_admin_key', adminKey);
+      alert('Key set for this session.');
+    };
 
     // Human labels for the binding methods the engine understands.
     const BINDING_LABELS = {
@@ -132,6 +159,8 @@
         subnationalUnit: document.getElementById('unit').value,
         identifiers,
       };
+      const phone = document.getElementById('phone').value.trim();
+      if (phone) body.phone = phone;
       // Attach the operator-attested binding, unless the provider authenticates the owner
       // itself (in which case the selector is hidden and the provider attests binding).
       const methodEl = document.getElementById('bindingMethod');
@@ -142,12 +171,24 @@
       }
       const res = await fetch('/residency/issue', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // An ork_ key goes in x-operator-key; anything else is the legacy shared key.
+        headers: Object.assign(
+          { 'content-type': 'application/json' },
+          adminKey.startsWith('ork_') ? { 'x-operator-key': adminKey } : { 'x-admin-key': adminKey },
+        ),
         body: JSON.stringify(body),
       }).then((r) => r.json());
 
       document.getElementById('result').style.display = 'block';
       const status = document.getElementById('status');
+      if (res.statusCode === 401 || res.statusCode === 403) {
+        status.innerHTML = res.statusCode === 403
+          ? `<span class="pill bad">forbidden</span> That operator lacks the <code>registrar</code> role.`
+          : `<span class="pill bad">unauthorized</span> Set a valid operator key above.`;
+        document.getElementById('jwt').value = '';
+        document.getElementById('qrwrap').style.display = 'none';
+        return;
+      }
       if (res.status === 'issued' || res.status === 'exists') {
         const bm = res.record && res.record.binding && res.record.binding.method;
         const bindingNote = bm ? ` · binding: <code>${bm}</code>` : '';
@@ -155,13 +196,15 @@
         const jwt = res.credentialJwt || '';
         document.getElementById('jwt').value = jwt;
         if (jwt) {
-          const svg = await fetch('/offline/qr', {
+          // /offline/qr answers JSON ({mode, svg}), not a bare SVG document. Reading it as
+          // text and injecting that painted the JSON source into the QR pane.
+          const qr = await fetch('/offline/qr', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ credential: jwt, residentId: res.residentId }),
-          }).then((r) => r.text());
-          document.getElementById('qr').innerHTML = svg;
-          document.getElementById('qrwrap').style.display = 'block';
+          }).then((r) => r.json());
+          document.getElementById('qr').innerHTML = qr.svg || '';
+          document.getElementById('qrwrap').style.display = qr.svg ? 'block' : 'none';
         }
       } else {
         status.innerHTML = `<span class="pill bad">${res.status}</span> ${res.reason || ''}`;

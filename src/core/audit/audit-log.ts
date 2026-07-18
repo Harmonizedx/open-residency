@@ -27,7 +27,17 @@ export type AuditAction =
   | 'oid4vci.credential.issue'
   // OpenID4VP: a relying party asked for a presentation, and a wallet answered.
   | 'oid4vp.request.create'
-  | 'oid4vp.presentation.verify';
+  | 'oid4vp.presentation.verify'
+  // Operator identity: staff sign-in, account changes, and the lifecycle of the API keys
+  // machine callers authenticate with. These are audited for the same reason residency
+  // actions are -- a privileged action nobody can be held to is not controlled.
+  | 'operator.login'
+  | 'operator.create'
+  | 'operator.disable'
+  | 'operator.enable'
+  | 'operator.key.create'
+  | 'operator.key.rotate'
+  | 'operator.key.revoke';
 
 export interface AuditEventInput {
   action: AuditAction;

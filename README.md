@@ -75,10 +75,14 @@ npm run start:dev
 Then open the reference UI at `http://localhost:3000/app/index.html` (enroll, verify, admin
 consoles) and the API docs at `http://localhost:3000/docs`.
 
-Or issue a residency in the demo jurisdiction (MOCK provider, even last digit verifies):
+Or issue a residency in the demo jurisdiction (MOCK provider, even last digit verifies).
+Issuance is an operator action. The shipped demo config runs `operatorAuth.mode: sharedKey`,
+so the key from your `.env` works; a real deployment uses operator SSO and per-operator
+API keys instead (see `docs/API.md`):
 
 ```bash
-curl -s localhost:3000/residency/issue -H 'content-type: application/json' -d '{
+curl -s localhost:3000/residency/issue -H 'content-type: application/json' \
+  -H "x-admin-key: $ADMIN_API_KEY" -d '{
   "countryCode": "ZZ",
   "subnationalUnit": "DX",
   "identifiers": { "nationalId": "12345678902" }
@@ -115,10 +119,15 @@ An existing platform — a ministry service, an education or health portal — t
 first authentication. Three integration paths, usable together:
 
 - **Sign in with State (OpenID Connect).** Register the service as a relying party in the country
-  YAML (`oidc.relyingParties`: `clientId`, `sector`, `redirectUris`; secret via env). It then uses
-  any standard OIDC library to run Authorization Code + PKCE, requesting `openid profile residency
-  <sector>`. It receives residency claims (`resident_id`, `subnational_unit`, `assurance_level`, …)
-  and **never** the national ID. On first login it maps `resident_id` ⇄ its local account.
+  YAML (`oidc.relyingParties`: `clientId`, `sector`, `scopes`, `redirectUris`; secret via env). It
+  then uses any standard OIDC library to run Authorization Code + PKCE, requesting `openid profile
+  <sector>`. It receives residency claims (`subnational_unit`, `assurance_level`, …) and **never**
+  the national ID. On first login it maps the `sub` ⇄ its local account.
+
+  The `sub` is **pairwise**: each service sees a different, stable identifier for the same citizen,
+  so two MDAs cannot join their records on it. The `resident_id` claim — which *is* the same
+  everywhere — comes from the `residency` scope and is granted only to relying parties with a
+  lawful basis for holding the number itself.
 - **Credential presentation (OpenID4VP).** If the citizen holds the residency VC in a wallet, the
   service acts as a verifier: request a presentation, verify signature + revocation **offline**
   against the issuer DID. Good for in-person or low-connectivity.
@@ -194,19 +203,27 @@ This repository is the generic public infrastructure, not a single-country app:
 - Credentials are signed with Ed25519 for small, offline-verifiable proofs.
 - Revocation uses a Bitstring Status List that verifiers cache, so no per-check callback is needed.
 - Every claim release over SSO is consent-gated and recorded in the tamper-evident audit log.
+  Consent is revocable and revocation is enforced, not just noted: withdrawing a consent
+  destroys the OIDC grant it authorized and revokes every token issued under it, so the
+  relying party stops receiving claims immediately rather than at token expiry.
 
 ## Honest caveats (this is a foundation, not a finished national system)
 
 - **Issuer key management.** The dev server generates an ephemeral key. Production must supply an
   Ed25519 key from an HSM/KMS via `ISSUER_PRIVATE_JWK`, or, better, keep signing inside the KMS by
   adapting `VcIssuer`.
-- **Authentication factor for SSO.** The bundled interaction login only checks that a ResidentID
-  exists. That is a placeholder. Bind a real factor (SMS/USSD OTP, or a Verifiable Presentation of
-  the residency credential) in `src/sso/interaction.controller.ts` before any real deployment.
-- **Cross-service correlation.** The OIDC subject is currently the `resident_id` — stable and the
-  same across every relying party. This makes account-linking trivial but lets independent services
-  correlate a citizen. Adopt pairwise (PPID) subject identifiers before onboarding third parties
-  that should not be able to correlate.
+- **Authentication factor for SSO.** Sign-in binds a real factor: a Verifiable Presentation of the
+  residency credential (primary), with a one-time code to the registered number as fallback. Naming
+  a ResidentID is *not* sufficient — `npm run smoke:sso` asserts that a bare ID, a stolen
+  credential, and a revoked credential all fail to sign in. Delivery is configured, not stubbed:
+  name an SMS aggregator in the `messaging` block (Africa's Talking, Twilio, Termii, or any REST
+  gateway via `GENERIC_HTTP`) and a `contactDirectory`. What a deployment still owns is the
+  aggregator contract itself.
+- **Cross-service correlation.** The OIDC subject is **pairwise**: each relying party sees a
+  different, stable identifier for the same citizen, so independent services cannot join records on
+  it. The correlatable `resident_id` claim is granted per relying party via `scopes`, not to
+  everyone by default — both halves are needed, since a universally readable `resident_id` would
+  defeat pairwise subjects entirely.
 - **Proof of residence.** Establishing that a verified person actually resides in a given ward is a
   policy problem this system records but does not solve on its own. Configure
   `residency.residence` and wire it to your attestation or register source.

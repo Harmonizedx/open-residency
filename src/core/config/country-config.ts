@@ -281,10 +281,25 @@ const relyingPartySchema = z.object({
   name: z.string().optional(),
   /**
    * The sector scope this RP is entitled to (e.g. `health`). Added to the standard
-   * `openid profile residency` set. Also registered as a supported scope, so a country
-   * can introduce a new sector without a code change.
+   * `openid profile` set. Also registered as a supported scope, so a country can
+   * introduce a new sector without a code change.
    */
   sector: z.string().min(1),
+  /**
+   * Scopes this RP may request, beyond `openid` and its own sector.
+   *
+   * `residency` is the one that matters and it is NOT granted by default. That scope
+   * releases `resident_id`, which is the same value for a given citizen at every service
+   * -- so while it was handed to every RP automatically, any two services could join
+   * their records on it and reconstruct a cross-government view of a person. Pairwise
+   * `sub` values do not fix that on their own; the correlatable claim has to stop being
+   * universally available too.
+   *
+   * Grant it only to relying parties with a lawful basis for holding the residency
+   * number itself. A service that merely needs to know someone is a resident of a unit
+   * should take `profile` and its sector scope and read the assurance claims instead.
+   */
+  scopes: z.array(z.enum(['profile', 'residency', 'offline_access'])).default(['profile']),
   /** OAuth redirect URIs. Must be the real callback URLs in production. */
   redirectUris: z.array(z.string()).nonempty(),
   postLogoutRedirectUris: z.array(z.string()).default([]),
@@ -293,9 +308,128 @@ const relyingPartySchema = z.object({
 /** OIDC identity-provider profile: the relying parties this deployment serves. */
 const oidcSchema = z.object({
   relyingParties: z.array(relyingPartySchema).default([]),
+  /**
+   * Subject identifier type.
+   *
+   * `pairwise` derives a different `sub` for each relying party, so the identifier one
+   * service knows a citizen by is useless to another. `public` emits the residency id
+   * itself at every service, which makes cross-service correlation trivial for anyone who
+   * can compare two databases -- exactly what independent MDAs must not be able to do.
+   *
+   * Defaults to pairwise. Switching to `public` is a deliberate downgrade and should only
+   * be done for a legacy RP that cannot be migrated.
+   */
+  subjectType: z.enum(['pairwise', 'public']).default('pairwise'),
 });
 
 export type RelyingPartyConfig = z.infer<typeof relyingPartySchema>;
+export type OidcProfile = z.infer<typeof oidcSchema>;
+
+/**
+ * How members of staff authenticate to the privileged endpoints.
+ *
+ * `oidc` is the mode a real deployment runs: staff identity, password policy, MFA and
+ * de-provisioning stay in the ministry's own directory, and this system holds no staff
+ * credentials. `local` exists for deployments with no IdP yet -- it is a full
+ * implementation (scrypt, TOTP, lockout, per-operator API keys with rotation), but it
+ * makes this system a staff credential store, which is a liability an IdP removes.
+ *
+ * `sharedKey` is the legacy single ADMIN_API_KEY. It carries no identity: every action
+ * audits to the same actor, there are no roles, and rotation means restarting with every
+ * client cutting over at once. It is retained so existing deployments keep working and
+ * warns on every boot.
+ */
+const operatorAuthSchema = z.object({
+  mode: z.enum(['oidc', 'local', 'sharedKey']).default('sharedKey'),
+  /** Issuer name shown in operators' authenticator apps. */
+  issuerName: z.string().default('OpenResidency'),
+  oidc: z
+    .object({
+      issuer: z.string(),
+      audience: z.string(),
+      roleClaim: z.string().default('roles'),
+      nameClaim: z.string().default('preferred_username'),
+      /** Maps the directory's own group names onto OpenResidency roles. */
+      roleMap: z.record(z.string()).default({}),
+      jwksUri: z.string().optional(),
+    })
+    .optional(),
+  local: z
+    .object({
+      /** Refuse logins from accounts that have not enrolled a second factor. */
+      requireMfa: z.boolean().default(true),
+      sessionTtlSeconds: z.number().int().positive().default(8 * 3600),
+    })
+    .default({}),
+});
+
+export type OperatorAuthConfig = z.infer<typeof operatorAuthSchema>;
+
+/**
+ * Outbound messaging: how a one-time code or a status notice reaches a citizen's handset.
+ *
+ * Omit this block and delivery is disabled -- the sign-in fallback simply does not work,
+ * which is the honest failure. It must never quietly degrade to logging the code, which
+ * is what the previous default did.
+ */
+const messagingSchema = z.object({
+  provider: z
+    .enum(['LOG', 'GENERIC_HTTP', 'AFRICASTALKING', 'TWILIO', 'TERMII'])
+    .default('LOG'),
+  /** Sender id / short code / from-number. For Twilio this is the Account SID in the path. */
+  sender: z.string().optional(),
+  baseUrl: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  auth: z
+    .object({
+      type: z.enum(['none', 'apiKey', 'bearer', 'basic']).default('none'),
+      headerName: z.string().optional(),
+      secretEnv: z.string().optional(),
+      usernameEnv: z.string().optional(),
+    })
+    .optional(),
+  /** Request shape. Omit it for a preset provider; supply it for GENERIC_HTTP. */
+  request: z
+    .object({
+      method: z.enum(['GET', 'POST']).default('POST'),
+      path: z.string().default(''),
+      bodyTemplate: z.record(z.string()).optional(),
+      form: z.boolean().default(false),
+      headers: z.record(z.string()).optional(),
+      messageIdPath: z.string().optional(),
+      successFlag: z.object({ path: z.string(), equals: z.unknown().optional() }).optional(),
+    })
+    .optional(),
+  /** SMS body. {code} and {issuer} are substituted. */
+  otpTemplate: z
+    .string()
+    .default('Your {issuer} sign-in code is {code}. It expires in 5 minutes. Do not share it.'),
+  /**
+   * Acknowledge that LOG writes live one-time codes to the service log. Required to boot
+   * with provider: LOG, so the dev stub cannot be inherited silently by a config copied
+   * into production.
+   */
+  acknowledgeInsecureLogProvider: z.boolean().default(false),
+});
+
+export type MessagingConfig = z.infer<typeof messagingSchema>;
+
+/** Where a resident's phone number comes from at send time. See contact-directory.ts. */
+const contactDirectorySchema = z.object({
+  mode: z.enum(['none', 'encrypted', 'external']).default('none'),
+  external: z
+    .object({
+      baseUrl: z.string(),
+      path: z.string().default('/contacts/{residentId}'),
+      responsePath: z.string().default('msisdn'),
+      secretEnv: z.string().optional(),
+      headerName: z.string().optional(),
+      timeoutMs: z.number().int().positive().optional(),
+    })
+    .optional(),
+});
+
+export type ContactDirectoryConfig = z.infer<typeof contactDirectorySchema>;
 
 /** Presentation profile (OpenID4VP). Deployment-wide; read from the default country. */
 const presentationSchema = z.object({
@@ -417,7 +551,8 @@ const subnationalUnitSchema = z.object({
   residentId: residentIdSchema.optional(),
 });
 
-export const countryConfigSchema = z.object({
+export const countryConfigSchema = z
+  .object({
   countryCode: z.string().length(2),
   countryName: z.string(),
   defaultSubnationalUnit: z.string().optional(),
@@ -433,8 +568,70 @@ export const countryConfigSchema = z.object({
   // Sign-in relying parties. Empty by default: a deployment that does not use SSO simply
   // omits this, and no RPs are registered.
   oidc: oidcSchema.default({}),
+  // Deployment-wide profiles. Read from the default (first) country config, the same way
+  // the presentation profile is. Omit them and you get: shared-key operator auth with a
+  // boot warning, no messaging, and no contact directory.
+  operatorAuth: operatorAuthSchema.default({}),
+  messaging: messagingSchema.optional(),
+  contactDirectory: contactDirectorySchema.default({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),
-});
+  })
+  .superRefine((v, ctx) => {
+    // A mode is only meaningful with the block that configures it. Catching this at load
+    // time turns a silent fallback to shared-key auth into a refusal to start.
+    if (v.operatorAuth.mode === 'oidc' && !v.operatorAuth.oidc) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['operatorAuth', 'oidc'],
+        message: 'operatorAuth.mode: oidc requires an operatorAuth.oidc block (issuer, audience)',
+      });
+    }
+    if (v.contactDirectory.mode === 'external' && !v.contactDirectory.external) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['contactDirectory', 'external'],
+        message: 'contactDirectory.mode: external requires a contactDirectory.external block',
+      });
+    }
+    // The dev sender writes live one-time codes to stdout. Requiring an explicit
+    // acknowledgement is what stops a config copied from the demo into a real deployment
+    // from silently disabling the fallback factor's confidentiality.
+    if (v.messaging?.provider === 'LOG' && !v.messaging.acknowledgeInsecureLogProvider) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['messaging', 'provider'],
+        message:
+          'messaging.provider: LOG writes one-time codes to the service log. Set ' +
+          'messaging.acknowledgeInsecureLogProvider: true to confirm this is a development ' +
+          'deployment, or configure a real aggregator.',
+      });
+    }
+    if (v.messaging && v.messaging.provider !== 'LOG' && v.contactDirectory.mode === 'none') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['contactDirectory', 'mode'],
+        message:
+          'messaging is configured but contactDirectory.mode is none, so no message can ever ' +
+          'be addressed. Set a contact directory, or remove the messaging block.',
+      });
+    }
+    // Pairwise subjects are undone by handing every RP the correlatable claim anyway, so
+    // flag the combination rather than letting it look like a privacy control.
+    if (v.oidc.subjectType === 'pairwise') {
+      const all = v.oidc.relyingParties;
+      const withResidency = all.filter((rp) => rp.scopes.includes('residency'));
+      if (all.length > 1 && withResidency.length === all.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['oidc', 'relyingParties'],
+          message:
+            'every relying party is granted the `residency` scope, which releases the same ' +
+            'resident_id to all of them -- so pairwise subject identifiers prevent no ' +
+            'correlation. Grant `residency` only to RPs with a lawful basis for the number.',
+        });
+      }
+    }
+  });
 
 export type WalletProfile = z.infer<typeof walletSchema>;
 export type PresentationProfile = z.infer<typeof presentationSchema>;
@@ -445,10 +642,18 @@ export function parseCountryConfig(raw: unknown): CountryConfig {
   return countryConfigSchema.parse(raw);
 }
 
-/** Load and validate every YAML file in a directory into a keyed map. */
+/**
+ * Load and validate every YAML file in a directory into a keyed map.
+ *
+ * The file list is sorted, because insertion order is load-bearing: several
+ * deployment-wide profiles (the presentation profile, operator authentication, messaging)
+ * are read from the FIRST config loaded. `readdirSync` gives no ordering guarantee across
+ * platforms or filesystems, so without this the mode a deployment runs in could differ
+ * between two machines holding identical files.
+ */
 export function loadCountryConfigs(dir: string): Map<string, CountryConfig> {
   const map = new Map<string, CountryConfig>();
-  for (const file of readdirSync(dir)) {
+  for (const file of readdirSync(dir).sort()) {
     if (!/\.(ya?ml)$/i.test(file)) continue;
     const raw = loadYaml(readFileSync(join(dir, file), 'utf8'));
     const cfg = parseCountryConfig(raw);

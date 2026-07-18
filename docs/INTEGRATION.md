@@ -189,15 +189,19 @@ not surrender your domain logic.
 
 ## Before you go live — checklist
 
-- [ ] **Real authentication factor.** The reference build's interaction login is a placeholder that
-      only checks a ResidentID exists. A production IdP must bind a real factor (SMS/USSD OTP, or a
-      Verifiable Presentation) — see the caveat in the main [README](../README.md).
-- [ ] **Cross-service correlation.** The OIDC `sub` currently equals `resident_id`, stable across
-      every relying party. If independent services must not be able to correlate the same citizen,
-      the IdP should issue **pairwise (PPID)** subject identifiers and release the real `resident_id`
-      only under the consented `residency` scope.
-- [ ] **Secrets.** Set `<CLIENTID>_CLIENT_SECRET` from your secret store; never rely on the dev
-      fallback secret.
+- [ ] **OTP delivery.** Sign-in binds a real factor (Verifiable Presentation primary, one-time
+      code fallback; a bare ResidentID does not authenticate). Delivery is now configured, not
+      stubbed: set a `messaging` block (Africa's Talking, Twilio, Termii, or any REST aggregator
+      via `GENERIC_HTTP`) and a `contactDirectory`. Omit them and the fallback is switched off;
+      `provider: LOG` still prints codes and refuses to boot without an explicit acknowledgement.
+- [ ] **Cross-service correlation.** The OIDC `sub` is now **pairwise** by default — each relying
+      party sees a different, stable identifier for the same citizen, derived under the deployment
+      pepper. Plan for this: your service's `sub` will not match any other service's, which is the
+      point. The correlatable `resident_id` claim comes from the `residency` scope, which is
+      granted per relying party in config and is **not** given to every RP any more. If your
+      integration reads `resident_id`, ask for that scope explicitly and be ready to justify it.
+- [ ] **Secrets.** Set `<CLIENTID>_CLIENT_SECRET` from your secret store. There is no dev fallback
+      any more — the app refuses to start if one is missing.
 - [ ] **Redirect URIs.** Register the exact production callback URLs; no wildcards.
 - [ ] **Consent & data protection.** Request the narrowest scope set you need, and confirm the
       lawful basis for the claims you consume with the identity authority.

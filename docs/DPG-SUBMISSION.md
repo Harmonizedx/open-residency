@@ -64,10 +64,10 @@ province, or county.
 - Data privacy and security: see indicators 6, 7, 8 and `SECURITY.md`.
 - Inappropriate/illegal content: not applicable (infrastructure, no user content).
 - Protection from harassment: not applicable (no social features).
-- Note the honest caveats: the reference SSO login factor is a placeholder, the dev
-  issuer key is ephemeral, and proof-of-residence is a policy input the system records
-  but does not adjudicate. A production deployer addresses these; they are documented
-  rather than hidden.
+- Note the honest caveats: the dev issuer key is ephemeral (production supplies one from
+  an HSM/KMS), OTP delivery is a logging stub pending an SMS/USSD aggregator, and
+  proof-of-residence is a policy input the system records but does not adjudicate. A
+  production deployer addresses these; they are documented rather than hidden.
 
 ## Attachments to reference in the submission
 

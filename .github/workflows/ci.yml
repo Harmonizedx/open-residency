@@ -53,6 +53,16 @@ jobs:
       - name: OpenID4VP presentation (drives the flow, and the attacks it must reject)
         run: npm run smoke:oid4vp
 
+      # These two were in `npm test` but never in CI, so nothing gated them. The SSO suite
+      # is the one that matters most: it exists to hold down the regression where naming an
+      # existing residency ID -- a semi-public value -- was enough to sign in as that
+      # person. A guard with no test in front of it is a guard waiting to be refactored out.
+      - name: SSO login factors (VP primary, one-time code fallback, and their attacks)
+        run: npm run smoke:sso
+
+      - name: Foundational sources (XML/SOAP and imported dataset adapters)
+        run: npm run smoke:sources
+
   build:
     name: Docker image builds
     runs-on: ubuntu-latest

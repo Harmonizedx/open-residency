@@ -11,9 +11,9 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
  * A deliberate privacy boundary runs through here. OpenResidency does not store plaintext
  * phone numbers -- the schema keeps only a phoneHash, and the whole tokenization design
  * exists to avoid holding contact PII. So this service never sees a phone number. It
- * generates and checks the code; DELIVERING it is delegated to an OtpSender that the
- * deployment implements against whatever contact directory it already runs. The reference
- * sender just logs the code, the way the dev issuer key is generated rather than loaded.
+ * generates and checks the code; DELIVERING it is delegated to an OtpSender. The real
+ * implementation lives in core/messaging: a configured aggregator plus a contact directory
+ * that resolves a residentId to a number at send time.
  *
  * The code lifecycle is the security-critical part, and it is fully real:
  *   - codes are random, and stored only as a hash;
@@ -67,24 +67,6 @@ export class InMemoryOtpStore implements OtpStore {
 export interface OtpSender {
   /** Deliver `code` to the resident identified by `residentId`. Returns the channel used. */
   send(residentId: string, code: string): Promise<{ channel: string }>;
-}
-
-/**
- * Reference sender. Logs the code instead of sending it.
- *
- * This is for local development and CI ONLY, exactly like the ephemeral dev issuer key.
- * A production deployment MUST replace it, or one-time codes are written to the service
- * log where anyone with log access can read them.
- */
-export class LoggingOtpSender implements OtpSender {
-  async send(residentId: string, code: string): Promise<{ channel: string }> {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[otp] DEV SENDER: code for ${residentId} is ${code}. ` +
-        `Replace LoggingOtpSender in production -- codes must not be logged.`,
-    );
-    return { channel: 'log' };
-  }
 }
 
 const OTP_TTL_SECONDS = 5 * 60;

@@ -42,7 +42,12 @@ model Resident {
   familyName      String?
   dateOfBirth     String?
   gender          String?
-  phoneHash       String? // for USSD/OTP binding; hashed, never plaintext
+  phoneHash       String? // for USSD/OTP binding and matching; one-way, cannot be dialled
+  // AES-256-GCM ciphertext of the E.164 number, under a key held outside the database
+  // (CONTACT_ENCRYPTION_KEY). Present only when contactDirectory.mode is `encrypted`:
+  // a one-way hash cannot be dialled, so actually delivering a one-time code needs the
+  // number back in a recoverable form. A database dump yields ciphertext only.
+  phoneEnc        String?
   createdAt       DateTime @default(now())
 
   @@index([countryCode, subnationalUnit])
@@ -150,6 +155,57 @@ model AuditEvent {
   @@index([action])
 }
 
+// A member of staff who may perform privileged actions.
+//
+// This exists so the audit log can name a person. Previously every privileged route was
+// authenticated by one shared static API key, so an enrolment and a revocation both
+// recorded the literal actor 'admin' and the log could not say who did either.
+//
+// Populated only when operatorAuth.mode is `local`. Under `oidc` the ministry's own
+// directory is authoritative and a row here is optional -- used to add roles, or to
+// disable an account locally as a kill switch that works even if IdP de-provisioning lags.
+model Operator {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  displayName     String
+  roles           String[]
+  // scrypt$<salt>$<hash>. Null for operators that exist only to carry roles for an IdP
+  // identity, which have no local password to steal.
+  passwordHash    String?
+  // Base32 TOTP secret. Confirmed on first successful use; once confirmed the second
+  // factor is enforced regardless of the requireMfa setting.
+  totpSecret      String?
+  totpConfirmedAt DateTime?
+  failedLogins    Int       @default(0)
+  lockedUntil     DateTime?
+  disabledAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  keys OperatorKey[]
+}
+
+// A long-lived credential for a machine caller (an enrolment kiosk, a batch job).
+//
+// Stored only as a SHA-256 hash, like every other credential here. `expiresAt` plus
+// `rotatedFrom` are what make rotation real: two keys are valid at once during an overlap
+// window, so callers move across one at a time instead of every client cutting over on a
+// single restart -- which was the only option with the shared static key.
+model OperatorKey {
+  id         String    @id @default(uuid())
+  operatorId String
+  label      String
+  keyHash    String    @unique
+  expiresAt  DateTime?
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  rotatedFrom String?
+  createdAt  DateTime  @default(now())
+
+  operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId])
+}
+
 // First-class consent records for cross-sector data sharing over SSO. Revocable,
 // and each grant is backed by a signed, portable receipt (receiptId).
 model ConsentRecord {
@@ -165,6 +221,10 @@ model ConsentRecord {
   expiresAt        DateTime?
   revokedAt        DateTime?
   receiptId        String
+  // The OIDC grant this consent authorizes, when created through the SSO consent step.
+  // Revoking the consent revokes this grant and every token issued under it; without the
+  // link the two stores drift and a withdrawn consent keeps releasing claims.
+  grantId          String?
 
   @@index([residentId])
   @@index([relyingParty])

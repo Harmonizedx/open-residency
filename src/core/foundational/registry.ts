@@ -61,11 +61,19 @@ export class ProviderRegistry {
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const factory =
-      FACTORIES[config.code] ??
-      // Unknown code falls back to the config-driven generic adapter so that a
-      // typo or a new provider never hard-crashes the platform.
-      ((p?: string) => new GenericRestAdapter(config.code, p));
+    const known = FACTORIES[config.code];
+    if (!known) {
+      // Unknown code falls back to the config-driven generic adapter so that a typo or a
+      // new provider never hard-crashes the platform. But it must not do so silently: a
+      // misspelled provider then starts up cleanly and fails at verify time as
+      // PROVIDER_UNREACHABLE, which sends whoever debugs it to the network instead of the
+      // config.
+      console.warn(
+        `[foundational] unknown provider code '${config.code}'; falling back to the ` +
+          `generic REST adapter. Known codes: ${Object.keys(FACTORIES).join(', ')}`,
+      );
+    }
+    const factory = known ?? ((p?: string) => new GenericRestAdapter(config.code, p));
 
     const provider = factory(this.pepper);
     provider.init(config);

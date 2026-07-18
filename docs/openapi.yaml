@@ -24,6 +24,11 @@ tags:
     description: Tamper-evident audit log (admin)
   - name: admin
     description: Resident registry administration (admin)
+  - name: operator
+    description: >
+      Operator identity: staff sign-in, accounts, and the per-operator API keys machine
+      callers authenticate with. Replaces the single shared admin key, so privileged
+      actions can be attributed to a named person and restricted by role.
   - name: offline
     description: QR carriage and USSD for low-connectivity inclusion
   - name: sso
@@ -87,6 +92,11 @@ paths:
     post:
       tags: [residency]
       summary: Verify foundational identity and issue a residency credential
+      description: >
+        Operator action. Accepts `binding` and `residenceEvidence` attestations that a
+        self-serving caller must not be able to assert about themselves, so it is
+        admin-guarded like revocation.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -136,6 +146,7 @@ paths:
     post:
       tags: [residency]
       summary: Revoke a residency credential
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResidentId'
       responses:
@@ -151,6 +162,7 @@ paths:
     get:
       tags: [consent]
       summary: List consents a resident has granted
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResidentId'
       responses:
@@ -169,6 +181,7 @@ paths:
     post:
       tags: [consent]
       summary: Grant consent to a relying party and mint a signed receipt
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -189,6 +202,7 @@ paths:
     post:
       tags: [consent]
       summary: Revoke a consent record
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - name: id
           in: path
@@ -203,11 +217,166 @@ paths:
                 type: object
                 properties:
                   consent: { $ref: '#/components/schemas/ConsentRecord' }
+  /operator/login:
+    post:
+      tags: [operator]
+      summary: Local operator sign-in (password + TOTP)
+      description: >
+        Only when operatorAuth.mode is `local`. Returns a short-lived session token.
+        Answers vaguely on failure so it cannot be used to enumerate staff accounts;
+        the one exception is mfaRequired, which the console needs in order to prompt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+                totp: { type: string, description: 6-digit code from the authenticator app }
+      responses:
+        '200':
+          description: A session token, or a signal that a second factor is needed
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      accessToken: { type: string }
+                      tokenType: { type: string, example: Bearer }
+                      expiresIn: { type: integer }
+                      operator:
+                        type: object
+                        properties:
+                          id: { type: string }
+                          displayName: { type: string }
+                          roles: { type: array, items: { type: string } }
+                  - type: object
+                    properties:
+                      mfaRequired: { type: boolean }
+        '401':
+          description: Sign-in failed
+  /operator/me:
+    get:
+      tags: [operator]
+      summary: The calling operator's identity and roles
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: The authenticated operator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  displayName: { type: string }
+                  roles: { type: array, items: { type: string } }
+                  via: { type: string, enum: [oidc, local, apiKey, sharedKey] }
+  /operator/operators:
+    get:
+      tags: [operator]
+      summary: List operators (admin)
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: Operators. Never includes password hashes or TOTP secrets.
+    post:
+      tags: [operator]
+      summary: Create an operator (admin)
+      description: >
+        The TOTP secret is returned exactly once, here, because it has to reach an
+        authenticator app and is never recoverable afterwards.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, roles]
+              properties:
+                email: { type: string }
+                displayName: { type: string }
+                password: { type: string }
+                roles:
+                  type: array
+                  items:
+                    type: string
+                    enum: [admin, registrar, revoker, auditor, support]
+      responses:
+        '200':
+          description: The new operator, with its one-time TOTP enrolment secret
+  /operator/keys:
+    get:
+      tags: [operator]
+      summary: List the calling operator's API keys
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: Key metadata. Never the keys themselves.
+    post:
+      tags: [operator]
+      summary: Mint an API key for the calling operator
+      description: The plaintext key is shown once. Defaults to a 90-day life.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string }
+                expiresInDays: { type: integer, default: 90 }
+      responses:
+        '200':
+          description: The new key, in plaintext, once
+  /operator/keys/rotate:
+    post:
+      tags: [operator]
+      summary: Rotate a key, keeping the old one alive for an overlap window
+      description: >
+        Issues a replacement and shortens the old key's expiry rather than killing it, so
+        callers cut over one at a time. This is what the shared static key could not do.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keyId]
+              properties:
+                keyId: { type: string }
+                overlapHours: { type: integer, default: 24 }
+      responses:
+        '200':
+          description: The replacement key and when the old one retires
+  /operator/keys/revoke:
+    post:
+      tags: [operator]
+      summary: Revoke a key immediately
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keyId]
+              properties:
+                keyId: { type: string }
+      responses:
+        '200':
+          description: Whether the key was revoked
   /audit:
     get:
       tags: [audit]
       summary: Read the audit log (admin)
-      security: [{ adminKey: [] }]
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - { name: limit, in: query, schema: { type: integer } }
         - { name: offset, in: query, schema: { type: integer } }
@@ -229,7 +398,7 @@ paths:
     get:
       tags: [audit]
       summary: Verify the audit hash chain is intact (admin)
-      security: [{ adminKey: [] }]
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
           description: Chain integrity result
@@ -245,7 +414,7 @@ paths:
     get:
       tags: [admin]
       summary: List residents in the registry (admin)
-      security: [{ adminKey: [] }]
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - { name: countryCode, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer } }
@@ -266,7 +435,7 @@ paths:
     get:
       tags: [admin]
       summary: Deployment statistics (admin)
-      security: [{ adminKey: [] }]
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
           description: Counts by country
@@ -302,6 +471,10 @@ paths:
     post:
       tags: [offline]
       summary: USSD webhook for feature phones
+      description: >
+        Called by the USSD aggregator only. The handler trusts the caller's word for
+        `phoneNumber`, so it requires the shared gateway secret.
+      security: [{ ussdSecret: [] }]
       requestBody:
         required: true
         content:
@@ -360,6 +533,8 @@ paths:
         because the transaction code is a separate factor, the code is single-use, and it
         expires in 15 minutes.
       security:
+        - operatorKey: []
+        - operatorToken: []
         - adminKey: []
       requestBody:
         required: true
@@ -549,10 +724,35 @@ components:
       required: true
       schema: { type: string, example: KT-GT1F-75WJ-6 }
   securitySchemes:
+    operatorKey:
+      type: apiKey
+      in: header
+      name: x-operator-key
+      description: >
+        Per-operator API key (ork_...), minted at POST /operator/keys. Identifies which
+        operator is calling, carries only that operator's roles, expires, and rotates with
+        an overlap window. This is the credential to use.
+    operatorToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        An operator access token -- from the configured identity provider when
+        operatorAuth.mode is oidc, or from POST /operator/login when it is local.
     adminKey:
       type: apiKey
       in: header
       name: x-admin-key
+      description: >
+        DEPRECATED legacy shared key. Accepted only where operatorAuth.mode is sharedKey.
+        Carries no operator identity, no roles, and cannot be rotated without a restart.
+    ussdSecret:
+      type: apiKey
+      in: header
+      name: x-ussd-secret
+      description: >
+        Shared secret the USSD aggregator returns on webhook callbacks. Set as
+        USSD_GATEWAY_SECRET; the route fails closed when it is unset.
     walletToken:
       type: http
       scheme: bearer

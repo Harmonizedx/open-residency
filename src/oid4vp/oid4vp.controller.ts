@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
-import { AdminKeyGuard } from '../common/api-key.guard';
+import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { Oid4vpError } from '../core/oid4vp/oid4vp-service';
 
 function toHttp(e: unknown): never {
@@ -35,7 +35,8 @@ export class Oid4vpController {
 
   /** A relying party opens a presentation request. Returns a QR-able openid4vp:// URI. */
   @Post('request')
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(OperatorGuard)
+  @RequireRoles('support')
   async createRequest(@Body() body: { purpose?: string; reference?: string }) {
     try {
       return await this.platform.getOid4vp().createRequest(body ?? {});
@@ -88,7 +89,8 @@ export class Oid4vpController {
 
   /** The relying party polls for the verdict. */
   @Get('result/:id')
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(OperatorGuard)
+  @RequireRoles('support')
   async result(@Param('id') id: string) {
     try {
       return await this.platform.getOid4vp().result(id);

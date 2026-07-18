@@ -17,26 +17,19 @@ git remote add origin https://github.com/harmonizedx/openresidency.git
 git push -u origin main
 ```
 
-CI (`.github/workflows/ci.yml`) runs on push: typecheck, smoke test, SDK build, Docker
-build. Confirm it is green.
+CI (`.github/workflows/ci.yml`) runs on pull request and on push to `main`: typecheck, W3C
+conformance, and the core, OpenID4VCI, OpenID4VP, SSO, and foundational-source suites, plus
+a Docker image build. Confirm it is green. Note CI does **not** build or publish the SDK —
+that is the manual step below.
 
 If the org handle is not `harmonizedx`, update it in: root `package.json`, `sdk/package.json`,
-`.github/CODEOWNERS`, and the URLs in `docs/`.
+the image references in `deploy/`, and the URLs in `docs/`.
 
 ## 2. Publish the SDK to npm
 
-Create the `@openresidency` org/scope on npm (owned by HarmonizedX). Add an automation
-token as the `NPM_TOKEN` repository secret in GitHub. Then publish by tagging a release:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-The release workflow (`.github/workflows/release.yml`) publishes `@openresidency/sdk`
-to npm and pushes the container image to `ghcr.io/harmonizedx/openresidency`.
-
-To publish manually instead:
+Create the `@openresidency` org/scope on npm (owned by HarmonizedX). Publishing is manual —
+there is no release workflow in this repository yet, so tagging alone does not ship
+anything:
 
 ```bash
 cd sdk && npm run build && npm publish --access public

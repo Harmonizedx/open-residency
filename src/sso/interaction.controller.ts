@@ -87,11 +87,28 @@ export class InteractionController {
   /**
    * Request a one-time code. Responds identically whether or not the residency ID exists,
    * so it cannot be used to enumerate valid residency IDs.
+   *
+   * The catch is load-bearing, not defensive tidiness. Delivery now really happens, and it
+   * fails for reasons that correlate with the resident EXISTING -- no contact number on
+   * file, an aggregator rejection for that number -- while an unknown residency ID fails
+   * silently and early. Letting those raise would answer 500 for a real resident and 200
+   * for an invented one, which is a cleaner enumeration oracle than the one this endpoint
+   * was written to avoid. The failure is recorded in the audit log instead, where an
+   * operator can see it and the caller cannot.
    */
   @Post(':uid/otp/start')
   async otpStart(@Body() body: { residentId?: string }) {
     if (body?.residentId) {
-      await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
+      try {
+        await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
+      } catch (e) {
+        await this.platform.getAudit().record({
+          action: 'sso.login',
+          actor: body.residentId,
+          outcome: 'failure',
+          metadata: { factor: 'otp', stage: 'delivery', reason: (e as Error).message },
+        });
+      }
     }
     return { sent: true };
   }
@@ -151,11 +168,21 @@ export class InteractionController {
     const clientId = String(params.client_id);
     const requested = String(params.scope ?? 'openid');
 
-    const grant = new this.provider.Grant({ accountId, clientId });
+    // Reuse the grant this resident's active consent already authorizes, rather than
+    // minting a fresh one on every sign-in. A new grant per login would leave the earlier
+    // ones live and untracked, so withdrawing consent would revoke only the most recent
+    // session. One consent record, one grant, revoked together.
+    const resident = await this.platform.getStore().findByResidentId(accountId);
+    const priorConsent = resident
+      ? await this.platform.getConsent().findActive(resident.residentId, clientId)
+      : null;
+    const grant =
+      (priorConsent?.grantId
+        ? await this.provider.Grant.find(priorConsent.grantId)
+        : undefined) ?? new this.provider.Grant({ accountId, clientId });
     grant.addOIDCScope(requested);
     const grantId = await grant.save();
 
-    const resident = await this.platform.getStore().findByResidentId(accountId);
     if (resident) {
       const scopes = requested.split(' ').filter((s) => s !== 'openid');
       const { record: consent } = await this.platform.getConsent().grant({
@@ -164,6 +191,7 @@ export class InteractionController {
         relyingParty: clientId,
         purpose: `Cross-sector access requested by ${clientId}`,
         scopes,
+        grantId,
       });
       await this.platform.getAudit().record({
         action: 'consent.grant',

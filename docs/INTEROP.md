@@ -314,7 +314,7 @@ is real and enforced (single-use, expiring, attempt-bounded), but **delivery is 
 `OtpService` never sees a phone number. OpenResidency deliberately does not store plaintext
 contact details — the schema keeps only a `phoneHash` — so an `OtpSender` implemented by the
 deployment, against its own SMS gateway and contact directory, does the sending. The
-reference `LoggingOtpSender` logs the code and is for development only; a production
+`messaging.provider: LOG` logs the code and is for development only; a production
 deployment MUST replace it.
 
 > This replaced a login handler that authenticated anyone who could name an *existing*

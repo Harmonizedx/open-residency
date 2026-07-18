@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PlatformService } from '../platform/platform.service';
-import { AdminKeyGuard } from '../common/api-key.guard';
+import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { Oid4vciError, PRE_AUTHORIZED_CODE_GRANT } from '../core/oid4vci/oid4vci-service';
 
 /**
@@ -43,7 +43,8 @@ export class Oid4vciController {
    * for arbitrary residents is equivalent to being able to issue their credentials.
    */
   @Post('offer')
-  @UseGuards(AdminKeyGuard)
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
   async createOffer(@Body() body: { residentId?: string }) {
     if (!body?.residentId) {
       throw new HttpException(
