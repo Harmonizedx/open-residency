@@ -1,8 +1,10 @@
 import { Body, Controller, Get, Inject, Post, Query, Req, Res } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type Provider from 'oidc-provider';
 import QRCode from 'qrcode';
 import { PlatformService } from '../platform/platform.service';
+import { loginPage, consentPage, cspHeader } from './interaction.views';
 
 /**
  * The human-facing steps of the OIDC flow: sign-in and consent.
@@ -32,14 +34,15 @@ export class InteractionController {
     const details = await this.provider.interactionDetails(req, res);
     const { prompt, params, uid } = details;
 
+    const chrome = this.chromeFor(String(params.client_id ?? ''));
     if (prompt.name === 'login') {
-      res.set('content-type', 'text/html');
-      res.end(this.loginPage(uid, String(params.client_id ?? '')));
+      this.renderHtml(res, (nonce) => loginPage({ uid, nonce, ...chrome }));
       return;
     }
     if (prompt.name === 'consent') {
-      res.set('content-type', 'text/html');
-      res.end(this.consentPage(uid, String(params.client_id ?? ''), (params.scope as string) ?? ''));
+      this.renderHtml(res, (nonce) =>
+        consentPage({ uid, nonce, scope: String(params.scope ?? ''), ...chrome }),
+      );
       return;
     }
     res.status(400).end('Unknown prompt');
@@ -75,8 +78,7 @@ export class InteractionController {
   async vpComplete(@Query('requestId') requestId: string, @Req() req: Request, @Res() res: Response) {
     const result = await this.platform.getSsoAuth().pollVpLogin(requestId);
     if (result.status !== 'authenticated' || !result.residentId) {
-      res.set('content-type', 'text/html');
-      res.end(this.loginPage(this.uidFromReq(req), '', 'Sign-in not completed. Please try again.'));
+      await this.renderLoginError(req, res, 'Sign-in not completed. Please try again.');
       return;
     }
     await this.finishLogin(req, res, result.residentId, 'vp');
@@ -129,8 +131,7 @@ export class InteractionController {
         outcome: 'failure',
         metadata: { factor: 'otp', reason: result.reason },
       });
-      res.set('content-type', 'text/html');
-      res.end(this.loginPage(this.uidFromReq(req), '', 'Incorrect or expired code. Please try again.'));
+      await this.renderLoginError(req, res, 'Incorrect or expired code. Please try again.');
       return;
     }
     await this.finishLogin(req, res, result.residentId, 'otp');
@@ -220,94 +221,78 @@ export class InteractionController {
     );
   }
 
-  // ---- HTML ---------------------------------------------------------------
+  // ---- View helpers -------------------------------------------------------
 
   /**
-   * The sign-in page. Two tabs: scan-to-sign-in (VP, primary) and use-a-code (OTP).
+   * Send an HTML page under a per-response CSP that permits no inline script or style
+   * except this response's nonce.
    *
-   * The VP tab fetches a presentation request, renders its QR, and polls until the wallet
-   * has responded, then navigates to the completion endpoint. Kept to inline vanilla JS so
-   * there is no build step; a production deployment would replace this with its own themed
-   * front end, but the endpoints it drives are the real ones.
+   * This is the sign-in page for the whole platform, so it is the single most valuable
+   * injection target in it. Escaping in the view layer is the primary defence; this header
+   * is the one that still holds if an escape is ever missed. `default-src 'none'` means
+   * anything not named below -- an injected <img>, a beacon, an iframe -- is simply not
+   * fetched, and the absence of `unsafe-inline` is what makes the nonce meaningful at all.
    */
-  private loginPage(uid: string, clientId: string, error = ''): string {
-    return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in</title></head><body style="font-family:system-ui;max-width:460px;margin:40px auto;padding:0 16px">
-<h2>Sign in to continue</h2>
-${clientId ? `<p style="color:#555">Service <b>${clientId}</b> is requesting to verify your residency.</p>` : ''}
-${error ? `<p style="color:#b00">${error}</p>` : ''}
-
-<div style="display:flex;gap:8px;margin:16px 0">
-  <button id="tab-vp" onclick="show('vp')" style="flex:1;padding:8px">Scan with wallet</button>
-  <button id="tab-otp" onclick="show('otp')" style="flex:1;padding:8px">Use a one-time code</button>
-</div>
-
-<div id="pane-vp">
-  <p style="color:#555">Scan this with your wallet to present your residency credential.</p>
-  <div id="qr" style="max-width:260px">Loading&hellip;</div>
-  <p id="vp-status" style="color:#777;font-size:13px">Waiting for your wallet&hellip;</p>
-</div>
-
-<div id="pane-otp" style="display:none">
-  <form id="otp-start" onsubmit="return sendCode(event)">
-    <label>Residency ID<br><input id="rid" name="residentId" placeholder="KT-XXXX-XXXX-X" style="width:100%;padding:8px;font-size:16px"></label>
-    <button type="submit" style="margin-top:8px;padding:10px 16px;font-size:16px">Send me a code</button>
-  </form>
-  <form id="otp-verify" method="post" action="/interaction/${uid}/otp/verify" style="display:none;margin-top:16px">
-    <input type="hidden" id="rid2" name="residentId">
-    <label>Enter the code sent to your registered contact<br><input name="code" inputmode="numeric" style="width:100%;padding:8px;font-size:16px"></label>
-    <button type="submit" style="margin-top:8px;padding:10px 16px;font-size:16px">Sign in</button>
-  </form>
-</div>
-
-<script>
-const uid = ${JSON.stringify(uid)};
-function show(which){
-  document.getElementById('pane-vp').style.display = which==='vp'?'block':'none';
-  document.getElementById('pane-otp').style.display = which==='otp'?'block':'none';
-  if (which==='vp') startVp();
-}
-let polling=false;
-async function startVp(){
-  if (polling) return; polling=true;
-  const r = await fetch('/interaction/'+uid+'/vp/start');
-  const { requestId, qrSvg } = await r.json();
-  document.getElementById('qr').innerHTML = qrSvg;
-  const tick = async () => {
-    const p = await (await fetch('/interaction/'+uid+'/vp/poll?requestId='+encodeURIComponent(requestId))).json();
-    if (p.status==='authenticated'){ window.location = '/interaction/'+uid+'/vp/complete?requestId='+encodeURIComponent(requestId); return; }
-    if (p.status==='failed'){ document.getElementById('vp-status').textContent='Presentation was not accepted. Refresh to try again.'; return; }
-    setTimeout(tick, 2000);
-  };
-  setTimeout(tick, 2000);
-}
-async function sendCode(e){
-  e.preventDefault();
-  const rid = document.getElementById('rid').value.trim();
-  await fetch('/interaction/'+uid+'/otp/start', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({residentId:rid})});
-  document.getElementById('rid2').value = rid;
-  document.getElementById('otp-start').style.display='none';
-  document.getElementById('otp-verify').style.display='block';
-  return false;
-}
-show('vp');
-</script>
-</body></html>`;
+  private renderHtml(res: Response, render: (nonce: string) => string) {
+    const nonce = randomBytes(16).toString('base64');
+    res.set('content-type', 'text/html; charset=utf-8');
+    res.set('content-security-policy', cspHeader(nonce));
+    res.set('referrer-policy', 'no-referrer');
+    res.set('x-content-type-options', 'nosniff');
+    res.end(render(nonce));
   }
 
-  private consentPage(uid: string, clientId: string, scope: string): string {
-    const claims = scope
-      .split(' ')
-      .filter((s) => s !== 'openid')
-      .join(', ');
-    return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Consent</title></head><body style="font-family:system-ui;max-width:420px;margin:40px auto;padding:0 16px">
-<h2>Share your residency?</h2>
-<p><b>${clientId}</b> would like to access: <b>${claims || 'basic profile'}</b>.</p>
-<p style="color:#777;font-size:13px">Your national ID number is never shared. Only your residency status and the details above.</p>
-<form method="post" action="/interaction/${uid}/confirm">
-  <button type="submit" style="padding:10px 16px;font-size:16px">Allow</button>
-  <a href="/interaction/${uid}/abort" style="margin-left:12px">Deny</a>
-</form></body></html>`;
+  /**
+   * Re-render the sign-in page with an error, keeping the jurisdiction branding.
+   *
+   * The failing paths have no client_id to hand, so it is recovered from the interaction
+   * session. If that lookup fails the interaction is already gone and the citizen will be
+   * bounced anyway, so falling back to the default chrome is enough -- it must not throw
+   * over cosmetics on an error page.
+   */
+  private async renderLoginError(req: Request, res: Response, error: string) {
+    let uid = this.uidFromReq(req);
+    let clientId = '';
+    try {
+      const details = await this.provider.interactionDetails(req, res);
+      uid = String(details.uid);
+      clientId = String(details.params.client_id ?? '');
+    } catch {
+      /* interaction expired or absent; default chrome is fine */
+    }
+    this.renderHtml(res, (nonce) =>
+      loginPage({ uid, nonce, error, ...this.chromeFor(clientId) }),
+    );
+  }
+
+  /**
+   * Resolve the branding for a page from the relying party that initiated the flow.
+   *
+   * The jurisdiction is derived from the client, not assumed: this deployment can serve
+   * several subnational units at once, and taking `listConfigs()[0]` would show every
+   * citizen the first configured unit's name no matter which one they are signing in to.
+   * The config that registers the relying party is the one whose citizen is at the keyboard.
+   *
+   * An unknown client yields no name at all rather than its raw client_id -- see the
+   * consent view for why a bare identifier must not be presented as a service's name.
+   */
+  private chromeFor(clientId: string): { brand: string; clientName?: string } {
+    const configs = this.platform.listConfigs();
+    let tenant = configs[0];
+    let clientName: string | undefined;
+    if (clientId) {
+      for (const c of configs) {
+        const rp = c.oidc.relyingParties.find((r) => r.clientId === clientId);
+        if (rp) {
+          tenant = c;
+          clientName = rp.name ?? rp.clientId;
+          break;
+        }
+      }
+    }
+    return {
+      brand: tenant?.credential.issuerName ?? 'Residency Single Sign-On',
+      clientName,
+    };
   }
 }
