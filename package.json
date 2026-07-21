@@ -43,7 +43,8 @@
     "smoke:hsm": "tsc -p tsconfig.core.json && node dist-core/scripts/hsm-smoke.js",
     "smoke:gcpkms": "tsc -p tsconfig.core.json && node dist-core/scripts/gcpkms-smoke.js",
     "smoke:awskms": "tsc -p tsconfig.core.json && node dist-core/scripts/awskms-smoke.js",
-    "smoke:sso-oidc": "tsc -p tsconfig.core.json && node dist-core/scripts/sso-oidc-smoke.js"
+    "smoke:sso-oidc": "tsc -p tsconfig.core.json && node dist-core/scripts/sso-oidc-smoke.js",
+    "test:sso-e2e": "bash scripts/run-sso-nest-e2e.sh"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.22",
