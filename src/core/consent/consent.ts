@@ -1,6 +1,6 @@
-import { SignJWT } from 'jose';
 import { createHash } from 'node:crypto';
 import { IssuerKey } from '../credentials/keystore';
+import { signJwt } from '../credentials/signer';
 
 /**
  * Consent framework.
@@ -129,20 +129,21 @@ export class ConsentService {
    * public key, so a citizen or a regulator can confirm the grant independently.
    */
   private async signReceipt(record: ConsentRecord): Promise<string> {
-    return new SignJWT({
-      receiptId: record.receiptId,
-      residentId: record.residentId,
-      relyingParty: record.relyingParty,
-      purpose: record.purpose,
-      scopes: record.scopes,
-      status: record.status,
-      grantedAt: record.grantedAt,
-    })
-      .setProtectedHeader({ alg: 'EdDSA', kid: this.key.kid, typ: 'consent-receipt+jwt' })
-      .setIssuer(this.issuerDid)
-      .setSubject(record.residentId)
-      .setIssuedAt()
-      .sign(this.key.privateKey);
+    return signJwt(
+      this.key.signer,
+      { kid: this.key.kid, typ: 'consent-receipt+jwt' },
+      {
+        receiptId: record.receiptId,
+        residentId: record.residentId,
+        relyingParty: record.relyingParty,
+        purpose: record.purpose,
+        scopes: record.scopes,
+        status: record.status,
+        grantedAt: record.grantedAt,
+        iss: this.issuerDid,
+        sub: record.residentId,
+      },
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { SignJWT } from 'jose';
 import { IssuerKey } from '../credentials/keystore';
+import { signJwt } from '../credentials/signer';
 import { VpVerifier } from './vp-verifier';
 import { Oid4vpStore, PresentationRequestRecord } from './ports';
 
@@ -136,37 +136,38 @@ export class Oid4vpService {
     }
 
     const now = Math.floor(Date.now() / 1000);
-    return new SignJWT({
-      client_id: record.clientId,
-      response_type: 'vp_token',
-      // direct_post: the wallet POSTs the vp_token straight to us, rather than
-      // redirecting through a browser. That suits an in-person counter, where the
-      // relying party's screen and the citizen's phone are different devices.
-      response_mode: 'direct_post',
-      response_uri: `${this.cfg.baseUrl}/openid4vp/response/${record.id}`,
-      nonce: record.nonce,
-      state: record.id,
-      client_metadata: {
-        client_name: this.cfg.clientName,
-        purpose: record.purpose,
-      },
-      // Whichever query languages this deployment advertises. A wallet reads the one it
-      // knows and ignores the other, so emitting both is the safe default.
-      ...(this.cfg.query.includes('dcql') ? { dcql_query: this.dcqlQuery() } : {}),
-      ...(this.cfg.query.includes('presentation_definition')
-        ? { presentation_definition: this.presentationDefinition(record.id) }
-        : {}),
-    })
-      .setProtectedHeader({
-        alg: 'EdDSA',
+    return signJwt(
+      this.key.signer,
+      {
         kid: `${this.cfg.clientId}#${this.key.kid}`,
         typ: 'oauth-authz-req+jwt',
-      })
-      .setIssuer(record.clientId)
-      .setAudience('https://self-issued.me/v2') // the wallet, per SIOPv2
-      .setIssuedAt(now)
-      .setExpirationTime(Math.floor(new Date(record.expiresAt).getTime() / 1000))
-      .sign(this.key.privateKey);
+      },
+      {
+        client_id: record.clientId,
+        response_type: 'vp_token',
+        // direct_post: the wallet POSTs the vp_token straight to us, rather than
+        // redirecting through a browser. That suits an in-person counter, where the
+        // relying party's screen and the citizen's phone are different devices.
+        response_mode: 'direct_post',
+        response_uri: `${this.cfg.baseUrl}/openid4vp/response/${record.id}`,
+        nonce: record.nonce,
+        state: record.id,
+        client_metadata: {
+          client_name: this.cfg.clientName,
+          purpose: record.purpose,
+        },
+        // Whichever query languages this deployment advertises. A wallet reads the one it
+        // knows and ignores the other, so emitting both is the safe default.
+        ...(this.cfg.query.includes('dcql') ? { dcql_query: this.dcqlQuery() } : {}),
+        ...(this.cfg.query.includes('presentation_definition')
+          ? { presentation_definition: this.presentationDefinition(record.id) }
+          : {}),
+        iss: record.clientId,
+        aud: 'https://self-issued.me/v2', // the wallet, per SIOPv2
+        iat: now,
+        exp: Math.floor(new Date(record.expiresAt).getTime() / 1000),
+      },
+    );
   }
 
   /** OpenID4VP 1.0 Digital Credentials Query Language. */

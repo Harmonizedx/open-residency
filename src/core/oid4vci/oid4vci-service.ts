@@ -1,7 +1,8 @@
 import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
-import { SignJWT, jwtVerify } from 'jose';
+import { jwtVerify } from 'jose';
 import { CountryConfig } from '../config/country-config';
 import { IssuerKey } from '../credentials/keystore';
+import { signJwt } from '../credentials/signer';
 import { RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { verifyHolderProof, HolderProofError } from './holder-proof';
 import { CredentialFormat, MintedCredential, ResidencyService } from '../residency/residency-service';
@@ -415,27 +416,29 @@ export class Oid4vciService {
   private async mintAccessToken(offer: CredentialOfferRecord, cNonce: string): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
     const wallet = this.wallet(offer.countryCode);
-    return new SignJWT({
-      offer_id: offer.id,
-      resident_id: offer.residentId,
-      country_code: offer.countryCode,
-      credential_configuration_ids: offer.credentialConfigurationIds,
-      // These two are in NO version of the spec. They exist because Inji reads c_nonce
-      // and client_id from INSIDE the access token rather than from the token response.
-      // A deployment that does not serve Inji should turn this off rather than emit
-      // non-standard claims for nobody's benefit.
-      ...(wallet.compatibility.cNonceInAccessToken
-        ? { c_nonce: cNonce, client_id: this.cfg.credentialIssuer }
-        : {}),
-    })
-      .setProtectedHeader({ alg: 'EdDSA', kid: this.key.kid, typ: 'at+jwt' })
-      .setIssuer(this.cfg.credentialIssuer)
-      .setAudience(this.cfg.credentialIssuer)
-      .setSubject(offer.residentId)
-      .setJti(randomUUID())
-      .setIssuedAt(now)
-      .setExpirationTime(now + wallet.accessTokenTtlSeconds)
-      .sign(this.key.privateKey);
+    return signJwt(
+      this.key.signer,
+      { kid: this.key.kid, typ: 'at+jwt' },
+      {
+        offer_id: offer.id,
+        resident_id: offer.residentId,
+        country_code: offer.countryCode,
+        credential_configuration_ids: offer.credentialConfigurationIds,
+        // These two are in NO version of the spec. They exist because Inji reads c_nonce
+        // and client_id from INSIDE the access token rather than from the token response.
+        // A deployment that does not serve Inji should turn this off rather than emit
+        // non-standard claims for nobody's benefit.
+        ...(wallet.compatibility.cNonceInAccessToken
+          ? { c_nonce: cNonce, client_id: this.cfg.credentialIssuer }
+          : {}),
+        iss: this.cfg.credentialIssuer,
+        aud: this.cfg.credentialIssuer,
+        sub: offer.residentId,
+        jti: randomUUID(),
+        iat: now,
+        exp: now + wallet.accessTokenTtlSeconds,
+      },
+    );
   }
 
   private async verifyAccessToken(authorization?: string): Promise<{

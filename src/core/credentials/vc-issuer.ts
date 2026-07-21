@@ -1,5 +1,5 @@
-import { SignJWT } from 'jose';
 import { IssuerKey } from './keystore';
+import { signJwt } from './signer';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
 
@@ -134,14 +134,18 @@ export class VcIssuer {
     });
 
     // VC-JWT registered-claim mirroring per the W3C VC-JWT profile.
-    const jwt = await new SignJWT({ vc })
-      .setProtectedHeader({ alg: 'EdDSA', kid: `${opts.issuerDid}#${this.key.kid}`, typ: 'JWT' })
-      .setIssuer(opts.issuerDid)
-      .setSubject(claims.holderId)
-      .setJti(credentialId)
-      .setIssuedAt(Math.floor(now.getTime() / 1000))
-      .setExpirationTime(Math.floor(exp.getTime() / 1000))
-      .sign(this.key.privateKey);
+    const jwt = await signJwt(
+      this.key.signer,
+      { kid: `${opts.issuerDid}#${this.key.kid}`, typ: 'JWT' },
+      {
+        vc,
+        iss: opts.issuerDid,
+        sub: claims.holderId,
+        jti: credentialId,
+        iat: Math.floor(now.getTime() / 1000),
+        exp: Math.floor(exp.getTime() / 1000),
+      },
+    );
 
     return {
       jwt,

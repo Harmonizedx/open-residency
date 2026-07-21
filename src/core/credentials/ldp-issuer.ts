@@ -1,4 +1,4 @@
-import { createHash, sign as cryptoSign, verify as cryptoVerify, KeyObject } from 'node:crypto';
+import { createHash, verify as cryptoVerify, KeyObject } from 'node:crypto';
 import * as jsonld from 'jsonld';
 import { JWK } from 'jose';
 import { IssuerKey } from './keystore';
@@ -94,7 +94,7 @@ export class LdpIssuer {
     };
 
     const toSign = await hashData(document, proofConfig);
-    const signature = cryptoSign(null, toSign, this.key.privateKey as unknown as KeyObject);
+    const signature = await this.key.signer.sign(toSign);
 
     const { '@context': _ctx, ...proofWithoutContext } = proofConfig;
     return {
@@ -106,8 +106,16 @@ export class LdpIssuer {
     } as LdpCredential;
   }
 
-  /** Verify a DataIntegrityProof against a known issuer public key. */
-  static async verify(credential: LdpCredential, issuerPublicKey: KeyObject): Promise<boolean> {
+  /**
+   * Verify a DataIntegrityProof against the issuer's known public keys.
+   *
+   * Takes a set rather than one key for the same reason the VC-JWT trust list does:
+   * a credential signed before a rotation must keep verifying afterwards.
+   */
+  static async verify(
+    credential: LdpCredential,
+    issuerPublicKeys: KeyObject | KeyObject[],
+  ): Promise<boolean> {
     const { proof, ...document } = credential;
     if (!proof || proof.type !== 'DataIntegrityProof' || proof.cryptosuite !== CRYPTOSUITE) {
       return false;
@@ -133,7 +141,8 @@ export class LdpIssuer {
       return false;
     }
 
-    return cryptoVerify(null, signed, issuerPublicKey, signature);
+    const keys = Array.isArray(issuerPublicKeys) ? issuerPublicKeys : [issuerPublicKeys];
+    return keys.some((key) => cryptoVerify(null, signed, key, signature));
   }
 }
 
