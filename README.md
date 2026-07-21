@@ -209,9 +209,39 @@ This repository is the generic public infrastructure, not a single-country app:
 
 ## Honest caveats (this is a foundation, not a finished national system)
 
-- **Issuer key management.** The dev server generates an ephemeral key. Production must supply an
-  Ed25519 key from an HSM/KMS via `ISSUER_PRIVATE_JWK`, or, better, keep signing inside the KMS by
-  adapting `VcIssuer`.
+- **Issuer key management.** Signing goes through a `Signer` port, so the private key can stay
+  inside an HSM and never enter the process: set `ISSUER_KEY_BACKEND=pkcs11` and point
+  `PKCS11_LIBRARY` / `PKCS11_KEY_LABEL` at your token. `npm run smoke:hsm` exercises the whole path
+  against SoftHSM, including that the key cannot be extracted. `ISSUER_KEY_BACKEND=env` (a JWK in
+  the environment) remains supported but keeps real key material in process. The dev server still
+  generates an ephemeral key, and now **refuses to boot in production** rather than silently
+  issuing credentials no verifier trusts.
+
+  For cloud custody, `ISSUER_KEY_BACKEND=gcpkms` signs in Google Cloud KMS (`GCP_KMS_KEY_NAME`,
+  algorithm `EC_SIGN_ED25519`, protection level `HSM` for hardware). `npm run smoke:gcpkms`
+  covers it against a mock Cloud KMS — that proves the wire protocol and issuance, **not** real
+  GCP IAM or endpoints, so run one signature against a real key version before going live.
+  `ISSUER_KEY_BACKEND=awskms` signs in AWS KMS (`AWS_KMS_KEY_ID`, key spec
+  `ECC_NIST_EDWARDS25519`), covered by `npm run smoke:awskms` against a mock — same caveat, run
+  one real signature first. AWS CloudHSM also works via `pkcs11`.
+
+  On **Azure**, use `pkcs11` with Dedicated HSM or Luna Cloud HSM — both are Thales Luna
+  appliances exposing a PKCS#11 library, so they should work with the adapter unchanged, though
+  **this is untested here**: the interface matches, but nobody has run it against a real
+  appliance. **Azure Key Vault and Managed HSM cannot be used at all**, for two independent
+  reasons: they offer no Ed25519 curve (only P-256/P-256K/P-384/P-521 with ES256/384/512), and
+  their Sign operation is documented as "sign hash" — the caller supplies a digest. PureEdDSA
+  signs the *message* and derives its nonce from it, so it cannot accept a pre-hash. Both AWS
+  and GCP had to expose an explicit raw-message mode to support Ed25519; Azure Key Vault has no
+  equivalent.
+
+  **How far each backend is verified:** `pkcs11` is tested end to end against SoftHSM. `gcpkms`
+  and `awskms` are tested against mock services — protocol and issuance, *not* real IAM,
+  endpoints, or credential chains. Azure-via-PKCS#11 is untested. Whichever you choose, sign one
+  credential against the real key and verify it before opening enrollment.
+- **SSO signing key.** `oidc-provider` signs id_tokens internally and accepts only literal private
+  JWKs, so the SSO layer cannot use an HSM-held key. It takes its own key via `OIDC_SIGNING_JWK`,
+  which is required when the issuer key is in an HSM.
 - **Authentication factor for SSO.** Sign-in binds a real factor: a Verifiable Presentation of the
   residency credential (primary), with a one-time code to the registered number as fallback. Naming
   a ResidentID is *not* sufficient — `npm run smoke:sso` asserts that a bare ID, a stolen

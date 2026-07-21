@@ -285,7 +285,7 @@ async function main() {
   check('jwt_vc_json is a compact JWT string', typeof vcJwt === 'string' && vcJwt.split('.').length === 3);
 
   const trust = new Map<string, TrustedIssuer>([
-    [CONFIG.credential.issuerDid, { did: CONFIG.credential.issuerDid, publicJwk: key.publicJwk }],
+    [CONFIG.credential.issuerDid, { did: CONFIG.credential.issuerDid, publicJwks: [key.publicJwk] }],
   ]);
   const outcome = await new VcVerifier(trust).verify(vcJwt, { offline: true });
   check('jwt_vc_json verifies through the existing VcVerifier', outcome.valid);
@@ -400,7 +400,7 @@ async function main() {
       CONFIG.credential.issuerDid,
       {
         did: CONFIG.credential.issuerDid,
-        publicJwk: key.publicJwk,
+        publicJwks: [key.publicJwk],
         statusLists: { [`${ISSUER}/.well-known/status/ng.json`]: list },
       },
     ],

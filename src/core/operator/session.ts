@@ -1,5 +1,6 @@
-import { SignJWT, jwtVerify, type KeyLike } from 'jose';
+import { jwtVerify, type KeyLike } from 'jose';
 import { Operator, OperatorRole, isOperatorRole } from './operator';
+import { signJwt, type Signer } from '../credentials/signer';
 
 /**
  * Short-lived session tokens for operators who signed in with a local account.
@@ -17,24 +18,27 @@ const AUDIENCE = 'openresidency-operator';
 
 export class OperatorSessions {
   constructor(
-    private privateKey: KeyLike,
+    private signer: Signer,
     private publicKey: KeyLike,
     private issuer: string,
     private ttlSeconds = 8 * 3600,
   ) {}
 
   async issue(operator: Operator): Promise<{ token: string; expiresIn: number }> {
-    const token = await new SignJWT({
-      roles: operator.roles,
-      name: operator.displayName,
-    })
-      .setProtectedHeader({ alg: 'EdDSA' })
-      .setSubject(operator.id)
-      .setIssuer(this.issuer)
-      .setAudience(AUDIENCE)
-      .setIssuedAt()
-      .setExpirationTime(`${this.ttlSeconds}s`)
-      .sign(this.privateKey);
+    const now = Math.floor(Date.now() / 1000);
+    const token = await signJwt(
+      this.signer,
+      {},
+      {
+        roles: operator.roles,
+        name: operator.displayName,
+        sub: operator.id,
+        iss: this.issuer,
+        aud: AUDIENCE,
+        iat: now,
+        exp: now + this.ttlSeconds,
+      },
+    );
     return { token, expiresIn: this.ttlSeconds };
   }
 

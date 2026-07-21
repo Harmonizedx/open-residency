@@ -1,4 +1,5 @@
 import { generateKeyPair, exportJWK, importJWK, JWK, KeyLike } from 'jose';
+import { LocalSigner, Signer } from './signer';
 
 /**
  * Issuer signing key material.
@@ -9,15 +10,22 @@ import { generateKeyPair, exportJWK, importJWK, JWK, KeyLike } from 'jose';
  *  - Verification needs only the public key and no network round-trip, which is the
  *    whole basis of offline verification in low-connectivity areas.
  *
- * In production the private key lives in an HSM/KMS and never touches disk. This
- * class supports loading an existing JWK (from KMS-exported material or a sealed
- * secret) or generating an ephemeral key for local dev.
+ * In production the private key lives in an HSM/KMS and never touches disk. That is why
+ * `privateKey` is optional here and `signer` is not: signing goes through the
+ * `Signer` port, and a KMS-backed deployment has no exportable private key at all. Code
+ * that reaches for `privateKey` is code that cannot run against an HSM -- the optional
+ * type is what makes those places fail to compile rather than fail in production.
  */
 export interface IssuerKey {
   kid: string;
-  privateKey: KeyLike;
+  /**
+   * Present only when key material is in-process: dev keys, or a JWK supplied via env.
+   * Absent for HSM/KMS-backed signers. Prefer `signer` for anything that signs.
+   */
+  privateKey?: KeyLike;
   publicKey: KeyLike;
   publicJwk: JWK;
+  signer: Signer;
 }
 
 export class KeyStore {
@@ -29,7 +37,28 @@ export class KeyStore {
       x: privateJwk.x,
     };
     const publicKey = (await importJWK(publicJwk, 'EdDSA')) as KeyLike;
-    return { kid, privateKey, publicKey, publicJwk: { ...publicJwk, kid } };
+    const withKid = { ...publicJwk, kid };
+    return {
+      kid,
+      privateKey,
+      publicKey,
+      publicJwk: withKid,
+      signer: new LocalSigner(kid, withKid, privateKey),
+    };
+  }
+
+  /**
+   * Adopt an external signer (HSM, cloud KMS) as the issuer key. The private half never
+   * enters this process, so only the public material is materialised here.
+   */
+  static async fromSigner(signer: Signer): Promise<IssuerKey> {
+    const publicKey = (await importJWK(signer.publicJwk, 'EdDSA')) as KeyLike;
+    return {
+      kid: signer.kid,
+      publicKey,
+      publicJwk: signer.publicJwk,
+      signer,
+    };
   }
 
   /** Generate an ephemeral Ed25519 key. Dev/test only. */
@@ -38,7 +67,13 @@ export class KeyStore {
       crv: 'Ed25519',
       extractable: true,
     });
-    const publicJwk = await exportJWK(publicKey);
-    return { kid, privateKey, publicKey, publicJwk: { ...publicJwk, kid } };
+    const publicJwk = { ...(await exportJWK(publicKey)), kid };
+    return {
+      kid,
+      privateKey,
+      publicKey,
+      publicJwk,
+      signer: new LocalSigner(kid, publicJwk, privateKey),
+    };
   }
 }

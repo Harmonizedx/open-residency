@@ -16,7 +16,18 @@ import { StatusList } from './status-list';
 
 export interface TrustedIssuer {
   did: string;
-  publicJwk: JWK;
+  /**
+   * Every public key this issuer has signed with, current first, retired ones after.
+   *
+   * A list rather than a single key because credentials outlive the key that signed
+   * them. A residency credential is valid for years; a signing key is rotated far more
+   * often than that. If the trust list only ever held the current key, the moment an
+   * issuer rotated, every credential already in citizens' wallets would stop verifying
+   * -- the signatures are still perfectly good, we would simply have thrown away the
+   * public key needed to check them. Retiring a key means "stop signing with it", not
+   * "invalidate everything it ever signed".
+   */
+  publicJwks: JWK[];
   /** Cached status list, keyed by statusListCredential URL. */
   statusLists?: Record<string, StatusList>;
 }
@@ -47,13 +58,35 @@ export class VcVerifier {
     return this.trust.get(issuerDid)?.statusLists?.[statusListUrl];
   }
 
-  private async keyFor(did: string): Promise<KeyLike | undefined> {
-    if (this.keyCache.has(did)) return this.keyCache.get(did);
+  /**
+   * The candidate keys for an issuer, most likely first.
+   *
+   * When the credential names a `kid` we try that key alone: it is the key the issuer
+   * says signed, and trying the others afterwards would only turn a genuine mismatch
+   * into a slower genuine mismatch. When there is no `kid` -- older credentials, and
+   * other issuers' -- we fall back to trying every key we hold for that issuer.
+   */
+  private async keysFor(did: string, kid?: string): Promise<KeyLike[]> {
     const issuer = this.trust.get(did);
-    if (!issuer) return undefined;
-    const key = (await importJWK(issuer.publicJwk, 'EdDSA')) as KeyLike;
-    this.keyCache.set(did, key);
-    return key;
+    if (!issuer) return [];
+    const named = kid ? issuer.publicJwks.filter((j) => j.kid === kid) : [];
+    const candidates = named.length ? named : issuer.publicJwks;
+
+    const keys: KeyLike[] = [];
+    for (const jwk of candidates) {
+      const cacheKey = `${did}#${jwk.kid ?? ''}`;
+      let key = this.keyCache.get(cacheKey);
+      if (!key) {
+        try {
+          key = (await importJWK(jwk, 'EdDSA')) as KeyLike;
+        } catch {
+          continue; // a malformed entry in the trust list must not sink the good ones
+        }
+        this.keyCache.set(cacheKey, key);
+      }
+      keys.push(key);
+    }
+    return keys;
   }
 
   async verify(jwt: string, opts: { offline?: boolean } = {}): Promise<VerificationOutcome> {
@@ -61,36 +94,52 @@ export class VcVerifier {
 
     // 1. Parse header to learn the issuer DID without trusting the payload yet.
     let issuerDid: string;
+    let signingKid: string | undefined;
     try {
       const [rawHeader] = jwt.split('.');
       const header = JSON.parse(Buffer.from(rawHeader, 'base64url').toString());
-      issuerDid = (header.kid ?? '').split('#')[0];
+      const kid = String(header.kid ?? '');
+      issuerDid = kid.split('#')[0];
+      signingKid = kid.split('#')[1] || undefined;
     } catch {
       return { valid: false, reason: 'MALFORMED_JWT', offline, checkedRevocation: false };
     }
 
-    const key = await this.keyFor(issuerDid);
-    if (!key) {
+    const keys = await this.keysFor(issuerDid, signingKid);
+    if (keys.length === 0) {
       return { valid: false, reason: 'UNTRUSTED_ISSUER', offline, checkedRevocation: false, issuerDid };
     }
 
-    // 2. Cryptographic + temporal verification (signature, iss, exp).
-    let payload: Record<string, unknown>;
-    try {
-      const res = await jwtVerify(jwt, key, { issuer: issuerDid });
-      payload = res.payload as Record<string, unknown>;
-    } catch (e: unknown) {
-      // Classify on jose's typed errors, NOT on the message text. Matching /exp/ against
-      // the message looks reasonable and is quietly wrong: jose reports a bad claim as
-      // `unexpected "iss" claim value`, and "unexpected" contains "exp" -- so a
-      // wrong-issuer credential would be reported to the verifier as EXPIRED.
-      const reason =
-        e instanceof errors.JWTExpired
-          ? 'EXPIRED'
-          : e instanceof errors.JWTClaimValidationFailed
-            ? 'ISSUER_MISMATCH'
-            : 'BAD_SIGNATURE';
-      return { valid: false, reason, offline, checkedRevocation: false, issuerDid };
+    // 2. Cryptographic + temporal verification (signature, iss, exp), against each key
+    // we hold for this issuer until one verifies.
+    let payload: Record<string, unknown> | undefined;
+    let failure = 'BAD_SIGNATURE';
+    for (const key of keys) {
+      try {
+        const res = await jwtVerify(jwt, key, { issuer: issuerDid });
+        payload = res.payload as Record<string, unknown>;
+        break;
+      } catch (e: unknown) {
+        // Classify on jose's typed errors, NOT on the message text. Matching /exp/ against
+        // the message looks reasonable and is quietly wrong: jose reports a bad claim as
+        // `unexpected "iss" claim value`, and "unexpected" contains "exp" -- so a
+        // wrong-issuer credential would be reported to the verifier as EXPIRED.
+        //
+        // Expiry and issuer claims are only checked once the signature has already
+        // verified, so either of those reasons identifies the signing key and is final.
+        // A bare signature failure just means "not this key" -- keep trying the rest.
+        if (e instanceof errors.JWTExpired) {
+          failure = 'EXPIRED';
+          break;
+        }
+        if (e instanceof errors.JWTClaimValidationFailed) {
+          failure = 'ISSUER_MISMATCH';
+          break;
+        }
+      }
+    }
+    if (!payload) {
+      return { valid: false, reason: failure, offline, checkedRevocation: false, issuerDid };
     }
 
     const vc = (payload.vc ?? {}) as Record<string, any>;

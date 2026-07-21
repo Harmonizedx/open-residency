@@ -1,5 +1,4 @@
 import type { Configuration, ClientMetadata } from 'oidc-provider';
-import { exportJWK } from 'jose';
 import { PlatformService } from '../platform/platform.service';
 import { RelyingPartyConfig } from '../core/config/country-config';
 import { pairwiseSubject } from '../core/sso/pairwise';
@@ -69,10 +68,11 @@ function relyingParties(platform: PlatformService): RelyingPartyConfig[] {
 export async function buildOidcConfiguration(
   platform: PlatformService,
 ): Promise<Configuration> {
-  const privateJwk = await exportJWK(platform.getIssuerKey().privateKey);
-  privateJwk.kid = platform.getIssuerKey().kid;
-  privateJwk.alg = 'EdDSA';
-  privateJwk.use = 'sig';
+  // The SSO layer's own signing key. `oidc-provider` signs internally and takes only
+  // literal private JWKs, so this is the one path that cannot use an HSM-held key --
+  // see PlatformService.oidcSigningJwk for why that gets its own key rather than
+  // pulling the credential key back out of the HSM.
+  const privateJwk = await platform.oidcSigningJwk();
 
   const rps = relyingParties(platform);
   // Subject type is deployment-wide, read from the default config like the other

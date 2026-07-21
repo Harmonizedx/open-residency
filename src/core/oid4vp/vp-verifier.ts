@@ -53,7 +53,8 @@ export interface VpVerificationOutcome {
 /** Public keys of issuers we trust, by DID, for verifying the credential inside. */
 export interface VpTrustedIssuer {
   did: string;
-  publicKeyObject: KeyObject;
+  /** Current key first, then retired ones, so credentials survive a rotation. */
+  publicKeyObjects: KeyObject[];
 }
 
 export class VpVerifier {
@@ -203,7 +204,7 @@ export class VpVerifier {
       return { valid: false, reason: 'UNTRUSTED_ISSUER', checkedRevocation: false, issuerDid };
     }
 
-    if (!(await LdpIssuer.verify(credential, trusted.publicKeyObject))) {
+    if (!(await LdpIssuer.verify(credential, trusted.publicKeyObjects))) {
       return { valid: false, reason: 'BAD_SIGNATURE', checkedRevocation: false, issuerDid };
     }
 

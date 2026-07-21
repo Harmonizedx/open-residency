@@ -97,15 +97,45 @@ export function resolveHolderDid(did: string): JWK {
 /**
  * Build a W3C DID document for a did:web issuer, publishable at /.well-known/did.json
  *
- * Two verification methods are published for the same key:
+ * Two verification methods are published per key:
  *   - JsonWebKey2020, which VC-JWT verifiers resolve, and
  *   - Multikey, which the `eddsa-rdfc-2022` Data Integrity cryptosuite requires.
  * We issue in both formats (jwt_vc_json and ldp_vc), so both must resolve.
+ *
+ * Accepts every key the issuer has signed with -- the current one first, then retired
+ * ones. Publishing only the current key would silently invalidate every credential
+ * already in circulation the moment the issuer rotated: a verifier resolving the DID
+ * document would no longer find the key named by the credential it is holding, and a
+ * perfectly good signature would read as an untrusted issuer. Retired keys stay
+ * published so old credentials keep verifying; they simply stop being used to sign.
  */
-export function buildDidWebDocument(did: string, publicJwk: JWK): Record<string, unknown> {
-  const kid = publicJwk.kid ?? 'key-1';
-  const jwkVmId = `${did}#${kid}`;
-  const multikeyVmId = `${did}#${ed25519Multikey(publicJwk)}`;
+export function buildDidWebDocument(
+  did: string,
+  publicJwks: JWK | JWK[],
+): Record<string, unknown> {
+  const keys = Array.isArray(publicJwks) ? publicJwks : [publicJwks];
+  if (keys.length === 0) throw new Error('a DID document needs at least one public key');
+
+  const methods = keys.flatMap((jwk, i) => {
+    const kid = jwk.kid ?? (i === 0 ? 'key-1' : `key-${i + 1}`);
+    const multikey = ed25519Multikey(jwk);
+    return [
+      {
+        id: `${did}#${kid}`,
+        type: 'JsonWebKey2020',
+        controller: did,
+        publicKeyJwk: publicPartOf(jwk),
+      },
+      {
+        id: `${did}#${multikey}`,
+        type: 'Multikey',
+        controller: did,
+        publicKeyMultibase: multikey,
+      },
+    ];
+  });
+  const ids = methods.map((m) => m.id);
+
   return {
     '@context': [
       'https://www.w3.org/ns/did/v1',
@@ -113,22 +143,9 @@ export function buildDidWebDocument(did: string, publicJwk: JWK): Record<string,
       'https://w3id.org/security/multikey/v1',
     ],
     id: did,
-    verificationMethod: [
-      {
-        id: jwkVmId,
-        type: 'JsonWebKey2020',
-        controller: did,
-        publicKeyJwk: publicPartOf(publicJwk),
-      },
-      {
-        id: multikeyVmId,
-        type: 'Multikey',
-        controller: did,
-        publicKeyMultibase: ed25519Multikey(publicJwk),
-      },
-    ],
-    assertionMethod: [jwkVmId, multikeyVmId],
-    authentication: [jwkVmId, multikeyVmId],
+    verificationMethod: methods,
+    assertionMethod: ids,
+    authentication: ids,
   };
 }
 

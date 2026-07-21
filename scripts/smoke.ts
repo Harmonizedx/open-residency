@@ -92,7 +92,7 @@ async function main() {
 
   // --- OFFLINE verification with only the cached issuer public key ---
   const trust = new Map<string, TrustedIssuer>();
-  trust.set(issuerDid, { did: issuerDid, publicJwk: key.publicJwk, statusLists: {} });
+  trust.set(issuerDid, { did: issuerDid, publicJwks: [key.publicJwk], statusLists: {} });
   const verifier = new VcVerifier(trust);
 
   const v1 = await verifier.verify(jwt, { offline: true });

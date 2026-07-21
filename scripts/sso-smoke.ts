@@ -114,11 +114,11 @@ async function main() {
   );
 
   const trust = new Map<string, TrustedIssuer>([
-    [ISSUER_DID, { did: ISSUER_DID, publicJwk: key.publicJwk, statusLists: {} }],
+    [ISSUER_DID, { did: ISSUER_DID, publicJwks: [key.publicJwk], statusLists: {} }],
   ]);
   const vcVerifier = new VcVerifier(trust);
   const ldpTrust = new Map<string, VpTrustedIssuer>([
-    [ISSUER_DID, { did: ISSUER_DID, publicKeyObject: keyObjectFromJwk(key.publicJwk) }],
+    [ISSUER_DID, { did: ISSUER_DID, publicKeyObjects: [keyObjectFromJwk(key.publicJwk)] }],
   ]);
   const oid4vp = new Oid4vpService(
     {
