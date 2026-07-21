@@ -51,6 +51,13 @@ function toClientMetadata(rp: RelyingPartyConfig, subjectType: 'pairwise' | 'pub
     response_types: ['code'],
     redirect_uris: rp.redirectUris,
     post_logout_redirect_uris: rp.postLogoutRedirectUris,
+    // The deployment signs with a single Ed25519 key (see PlatformService.oidcSigningJwk),
+    // so id_tokens are EdDSA. oidc-provider defaults a client's id_token_signed_response_alg
+    // to RS256, and with no RS256 key in the JWKS it then rejects the client as
+    // `invalid_client_metadata` at the authorization endpoint -- i.e. every sign-in fails.
+    // Pin the alg to the one we actually sign with. `smoke:sso-oidc` is the test that
+    // catches this: it only shows up once the provider is booted and a real flow is driven.
+    id_token_signed_response_alg: 'EdDSA',
     // `openid` plus this RP's sector, plus only those broader scopes it was explicitly
     // granted. `residency` is no longer handed out automatically -- see the note on
     // `scopes` in country-config.ts for why a universally-available resident_id defeats
@@ -89,6 +96,13 @@ export async function buildOidcConfiguration(
     jwks: { keys: [privateJwk as any] },
 
     scopes: ['openid', 'offline_access', 'residency', ...sectorScopes],
+
+    // Pairwise must be explicitly enabled. oidc-provider defaults `subjectTypes` to
+    // ['public'] and then rejects any client declaring `subject_type: pairwise` with
+    // "subject_type must be 'public'" -- which is every client here, since the default
+    // is pairwise. Without this the whole pairwise-subject design below is dead config:
+    // clients fail to authorize and nothing falls back. `smoke:sso-oidc` catches it.
+    subjectTypes: ['public', 'pairwise'],
 
     /**
      * Derive a per-relying-party subject identifier.
