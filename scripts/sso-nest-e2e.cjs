@@ -229,6 +229,9 @@ contactDirectory:
   // --- Seed a resident directly in the store -------------------------------
   const { PrismaClient } = require('@prisma/client');
   const prisma = new PrismaClient();
+  // Idempotent: a service-container database may persist across re-runs, so clear any
+  // prior row before seeding rather than tripping the unique constraint.
+  await prisma.resident.deleteMany({ where: { residentId: RESIDENT_ID } });
   await prisma.resident.create({
     data: {
       residentId: RESIDENT_ID,
