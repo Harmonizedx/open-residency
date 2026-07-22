@@ -60,8 +60,63 @@ jobs:
       - name: SSO login factors (VP primary, one-time code fallback, and their attacks)
         run: npm run smoke:sso
 
+      # Boots the real oidc-provider from buildOidcConfiguration and drives a full
+      # Authorization Code + PKCE flow. This is the suite that catches OIDC client/config
+      # defects (id_token alg, pairwise subjectTypes) which are invisible until the
+      # provider actually runs. Still hermetic -- no database.
+      - name: SSO OIDC flow (real provider, Authorization Code + PKCE)
+        run: npm run smoke:sso-oidc
+
       - name: Foundational sources (XML/SOAP and imported dataset adapters)
         run: npm run smoke:sources
+
+  sso-e2e:
+    name: Full-stack SSO (real NestJS app + Postgres)
+    runs-on: ubuntu-latest
+    # This is the only job with a database, and it exists for one reason: to boot the
+    # ACTUAL application. Every other job is hermetic core logic that never calls
+    # NestFactory.create(AppModule) -- which is exactly how a dependency-injection defect
+    # once left the whole app unable to start while CI stayed green. This job drives a real
+    # "Sign in with the State" flow through the real InteractionController, so a boot
+    # failure or a broken interaction fails the build instead of shipping.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: openres_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/openres_e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Push schema to the service database
+        run: npx prisma db push --skip-generate
+
+      - name: Build the application
+        run: npm run build
+
+      - name: Drive the real app end-to-end (boot, login, consent, tokens)
+        run: node scripts/sso-nest-e2e.cjs
 
   build:
     name: Docker image builds
