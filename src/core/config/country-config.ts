@@ -187,6 +187,64 @@ const credentialSchema = z.object({
 });
 
 /**
+ * A public Ed25519 JWK belonging to a peer issuer we federate with.
+ *
+ * Public material only: a `d` component would mean another issuer's PRIVATE key is sitting
+ * in this deployment's config, which is never right, so it is rejected at load time. A
+ * `kid` is required because the trust list selects a key by the `kid` in a credential's
+ * header when one is present.
+ */
+const federatedJwkSchema = z
+  .object({
+    kty: z.literal('OKP'),
+    crv: z.literal('Ed25519'),
+    x: z.string().min(1),
+    kid: z.string().min(1),
+    d: z.undefined({ invalid_type_error: 'a federated issuer key must be PUBLIC (no "d")' }).optional(),
+  })
+  .strict();
+
+/**
+ * A peer issuer this deployment trusts. The basis of federation: a residency credential
+ * signed by another state's key verifies here because that state's DID and public key(s)
+ * are listed, exactly as this deployment trusts its own key.
+ */
+const federatedIssuerSchema = z.object({
+  /** The peer's issuer DID, matched against the `iss`/`kid` of an inbound credential. */
+  did: z.string().min(1),
+  /** Human-readable label, for trust-registry displays and audit. */
+  name: z.string().optional(),
+  /** The peer's public signing keys: current first, then retired ones (rotation-safe). */
+  publicJwks: z.array(federatedJwkSchema).nonempty(),
+  /**
+   * Where the peer publishes its Bitstring Status List, if it does. When set, a synced
+   * snapshot lets this deployment check revocation of the peer's credentials; when absent,
+   * the peer's credentials verify for authenticity but their revocation cannot be
+   * confirmed here (the offline verify path says so; the online presentation path fails
+   * closed, exactly as it does for our own credentials).
+   */
+  statusListUrl: z.string().url().optional(),
+});
+
+/**
+ * Cross-issuer federation (deployment-wide, read from the default config like `oidc`).
+ *
+ * A subnational deployment is single-issuer by default: it trusts only credentials it
+ * signed itself. In a federation -- several states on the same platform, or a national
+ * umbrella recognising state issuers -- a credential from one issuer must verify at
+ * another. Listing a peer here adds its keys to the same trust map that holds our own,
+ * so the verifier accepts its credentials without any code change. Trust is explicit and
+ * allow-listed: an issuer not listed here is `UNTRUSTED_ISSUER`, which is the safe default
+ * for a system where accepting a forged issuer means accepting a forged residency.
+ */
+const federationSchema = z.object({
+  trustedIssuers: z.array(federatedIssuerSchema).default([]),
+});
+
+export type FederatedIssuerConfig = z.infer<typeof federatedIssuerSchema>;
+export type FederationConfig = z.infer<typeof federationSchema>;
+
+/**
  * Wallet interoperability profile (OpenID4VCI).
  *
  * None of this is Inji-specific: the implementation speaks the standards, and works with
@@ -574,6 +632,9 @@ export const countryConfigSchema = z
   operatorAuth: operatorAuthSchema.default({}),
   messaging: messagingSchema.optional(),
   contactDirectory: contactDirectorySchema.default({}),
+  // Cross-issuer trust. Deployment-wide, read from the default config. Empty by default:
+  // a deployment trusts only its own issuer until it names peers here.
+  federation: federationSchema.default({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),
   })
   .superRefine((v, ctx) => {
