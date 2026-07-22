@@ -5,6 +5,7 @@ import type Provider from 'oidc-provider';
 import QRCode from 'qrcode';
 import { PlatformService } from '../platform/platform.service';
 import { loginPage, consentPage, cspHeader } from './interaction.views';
+import { assess, AuthFactor } from '../core/sso/assurance';
 
 /**
  * The human-facing steps of the OIDC flow: sign-in and consent.
@@ -138,18 +139,24 @@ export class InteractionController {
   }
 
   /** Shared completion: record the login and hand control back to the OIDC provider. */
-  private async finishLogin(req: Request, res: Response, residentId: string, factor: string) {
+  private async finishLogin(req: Request, res: Response, residentId: string, ...factors: AuthFactor[]) {
+    // Assurance step-up: tell the relying party HOW strongly the citizen authenticated,
+    // via the standard OIDC acr/amr. A Verifiable Presentation is a bound-key possession
+    // factor (AAL2); a one-time code is single-factor (AAL1). An RP authorising a sensitive
+    // action reads `acr` and can refuse or step the citizen up; without this every sign-in
+    // looked identical regardless of factor strength.
+    const assurance = assess(factors);
     await this.platform.getAudit().record({
       action: 'sso.login',
       actor: residentId,
       target: residentId,
       outcome: 'success',
-      metadata: { factor },
+      metadata: { factors, acr: assurance.acr, amr: assurance.amr },
     });
     await this.provider.interactionFinished(
       req,
       res,
-      { login: { accountId: residentId } },
+      { login: { accountId: residentId, acr: assurance.acr, amr: assurance.amr } },
       { mergeWithLastSubmission: false },
     );
   }

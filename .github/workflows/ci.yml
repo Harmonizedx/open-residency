@@ -65,6 +65,12 @@ jobs:
       - name: Federation (cross-issuer trust)
         run: npm run smoke:federation
 
+      # WebAuthn passkey factor (registration + assertion verification against a simulated
+      # authenticator, both ES256 and EdDSA) and the assurance model (acr/amr, biometric
+      # step-up). Security-critical crypto, so it is gated.
+      - name: WebAuthn step-up factor and assurance model
+        run: npm run smoke:webauthn
+
       # Boots the real oidc-provider from buildOidcConfiguration and drives a full
       # Authorization Code + PKCE flow. This is the suite that catches OIDC client/config
       # defects (id_token alg, pairwise subjectTypes) which are invisible until the
