@@ -124,7 +124,13 @@ export async function buildOidcConfiguration(
     },
 
     claims: {
-      openid: ['sub'],
+      // acr/amr/auth_time are authentication-event claims: they describe HOW and WHEN the
+      // citizen signed in, which is what lets a relying party enforce assurance step-up.
+      // oidc-provider only emits a claim that belongs to a granted scope, and these are set
+      // on the session by the interaction (see InteractionController.finishLogin), so they
+      // are attached to `openid` -- always granted -- rather than gated behind an
+      // acr_values request the RP might not make.
+      openid: ['sub', 'acr', 'amr', 'auth_time'],
       profile: ['name', 'given_name', 'family_name', 'birthdate', 'gender'],
       residency: [
         'resident_id',

@@ -222,7 +222,7 @@ async function main() {
         const redirectTo = await provider.interactionResult(
           rawReq,
           rawRes,
-          { login: { accountId: RESIDENT_ID } },
+          { login: { accountId: RESIDENT_ID, acr: 'urn:openresidency:aal2', amr: ['pop'] } },
           { mergeWithLastSubmission: false },
         );
         rawRes.redirect(303, redirectTo);
@@ -328,6 +328,9 @@ async function main() {
     check('the sub is the PAIRWISE subject, not the residency id', payload.sub === expectedSub);
     check('the sub is NOT the raw residency id (no cross-service correlation)', payload.sub !== RESIDENT_ID);
     check('the id_token audience is the relying party', payload.aud === CLIENT_ID);
+    // Assurance step-up: the acr/amr set on the login interaction result surface in the token.
+    check('the id_token carries the acr from the login result', payload.acr === 'urn:openresidency:aal2', `acr=${payload.acr}`);
+    check('the id_token carries the amr from the login result', Array.isArray(payload.amr) && payload.amr.includes('pop'), `amr=${JSON.stringify(payload.amr)}`);
   }
 
   // --- Userinfo returns the consented claims --------------------------------

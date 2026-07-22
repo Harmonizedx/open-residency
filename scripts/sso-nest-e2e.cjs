@@ -328,6 +328,11 @@ contactDirectory:
   if (payload) {
     check('the sub is pairwise, NOT the raw residency id', payload.sub !== RESIDENT_ID && typeof payload.sub === 'string' && payload.sub.length > 0);
     check('the id_token audience is the relying party', payload.aud === CLIENT_ID);
+    // Assurance step-up: the id_token carries acr/amr reflecting the factor used. This
+    // sign-in was the one-time-code fallback, so it is AAL1 with amr=[otp] -- proving the
+    // real InteractionController threads assurance through the real provider into the token.
+    check('the id_token carries the assurance level (acr) for the factor used', payload.acr === 'urn:openresidency:aal1', `acr=${payload.acr}`);
+    check('the id_token amr names the one-time-code method', Array.isArray(payload.amr) && payload.amr.includes('otp'), `amr=${JSON.stringify(payload.amr)}`);
   }
 
   // --- Userinfo releases the consented residency claim ---------------------
