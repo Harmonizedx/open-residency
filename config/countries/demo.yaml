@@ -212,3 +212,23 @@ messaging:
 # resolves it from a contact service the ministry already runs and stores nothing here.
 contactDirectory:
   mode: none
+
+# ---------------------------------------------------------------------------
+# Cross-issuer federation (deployment-wide, read from the default config). OPTIONAL.
+#
+# By default a deployment trusts only credentials it signed itself: a residency VC from
+# another state resolves to UNTRUSTED_ISSUER. List a peer here and its credentials verify
+# with the same code that verifies your own -- there is no separate, weaker path.
+#
+# publicJwks is PUBLIC key material only (a "d" component is refused at load). Give the
+# current key first, then any retired keys, so a peer's rotation does not invalidate
+# credentials its citizens already hold. statusListUrl is where the peer publishes its
+# revocation list, if it does.
+#
+# federation:
+#   trustedIssuers:
+#     - did: did:web:id.kano.gov.ng
+#       name: Kano State Residency Authority
+#       publicJwks:
+#         - { kty: OKP, crv: Ed25519, x: "<base64url>", kid: kano-key-1 }
+#       statusListUrl: https://id.kano.gov.ng/.well-known/status/ng.json

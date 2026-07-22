@@ -11,6 +11,7 @@ import { VcIssuer } from '../core/credentials/vc-issuer';
 import { LdpIssuer } from '../core/credentials/ldp-issuer';
 import { residencyContextDocument } from '../core/credentials/jsonld/document-loader';
 import { VcVerifier, TrustedIssuer } from '../core/credentials/vc-verifier';
+import { applyFederation, FederatedIssuer } from '../core/credentials/federation';
 import { buildDidWebDocument } from '../core/credentials/did';
 import { ResidencyService } from '../core/residency/residency-service';
 import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
@@ -164,6 +165,19 @@ export class PlatformService implements OnModuleDestroy {
         publicKeyObjects: this.issuerPublicJwks().map(keyObjectFromJwk),
       });
     }
+    // Federation: add trusted PEER issuers (other states / a national umbrella) to the
+    // same trust maps that hold our own key, so a residency credential from a federated
+    // issuer verifies here with no change to the verification path. Deployment-wide, read
+    // from the default config like the OIDC and presentation profiles.
+    const federated = (this.listConfigs()[0]?.federation.trustedIssuers ?? []) as FederatedIssuer[];
+    if (federated.length) {
+      applyFederation(this.trust, ldpTrust, federated);
+      this.log.log(
+        `Federation: trusting ${federated.length} peer issuer(s): ` +
+          federated.map((f) => f.name ?? f.did).join(', '),
+      );
+    }
+
     this.vpVerifier = new VpVerifier(this.verifier, ldpTrust);
     // OpenID4VP is deployment-wide (a presentation request names no country), so its
     // profile is read from the default -- that is, the first -- country config.

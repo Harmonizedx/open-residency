@@ -60,6 +60,11 @@ jobs:
       - name: SSO login factors (VP primary, one-time code fallback, and their attacks)
         run: npm run smoke:sso
 
+      # Cross-issuer federation: a credential from a federated peer state verifies here,
+      # an unlisted issuer is rejected as UNTRUSTED_ISSUER, and peer key rotation is safe.
+      - name: Federation (cross-issuer trust)
+        run: npm run smoke:federation
+
       # Boots the real oidc-provider from buildOidcConfiguration and drives a full
       # Authorization Code + PKCE flow. This is the suite that catches OIDC client/config
       # defects (id_token alg, pairwise subjectTypes) which are invisible until the
