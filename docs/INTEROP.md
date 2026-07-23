@@ -234,6 +234,24 @@ residency has no business receiving either, and `subjectRef` is precisely the fi
 whole tokenization design exists to protect. `minimizeClaims` releases the residency ID,
 the subnational unit, the name, and the provisional flag. Nothing else leaves.
 
+## What "Inji-compatible" is verified against — and what it is not
+
+Every Inji-specific behavior described above is drawn from Inji's **published client
+source** (the `c_nonce`-from-access-token reading is the Kotlin quoted earlier), not from
+guesswork. `npm run smoke:inji` turns those into an executable contract: a wallet that
+behaves exactly as Inji's documented code does drives the real issuer, and each
+accommodation is asserted — including a **negative test that proves each is load-bearing**.
+The sharpest is the `c_nonce` one: with `cNonceInAccessToken` off, the conformance wallet
+finds no `c_nonce` claim, signs its proof over the literal string `"null"` (Kotlin's
+`null.toString()`), and the issuer rejects it — reproducing the exact "enrollment failed"
+a real Inji user would hit. That is why the accommodation exists, and the test fails if it
+is ever removed.
+
+The honest boundary: this verifies the issuer against Inji's **documented** behavior, not
+the **live Inji app**. Confirming the real mobile wallet against a MOSIP stack is a
+device-level test this repo's CI cannot run; if Inji's real behavior ever diverges from its
+published source, only that would catch it. Everything up to that line is pinned.
+
 ## Wallet profiles: this is configuration, not code
 
 A recurring question: **is this built for Inji?** No. The implementation speaks the
