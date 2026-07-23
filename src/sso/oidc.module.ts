@@ -3,11 +3,12 @@ import Provider from 'oidc-provider';
 import { PlatformService } from '../platform/platform.service';
 import { buildOidcConfiguration } from './oidc.provider';
 import { InteractionController } from './interaction.controller';
+import { WebAuthnController } from './webauthn.controller';
 
 export const OIDC_PROVIDER = 'OIDC_PROVIDER';
 
 @Module({
-  controllers: [InteractionController],
+  controllers: [InteractionController, WebAuthnController],
   providers: [
     {
       provide: OIDC_PROVIDER,

@@ -229,3 +229,34 @@ model ConsentRecord {
   @@index([residentId])
   @@index([relyingParty])
 }
+
+// A passkey (WebAuthn credential) enrolled to a resident. The private key never leaves the
+// resident's device; only the public key and the clone-detection counter are stored here.
+model WebAuthnCredential {
+  id           String   @id @default(uuid())
+  // base64url credential id from the authenticator. Unique across residents.
+  credentialId String   @unique
+  residentId   String
+  // Public key as a JWK (JSON), plus its JOSE alg (EdDSA / ES256 / RS256).
+  publicJwk    Json
+  alg          String
+  // Authenticator signature counter; a value that fails to advance signals a clone.
+  signCount    Int      @default(0)
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([residentId])
+}
+
+// A single-use, time-bound WebAuthn ceremony challenge (registration or authentication).
+model WebAuthnChallenge {
+  id         String   @id @default(uuid())
+  residentId String
+  challenge  String
+  purpose    String
+  expiresAt  DateTime
+  consumed   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([residentId])
+}

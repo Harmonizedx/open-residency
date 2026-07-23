@@ -18,6 +18,7 @@ import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
 import { Oid4vpService } from '../core/oid4vp/oid4vp-service';
 import { OtpService, OtpSender } from '../core/sso/otp';
 import { SsoAuthService } from '../core/sso/sso-auth';
+import { WebAuthnService } from '../core/sso/webauthn-service';
 import { OperatorService } from '../core/operator/operator';
 import { FederatedOperatorVerifier } from '../core/operator/federated';
 import { OperatorSessions } from '../core/operator/session';
@@ -40,6 +41,8 @@ import {
   PrismaOtpStore,
   PrismaOperatorStore,
   PrismaResidencyStore,
+  PrismaWebAuthnChallengeStore,
+  PrismaWebAuthnCredentialStore,
 } from '../prisma/prisma.service';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
@@ -78,6 +81,7 @@ export class PlatformService implements OnModuleDestroy {
   private oid4vp!: Oid4vpService;
   private vpVerifier!: VpVerifier;
   private ssoAuth!: SsoAuthService;
+  private webauthn!: WebAuthnService;
   private audit!: AuditLog;
   private consent!: ConsentService;
   private platformIssuerDid!: string;
@@ -95,6 +99,8 @@ export class PlatformService implements OnModuleDestroy {
     private oid4vpStore: PrismaOid4vpStore,
     private otpStore: PrismaOtpStore,
     private operatorStore: PrismaOperatorStore,
+    private webauthnChallengeStore: PrismaWebAuthnChallengeStore,
+    private webauthnCredentialStore: PrismaWebAuthnCredentialStore,
   ) {}
 
   private initialized = false;
@@ -207,6 +213,17 @@ export class PlatformService implements OnModuleDestroy {
       crypto.randomUUID(),
     );
     this.ssoAuth = new SsoAuthService(this.oid4vp, otp, this.store);
+
+    // WebAuthn: a phishing-resistant passkey factor. rpId is the registrable domain of the
+    // public base URL; the origin is that URL exactly. Registration is authorized by an
+    // existing factor at the controller (see InteractionController), so a passkey can only
+    // be enrolled for a resident whose one-time code or presentation the caller completed.
+    const base = new URL(this.publicBaseUrl());
+    this.webauthn = new WebAuthnService(
+      { rpId: base.hostname, origin: base.origin, rpName: defaultCfg?.credential.issuerName ?? 'OpenResidency' },
+      this.webauthnChallengeStore,
+      this.webauthnCredentialStore,
+    );
 
     // Operator identity for privileged routes.
     this.operatorAuth = this.buildOperatorAuth(defaultCfg);
@@ -456,6 +473,9 @@ export class PlatformService implements OnModuleDestroy {
   }
   getSsoAuth(): SsoAuthService {
     return this.ssoAuth;
+  }
+  getWebAuthn(): WebAuthnService {
+    return this.webauthn;
   }
   getLdpIssuer(): LdpIssuer {
     return this.ldpIssuer;
