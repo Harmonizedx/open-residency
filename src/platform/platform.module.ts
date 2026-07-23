@@ -7,6 +7,8 @@ import {
   PrismaOtpStore,
   PrismaOperatorStore,
   PrismaResidencyStore,
+  PrismaWebAuthnChallengeStore,
+  PrismaWebAuthnCredentialStore,
   PrismaService,
 } from '../prisma/prisma.service';
 import { PlatformService } from './platform.service';
@@ -22,6 +24,8 @@ import { PlatformService } from './platform.service';
     PrismaOid4vpStore,
     PrismaOtpStore,
     PrismaOperatorStore,
+    PrismaWebAuthnChallengeStore,
+    PrismaWebAuthnCredentialStore,
     PlatformService,
   ],
   exports: [

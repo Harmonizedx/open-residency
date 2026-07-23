@@ -21,6 +21,8 @@ export type AuditAction =
   | 'consent.grant'
   | 'consent.revoke'
   | 'sso.login'
+  // A resident enrolled a WebAuthn passkey (authorized by an existing factor).
+  | 'webauthn.register'
   | 'admin.read'
   // OpenID4VCI: a credential offer was created for a resident, and a wallet redeemed it.
   | 'oid4vci.offer.create'

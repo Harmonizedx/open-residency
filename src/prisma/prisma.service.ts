@@ -9,6 +9,14 @@ import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
+import {
+  WebAuthnChallengeRecord,
+  WebAuthnChallengeStore,
+  WebAuthnCredentialStore,
+  StoredCredential,
+} from '../core/sso/webauthn-service';
+import { WebAuthnAlg } from '../core/sso/webauthn';
+import { JWK } from 'jose';
 import { OperatorKeyRecord, OperatorRecord, OperatorStore } from '../core/operator/operator';
 
 @Injectable()
@@ -639,6 +647,88 @@ export class PrismaOperatorStore implements OperatorStore {
         lastUsedAt: record.lastUsedAt ? new Date(record.lastUsedAt) : null,
         revokedAt: record.revokedAt ? new Date(record.revokedAt) : null,
       },
+    });
+  }
+}
+
+@Injectable()
+export class PrismaWebAuthnChallengeStore implements WebAuthnChallengeStore {
+  constructor(private prisma: PrismaService) {}
+
+  async save(r: WebAuthnChallengeRecord): Promise<void> {
+    await this.prisma.webAuthnChallenge.create({
+      data: {
+        id: r.id,
+        residentId: r.residentId,
+        challenge: r.challenge,
+        purpose: r.purpose,
+        expiresAt: new Date(r.expiresAt),
+        consumed: r.consumed,
+      },
+    });
+  }
+
+  async findActive(id: string): Promise<WebAuthnChallengeRecord | null> {
+    const r = await this.prisma.webAuthnChallenge.findUnique({ where: { id } });
+    if (!r) return null;
+    return {
+      id: r.id,
+      residentId: r.residentId,
+      challenge: r.challenge,
+      purpose: r.purpose as 'register' | 'authenticate',
+      expiresAt: r.expiresAt.toISOString(),
+      consumed: r.consumed,
+      createdAt: r.createdAt.toISOString(),
+    };
+  }
+
+  async consume(id: string): Promise<void> {
+    await this.prisma.webAuthnChallenge.update({ where: { id }, data: { consumed: true } });
+  }
+}
+
+@Injectable()
+export class PrismaWebAuthnCredentialStore implements WebAuthnCredentialStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toStored = (r: any): StoredCredential => ({
+    id: r.id,
+    credentialId: r.credentialId,
+    residentId: r.residentId,
+    publicJwk: r.publicJwk as JWK,
+    alg: r.alg as WebAuthnAlg,
+    signCount: r.signCount,
+    createdAt: r.createdAt.toISOString(),
+    lastUsedAt: r.lastUsedAt ? r.lastUsedAt.toISOString() : undefined,
+  });
+
+  async add(c: StoredCredential): Promise<void> {
+    await this.prisma.webAuthnCredential.create({
+      data: {
+        id: c.id,
+        credentialId: c.credentialId,
+        residentId: c.residentId,
+        publicJwk: c.publicJwk as object,
+        alg: c.alg,
+        signCount: c.signCount,
+      },
+    });
+  }
+
+  async listForResident(residentId: string): Promise<StoredCredential[]> {
+    const rows = await this.prisma.webAuthnCredential.findMany({ where: { residentId } });
+    return rows.map(this.toStored);
+  }
+
+  async findByCredentialId(credentialId: string): Promise<StoredCredential | null> {
+    const r = await this.prisma.webAuthnCredential.findUnique({ where: { credentialId } });
+    return r ? this.toStored(r) : null;
+  }
+
+  async updateSignCount(credentialId: string, signCount: number, lastUsedAt: string): Promise<void> {
+    await this.prisma.webAuthnCredential.update({
+      where: { credentialId },
+      data: { signCount, lastUsedAt: new Date(lastUsedAt) },
     });
   }
 }

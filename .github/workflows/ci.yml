@@ -71,6 +71,13 @@ jobs:
       - name: WebAuthn step-up factor and assurance model
         run: npm run smoke:webauthn
 
+      # WebAuthn service flow: registration (authorized by an existing factor),
+      # authentication, and the challenge-lifecycle guards (single-use, time/purpose/
+      # resident-bound). The HTTP endpoints + real passkey enroll/login are exercised in the
+      # Postgres e2e job.
+      - name: WebAuthn registration/authentication flow
+        run: npm run smoke:webauthn-service
+
       # Boots the real oidc-provider from buildOidcConfiguration and drives a full
       # Authorization Code + PKCE flow. This is the suite that catches OIDC client/config
       # defects (id_token alg, pairwise subjectTypes) which are invisible until the

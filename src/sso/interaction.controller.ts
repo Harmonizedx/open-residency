@@ -138,6 +138,54 @@ export class InteractionController {
     await this.finishLogin(req, res, result.residentId, 'otp');
   }
 
+  // ---- Step-up factor: WebAuthn passkey ----------------------------------
+
+  /**
+   * Begin a passkey sign-in. The resident names their residentId (as with the code), and
+   * we return the credentials they may use and a challenge to sign. Returns 204 when the
+   * resident has no passkey enrolled, so the page can fall back to another factor without
+   * revealing whether the residentId exists.
+   */
+  @Post(':uid/webauthn/authenticate/start')
+  async webauthnAuthStart(@Body() body: { residentId?: string }, @Res() res: Response) {
+    const started = body?.residentId
+      ? await this.platform.getWebAuthn().startAuthentication(body.residentId)
+      : null;
+    if (!started) {
+      res.status(204).end();
+      return;
+    }
+    res.json(started);
+  }
+
+  /**
+   * Complete a passkey sign-in. On success the resident is authenticated at AAL2 (a
+   * phishing-resistant possession factor) and the OIDC interaction is finished.
+   */
+  @Post(':uid/webauthn/authenticate/finish')
+  async webauthnAuthFinish(@Req() req: Request, @Res() res: Response) {
+    const { challengeId, credentialId, authenticatorData, clientDataJSON, signature } = (req.body ??
+      {}) as Record<string, string>;
+    const result =
+      challengeId && credentialId && authenticatorData && clientDataJSON && signature
+        ? await this.platform
+            .getWebAuthn()
+            .finishAuthentication(challengeId, { credentialId, authenticatorData, clientDataJSON, signature })
+        : ({ ok: false, reason: 'MISSING_FIELDS' } as const);
+
+    if (!result.ok) {
+      await this.platform.getAudit().record({
+        action: 'sso.login',
+        actor: 'unknown',
+        outcome: 'failure',
+        metadata: { factor: 'webauthn', reason: result.reason },
+      });
+      await this.renderLoginError(req, res, 'Passkey sign-in failed. Please try again.');
+      return;
+    }
+    await this.finishLogin(req, res, result.residentId, 'webauthn');
+  }
+
   /** Shared completion: record the login and hand control back to the OIDC provider. */
   private async finishLogin(req: Request, res: Response, residentId: string, ...factors: AuthFactor[]) {
     // Assurance step-up: tell the relying party HOW strongly the citizen authenticated,

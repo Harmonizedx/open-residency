@@ -23,7 +23,45 @@ const http = require('node:http');
 const { writeFileSync, mkdirSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
-const { createHash, randomBytes } = require('node:crypto');
+const { createHash, randomBytes, generateKeyPairSync, sign: edSign } = require('node:crypto');
+
+// --- A simulated WebAuthn authenticator (Ed25519), producing the exact wire artifacts a
+// real passkey emits: a COSE public key, authenticatorData, clientDataJSON, and a signature
+// over authData||SHA256(clientData). No browser or hardware key -- the crypto is real.
+function makeEd25519Authenticator() {
+  const cborUint = (n) => (n < 24 ? Buffer.from([n]) : n < 256 ? Buffer.from([0x18, n]) : Buffer.from([0x19, n >> 8, n & 0xff]));
+  const cborInt = (n) => { if (n >= 0) return cborUint(n); const u = cborUint(-1 - n); u[0] |= 0x20; return u; };
+  const cborBytes = (b) => { const h = cborUint(b.length); h[0] |= 0x40; return Buffer.concat([h, b]); };
+  const cborMap = (pairs) => { const h = cborUint(pairs.length); h[0] |= 0xa0; return Buffer.concat([h, ...pairs.map(([k, v]) => Buffer.concat([cborInt(k), v]))]); };
+  const b64u = (b) => b.toString('base64url');
+
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const x = Buffer.from(publicKey.export({ format: 'jwk' }).x, 'base64url');
+  const coseKey = cborMap([[1, cborInt(1)], [3, cborInt(-8)], [-1, cborInt(6)], [-2, cborBytes(x)]]);
+  const credentialId = randomBytes(16);
+
+  const authData = (rpId, flags, signCount, attested) => {
+    const head = Buffer.concat([createHash('sha256').update(rpId, 'utf8').digest(), Buffer.from([flags]), Buffer.alloc(4)]);
+    head.writeUInt32BE(signCount, 33);
+    if (!attested) return head;
+    const idLen = Buffer.alloc(2); idLen.writeUInt16BE(credentialId.length, 0);
+    return Buffer.concat([head, Buffer.alloc(16), idLen, credentialId, coseKey]);
+  };
+  const clientData = (type, challenge, origin) => Buffer.from(JSON.stringify({ type, challenge, origin, crossOrigin: false }), 'utf8');
+
+  return {
+    credentialId: b64u(credentialId),
+    makeRegistration(challenge, rpId, origin) {
+      return { credentialId: b64u(credentialId), authData: b64u(authData(rpId, 0x01 | 0x04 | 0x40, 0, true)), clientDataJSON: b64u(clientData('webauthn.create', challenge, origin)) };
+    },
+    makeAssertion(credentialId, challenge, rpId, origin, signCount) {
+      const ad = authData(rpId, 0x01 | 0x04, signCount);
+      const cd = clientData('webauthn.get', challenge, origin);
+      const signed = Buffer.concat([ad, createHash('sha256').update(cd).digest()]);
+      return { credentialId, authenticatorData: b64u(ad), clientDataJSON: b64u(cd), signature: b64u(edSign(null, signed, privateKey)) };
+    },
+  };
+}
 
 let pass = 0,
   fail = 0;
@@ -207,7 +245,10 @@ contactDirectory:
   process.env.OIDC_COOKIE_SECRET = 'nest-e2e-cookie-secret-0123456789';
   process.env.TAX_CLIENT_SECRET = CLIENT_SECRET;
   process.env.ADMIN_API_KEY = 'nest-e2e-admin-key';
-  process.env.PUBLIC_BASE_URL = 'http://127.0.0.1:0';
+  // A stable logical origin for WebAuthn. The app binds a random port, but the WebAuthn
+  // rpId/origin are derived from PUBLIC_BASE_URL (what a browser would report), not from
+  // the transport port -- so the simulated authenticator signs these exact values.
+  process.env.PUBLIC_BASE_URL = 'http://localhost:8080';
 
   // --- Boot the ACTUAL app, exactly as main.ts does ------------------------
   const { NestFactory } = require('@nestjs/core');
@@ -341,6 +382,88 @@ contactDirectory:
   const claims = JSON.parse(ui.body || '{}');
   check('userinfo releases the consented resident_id (tax has the residency scope)', claims.resident_id === RESIDENT_ID);
   check('userinfo sub matches the id_token sub', claims.sub === payload?.sub);
+
+  // --- WebAuthn: enroll a passkey (OTP-authorized), then sign in with it -----
+  // Proves the whole HTTP factor end to end through the real controllers: a citizen who
+  // holds their one-time code enrolls a passkey, and a subsequent sign-in with that passkey
+  // authenticates at AAL2 (phishing-resistant) -- visible in the id_token's acr/amr.
+  console.log('\n-- WebAuthn passkey: enroll then sign in --');
+  const RP_ORIGIN = 'http://localhost:8080';
+  const RP_ID = 'localhost';
+  const sim = makeEd25519Authenticator();
+
+  // (1) Get a fresh OTP to AUTHORIZE enrollment (the prior code was consumed by login).
+  captured.code = null;
+  await req('POST', `${base}/interaction/enroll/otp/start`, new CookieJar(), { body: JSON.stringify({ residentId: RESIDENT_ID }) });
+  check('a fresh one-time code was delivered for enrollment authorization', !!captured.code);
+
+  // (2) register/start with the code -> registration options + challenge.
+  const regStart = await req('POST', `${base}/webauthn/register/start`, new CookieJar(), {
+    body: JSON.stringify({ residentId: RESIDENT_ID, otpCode: captured.code }),
+  });
+  const regStartBody = JSON.parse(regStart.body || '{}');
+  check('register/start is authorized by the one-time code', regStartBody.ok === true && !!regStartBody.challengeId);
+
+  // (3) The simulated authenticator produces an attestation over the registration challenge.
+  const regCeremony = sim.makeRegistration(regStartBody.options.challenge, RP_ID, RP_ORIGIN);
+  const regFinish = await req('POST', `${base}/webauthn/register/finish`, new CookieJar(), {
+    body: JSON.stringify({ challengeId: regStartBody.challengeId, residentId: RESIDENT_ID, ...regCeremony }),
+  });
+  check('register/finish persists the passkey', JSON.parse(regFinish.body || '{}').ok === true, regFinish.body);
+  check('the passkey is stored in the real database', (await prisma.webAuthnCredential.count({ where: { residentId: RESIDENT_ID } })) === 1);
+
+  // (4) A NEW OIDC sign-in, this time with the passkey.
+  const jarW = new CookieJar();
+  const verifierW = b64url(randomBytes(32));
+  const challengeW = b64url(createHash('sha256').update(verifierW).digest());
+  const authUrlW =
+    `${base}/oidc/auth?client_id=${CLIENT_ID}&response_type=code&scope=${encodeURIComponent('openid profile residency tax')}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_challenge=${challengeW}&code_challenge_method=S256&state=w`;
+  const toLoginW = await followToStop(await req('GET', authUrlW, jarW), base, jarW);
+  const uidW = interactionUid(toLoginW.location, base);
+
+  // (5) webauthn/authenticate/start -> options with the resident's credential + challenge.
+  const authStart = await req('POST', `${base}/interaction/${uidW}/webauthn/authenticate/start`, jarW, {
+    body: JSON.stringify({ residentId: RESIDENT_ID }),
+  });
+  const authStartBody = JSON.parse(authStart.body || '{}');
+  check(
+    'webauthn/authenticate/start returns the resident\'s credential to sign',
+    authStart.status < 300 && authStartBody.options?.allowCredentials?.length === 1,
+    `status=${authStart.status} body=${authStart.body.slice(0, 120)}`,
+  );
+
+  // (6) Sign the assertion and finish -> completes the login.
+  const assertion = sim.makeAssertion(regCeremony.credentialId, authStartBody.options.challenge, RP_ID, RP_ORIGIN, 5);
+  const authFinish = await req('POST', `${base}/interaction/${uidW}/webauthn/authenticate/finish`, jarW, {
+    body: JSON.stringify({ challengeId: authStartBody.challengeId, ...assertion }),
+  });
+  let endedW = await followToStop(authFinish, base, jarW);
+  if ((endedW.location ?? '').includes('/interaction/')) {
+    const cUid = interactionUid(endedW.location, base);
+    await req('GET', `${base}/interaction/${cUid}`, jarW);
+    const confirm = await req('POST', `${base}/interaction/${cUid}/confirm`, jarW, { headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: '' });
+    endedW = await followToStop(confirm, base, jarW);
+  }
+  check('the passkey sign-in reaches the RP callback with a code', (endedW.location ?? '').startsWith(REDIRECT_URI) && /[?&]code=/.test(endedW.location ?? ''));
+
+  // (7) Exchange + verify the id_token asserts AAL2 (phishing-resistant possession).
+  const codeW = new URL(endedW.location ?? 'http://x').searchParams.get('code');
+  const tokW = await req('POST', `${base}/oidc/token`, jarW, {
+    headers: { authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=authorization_code&code=${codeW}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_verifier=${verifierW}`,
+  });
+  const tokensW = JSON.parse(tokW.body || '{}');
+  let payloadW = null;
+  try {
+    ({ payload: payloadW } = await jose.jwtVerify(tokensW.id_token, jwks, { issuer, audience: CLIENT_ID }));
+  } catch (e) {
+    check('the passkey id_token verifies', false, e.message);
+  }
+  if (payloadW) {
+    check('a passkey sign-in is AAL2 in the id_token (stronger than the code\'s AAL1)', payloadW.acr === 'urn:openresidency:aal2', `acr=${payloadW.acr}`);
+    check('the passkey id_token amr names a hardware key (hwk)', Array.isArray(payloadW.amr) && payloadW.amr.includes('hwk'), `amr=${JSON.stringify(payloadW.amr)}`);
+  }
 
   // --- Teardown ------------------------------------------------------------
   await prisma.$disconnect();
