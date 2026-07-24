@@ -19,6 +19,7 @@ import { Oid4vpService } from '../core/oid4vp/oid4vp-service';
 import { OtpService, OtpSender } from '../core/sso/otp';
 import { SsoAuthService } from '../core/sso/sso-auth';
 import { WebAuthnService } from '../core/sso/webauthn-service';
+import { BiometricMatcher, buildBiometricMatcher } from '../core/proofing/biometric';
 import { OperatorService } from '../core/operator/operator';
 import { FederatedOperatorVerifier } from '../core/operator/federated';
 import { OperatorSessions } from '../core/operator/session';
@@ -82,6 +83,7 @@ export class PlatformService implements OnModuleDestroy {
   private vpVerifier!: VpVerifier;
   private ssoAuth!: SsoAuthService;
   private webauthn!: WebAuthnService;
+  private biometric!: BiometricMatcher | null;
   private audit!: AuditLog;
   private consent!: ConsentService;
   private platformIssuerDid!: string;
@@ -224,6 +226,13 @@ export class PlatformService implements OnModuleDestroy {
       this.webauthnChallengeStore,
       this.webauthnCredentialStore,
     );
+
+    // Biometric authority for the AAL3 step-up. Bring-your-own, deployment-wide; NONE by
+    // default (no step-up offered). Fail-closed by contract -- see GenericHttpBiometricMatcher.
+    this.biometric = buildBiometricMatcher(defaultCfg?.biometric);
+    if (this.biometric) {
+      this.log.log(`Biometric step-up: ${defaultCfg?.biometric.provider} authority configured.`);
+    }
 
     // Operator identity for privileged routes.
     this.operatorAuth = this.buildOperatorAuth(defaultCfg);
@@ -476,6 +485,10 @@ export class PlatformService implements OnModuleDestroy {
   }
   getWebAuthn(): WebAuthnService {
     return this.webauthn;
+  }
+  /** The configured biometric authority for the AAL3 step-up, or null when none is set. */
+  getBiometricMatcher(): BiometricMatcher | null {
+    return this.biometric;
   }
   getLdpIssuer(): LdpIssuer {
     return this.ldpIssuer;

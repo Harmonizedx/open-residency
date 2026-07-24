@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { PlatformService } from '../platform/platform.service';
 import { loginPage, consentPage, cspHeader } from './interaction.views';
 import { assess, AuthFactor } from '../core/sso/assurance';
+import { BiometricModality } from '../core/proofing/biometric';
 
 /**
  * The human-facing steps of the OIDC flow: sign-in and consent.
@@ -161,6 +162,12 @@ export class InteractionController {
   /**
    * Complete a passkey sign-in. On success the resident is authenticated at AAL2 (a
    * phishing-resistant possession factor) and the OIDC interaction is finished.
+   *
+   * The request MAY also carry a biometric capture (`biometricSample` + `biometricModality`).
+   * When it does, and the deployment has a biometric authority configured, the passkey
+   * possession is combined with an attested authoritative match to reach AAL3. The capture
+   * is sent to the authority and nowhere else -- it is never persisted, logged, or written
+   * to the audit trail; only the verdict and the attesting source are.
    */
   @Post(':uid/webauthn/authenticate/finish')
   async webauthnAuthFinish(@Req() req: Request, @Res() res: Response) {
@@ -183,7 +190,33 @@ export class InteractionController {
       await this.renderLoginError(req, res, 'Passkey sign-in failed. Please try again.');
       return;
     }
-    await this.finishLogin(req, res, result.residentId, 'webauthn');
+
+    // Optional biometric step-up to AAL3. Only attempted if the citizen supplied a capture
+    // AND the deployment configured an authority. A supplied-but-failing capture is a hard
+    // failure -- the citizen asked to step up, so silently downgrading to AAL2 would hand
+    // them a weaker session than they requested without telling anyone.
+    const factors: AuthFactor[] = ['webauthn'];
+    const sample = (req.body as Record<string, string>)?.biometricSample;
+    const matcher = this.platform.getBiometricMatcher();
+    if (sample && matcher) {
+      const modality = ((req.body as Record<string, string>)?.biometricModality as BiometricModality) ?? 'face';
+      const match = await matcher.match({ residentId: result.residentId, modality, sample });
+      // NB: the audit records the verdict and source, NEVER the sample.
+      await this.platform.getAudit().record({
+        action: 'sso.login',
+        actor: result.residentId,
+        target: result.residentId,
+        outcome: match.matched ? 'success' : 'failure',
+        metadata: { factor: 'biometric', matched: match.matched, source: match.source, reason: match.reason },
+      });
+      if (!match.matched) {
+        await this.renderLoginError(req, res, 'Biometric verification failed. Please try again.');
+        return;
+      }
+      factors.push('biometric');
+    }
+
+    await this.finishLogin(req, res, result.residentId, ...factors);
   }
 
   /** Shared completion: record the login and hand control back to the OIDC provider. */

@@ -232,3 +232,32 @@ contactDirectory:
 #       publicJwks:
 #         - { kty: OKP, crv: Ed25519, x: "<base64url>", kid: kano-key-1 }
 #       statusListUrl: https://id.kano.gov.ng/.well-known/status/ng.json
+
+# ---------------------------------------------------------------------------
+# Biometric authority for the AAL3 sign-in step-up (deployment-wide). OPTIONAL.
+#
+# Bring-your-own, exactly like the foundational ID source and the SMS aggregator: point
+# GENERIC_HTTP at whatever attests biometric matches for your jurisdiction (a national
+# ABIS, a MOSIP gateway, a vendor matcher behind an HTTP shim), declare where the yes/no
+# verdict lives in the response, and no code changes. Default NONE = no biometric step-up.
+#
+# The matcher is FAIL-CLOSED: any error, timeout, or unexpected response is a non-match,
+# never a pass -- because at AAL3 a false positive is account takeover. The live capture is
+# sent ONLY to the authority; it is never stored, logged, or written to the audit trail.
+#
+# NOTE: bring-your-own does not make it trustworthy. AAL3 is only as strong as the authority
+# you point this at -- an endpoint that always says "matched" gives you a meaningless AAL3.
+# Point it at the actual authoritative matcher, not a convenience shim.
+#
+# biometric:
+#   provider: GENERIC_HTTP
+#   baseUrl: https://abis.demoland.gov
+#   source: demoland-national-abis      # recorded in the audit trail
+#   auth: { type: bearer, secretEnv: ABIS_TOKEN }
+#   request:
+#     method: POST
+#     path: /verify/{residentId}
+#     bodyTemplate: { residentId: "{residentId}", modality: "{modality}", sample: "{sample}" }
+#     matchedFlag: { path: result.matched, equals: true }
+#     scorePath: result.score
+#     sourcePath: result.authority
