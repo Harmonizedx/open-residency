@@ -151,7 +151,7 @@ async function followToStop(start, base, jar) {
 const interactionUid = (loc, base) => new URL(loc, base).pathname.split('/')[2];
 
 async function main() {
-  const captured = { code: null, contactHits: 0, smsHits: 0 };
+  const captured = { code: null, contactHits: 0, smsHits: 0, biometricHits: 0, biometricProbe: null };
 
   // --- Mock server: contact directory + SMS aggregator ---------------------
   const mock = http.createServer((rq, rs) => {
@@ -178,6 +178,17 @@ async function main() {
         if (m) captured.code = m[1];
         rs.writeHead(200, { 'content-type': 'application/json' });
         rs.end(JSON.stringify({ id: 'sms-' + Date.now() }));
+        return;
+      }
+      if (rq.url.startsWith('/biometric/verify')) {
+        // A mock biometric authority: attests a match only for the agreed live probe, and
+        // records what it received so the test can prove the capture reached it (and only it).
+        captured.biometricHits++;
+        let probe = '';
+        try { probe = JSON.parse(body).sample ?? ''; } catch { /* ignore */ }
+        captured.biometricProbe = probe;
+        rs.writeHead(200, { 'content-type': 'application/json' });
+        rs.end(JSON.stringify({ matched: probe === 'LIVE-FACE-PROBE', score: probe === 'LIVE-FACE-PROBE' ? 0.99 : 0.0, authority: 'demo-abis' }));
         return;
       }
       rs.writeHead(404);
@@ -234,6 +245,17 @@ contactDirectory:
     baseUrl: ${mockBase}
     path: /contacts/{residentId}
     responsePath: msisdn
+biometric:
+  provider: GENERIC_HTTP
+  baseUrl: ${mockBase}
+  source: configured-fallback
+  request:
+    method: POST
+    path: /biometric/verify
+    bodyTemplate: { residentId: "{residentId}", modality: "{modality}", sample: "{sample}" }
+    matchedFlag: { path: matched, equals: true }
+    scorePath: score
+    sourcePath: authority
 `,
   );
 
@@ -433,10 +455,13 @@ contactDirectory:
     `status=${authStart.status} body=${authStart.body.slice(0, 120)}`,
   );
 
-  // (6) Sign the assertion and finish -> completes the login.
+  // (6) Sign the assertion and finish -> completes the login. This time we ALSO submit a
+  // biometric capture, so the passkey possession is combined with an attested authoritative
+  // match to reach AAL3. The live probe is sent to the biometric authority (the mock) and
+  // must not surface anywhere else.
   const assertion = sim.makeAssertion(regCeremony.credentialId, authStartBody.options.challenge, RP_ID, RP_ORIGIN, 5);
   const authFinish = await req('POST', `${base}/interaction/${uidW}/webauthn/authenticate/finish`, jarW, {
-    body: JSON.stringify({ challengeId: authStartBody.challengeId, ...assertion }),
+    body: JSON.stringify({ challengeId: authStartBody.challengeId, ...assertion, biometricSample: 'LIVE-FACE-PROBE', biometricModality: 'face' }),
   });
   let endedW = await followToStop(authFinish, base, jarW);
   if ((endedW.location ?? '').includes('/interaction/')) {
@@ -461,8 +486,10 @@ contactDirectory:
     check('the passkey id_token verifies', false, e.message);
   }
   if (payloadW) {
-    check('a passkey sign-in is AAL2 in the id_token (stronger than the code\'s AAL1)', payloadW.acr === 'urn:openresidency:aal2', `acr=${payloadW.acr}`);
-    check('the passkey id_token amr names a hardware key (hwk)', Array.isArray(payloadW.amr) && payloadW.amr.includes('hwk'), `amr=${JSON.stringify(payloadW.amr)}`);
+    check('the biometric authority was called for the step-up', captured.biometricHits > 0);
+    check('the live capture reached the authority (and only the authority)', captured.biometricProbe === 'LIVE-FACE-PROBE');
+    check('passkey + attested biometric is AAL3 in the id_token (the strongest tier)', payloadW.acr === 'urn:openresidency:aal3', `acr=${payloadW.acr}`);
+    check('the AAL3 id_token amr names both a hardware key (hwk) and biometric (bio)', Array.isArray(payloadW.amr) && payloadW.amr.includes('hwk') && payloadW.amr.includes('bio'), `amr=${JSON.stringify(payloadW.amr)}`);
   }
 
   // --- Teardown ------------------------------------------------------------

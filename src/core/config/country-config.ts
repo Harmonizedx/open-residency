@@ -489,6 +489,50 @@ const contactDirectorySchema = z.object({
 
 export type ContactDirectoryConfig = z.infer<typeof contactDirectorySchema>;
 
+/**
+ * Biometric authority (deployment-wide, read from the default config).
+ *
+ * The attested-match authority used for the AAL3 sign-in step-up. Bring-your-own, exactly
+ * like `foundational` and `messaging`: point `GENERIC_HTTP` at whatever attests matches for
+ * the jurisdiction (a national ABIS, a MOSIP gateway, a vendor matcher behind an HTTP shim),
+ * declare where the yes/no verdict lives in the response, and no code changes. `NONE` (the
+ * default) means the deployment offers no biometric step-up; `MOCK` is dev/test only and
+ * refuses to run in production.
+ *
+ * The matcher this configures is FAIL-CLOSED by contract: any error, timeout, or
+ * unexpected response is a non-match, never a pass. The live capture is sent only to the
+ * authority and is never stored, logged, or audited.
+ */
+const biometricSchema = z.object({
+  provider: z.enum(['NONE', 'MOCK', 'GENERIC_HTTP']).default('NONE'),
+  baseUrl: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  /** Attesting-authority name for the audit trail (or read from the response). */
+  source: z.string().optional(),
+  auth: z
+    .object({
+      type: z.enum(['none', 'apiKey', 'bearer', 'basic']).default('none'),
+      headerName: z.string().optional(),
+      secretEnv: z.string().optional(),
+      usernameEnv: z.string().optional(),
+    })
+    .optional(),
+  request: z
+    .object({
+      method: z.enum(['POST', 'GET']).default('POST'),
+      path: z.string().default(''),
+      bodyTemplate: z.record(z.string()).optional(),
+      headers: z.record(z.string()).optional(),
+      /** Where the verdict lives in the response, and the value that means "matched". */
+      matchedFlag: z.object({ path: z.string(), equals: z.unknown().optional() }),
+      scorePath: z.string().optional(),
+      sourcePath: z.string().optional(),
+    })
+    .optional(),
+});
+
+export type BiometricConfig = z.infer<typeof biometricSchema>;
+
 /** Presentation profile (OpenID4VP). Deployment-wide; read from the default country. */
 const presentationSchema = z.object({
   /** How long a presentation request stays answerable. */
@@ -632,6 +676,8 @@ export const countryConfigSchema = z
   operatorAuth: operatorAuthSchema.default({}),
   messaging: messagingSchema.optional(),
   contactDirectory: contactDirectorySchema.default({}),
+  // Biometric authority for the AAL3 step-up. Deployment-wide; default NONE (no step-up).
+  biometric: biometricSchema.default({}),
   // Cross-issuer trust. Deployment-wide, read from the default config. Empty by default:
   // a deployment trusts only its own issuer until it names peers here.
   federation: federationSchema.default({}),

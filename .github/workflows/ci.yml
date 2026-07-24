@@ -85,6 +85,13 @@ jobs:
       - name: WebAuthn registration/authentication flow
         run: npm run smoke:webauthn-service
 
+      # Bring-your-own biometric authority (config-driven HTTP matcher). Proves the two
+      # properties that make it more than a config copy of the messaging provider:
+      # FAIL-CLOSED (any error/timeout/bad response is a non-match, never a pass) and
+      # capture privacy (the live sample never leaves the result). Plus AAL3 composition.
+      - name: Biometric authority (bring-your-own, fail-closed)
+        run: npm run smoke:biometric
+
       # Boots the real oidc-provider from buildOidcConfiguration and drives a full
       # Authorization Code + PKCE flow. This is the suite that catches OIDC client/config
       # defects (id_token alg, pairwise subjectTypes) which are invisible until the
