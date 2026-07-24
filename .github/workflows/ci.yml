@@ -50,6 +50,13 @@ jobs:
       - name: OpenID4VCI issuance (drives the full flow as a wallet)
         run: npm run smoke:oid4vci
 
+      # Inji Draft-13 profile conformance: a wallet behaving exactly as Inji's documented
+      # client does, asserting each accommodation AND that each is load-bearing (the
+      # c_nonce="null" failure the cNonceInAccessToken flag prevents). Conformance to
+      # documented behavior, not the live app -- see docs/INTEROP.md.
+      - name: Inji Draft-13 conformance
+        run: npm run smoke:inji
+
       - name: OpenID4VP presentation (drives the flow, and the attacks it must reject)
         run: npm run smoke:oid4vp
 
