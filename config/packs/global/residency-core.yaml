@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# Global human-rights floor — the SEALED baseline pack.
+#
+# This pack is the rights floor every jurisdiction pack composes on top of and NONE may
+# weaken. The policy engine's merge resolver REJECTS (does not silently drop) any lower
+# pack that overrides a sealed field or whose rules reference a forbidden fact path. That
+# is what makes "a jurisdiction cannot configure away a mandatory right" a guarantee.
+#
+# Grounded in jurisdiction-neutral instruments so it is defensible anywhere:
+#   - Freedom of movement and residence — UDHR Art. 13, ICCPR Art. 12
+#   - Legal identity for all — UN SDG 16.9
+#   - Non-discrimination & barrier removal — World Bank Principles on Identification
+# A country's own constitution appears as THAT pack's citation for the same floor, never
+# as the source of the floor in core.
+# ---------------------------------------------------------------------------
+metadata:
+  name: global/residency-core
+  version: "2.0.0"
+  owner: OpenResidency maintainers
+
+# The floor the resolver enforces.
+floor:
+  # Config keys no lower pack may override.
+  sealedFields:
+    - privacy.national_identifier.expose_in_credential      # the NIN never enters a credential
+    - residency.no_auto_reject_on_missing_address_document  # the inclusion guarantee
+    - residency.origin_must_not_affect_ordinary_eligibility # the indigene/settler guard
+  # Per class, fact paths a rule for that class may NOT reference. This is how "origin must
+  # not affect ordinary residency" is ENFORCED: an ordinary_resident rule that references an
+  # origin/ancestry fact is rejected at merge -- the discrimination cannot be expressed.
+  forbiddenFactPaths:
+    ordinary_resident:
+      - applicant.origin
+      - applicant.indigene
+      - applicant.ancestry
+      - applicant.ethnicity
+      - applicant.tribe
+
+# Config the floor forces. Lower packs inherit these and cannot weaken the sealed ones.
+config:
+  privacy.national_identifier.expose_in_credential: false
+  residency.no_auto_reject_on_missing_address_document: true
+  residency.origin_must_not_affect_ordinary_eligibility: true
+
+# Baseline residency class. A jurisdiction pack tightens the bar, but the floor already
+# guarantees INCLUSIVE alternative pathways: a person qualifies by an authoritative record
+# OR by corroborating evidence OR by attestation + physical verification -- so no single
+# document (e.g. a utility bill) is ever mandatory.
+rules:
+  ordinary_resident:
+    id: FLOOR-ORD-01
+    all:
+      - { path: identity.assuranceRank, op: gte, value: 1 }
+    any:
+      - { path: evidence.authoritative.count, op: gte, value: 1 }
+      - { path: evidence.corroborative.count, op: gte, value: 2 }
+      - { path: evidence.attestationWithVerification, op: eq, value: true }
+    exclusions:
+      - { path: identity.status, op: eq, value: deceased }

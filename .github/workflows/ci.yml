@@ -41,6 +41,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Residency policy engine (Phase 1): the deterministic evaluator and the sealed
+      # human-rights floor. The two load-bearing checks are the crux -- a sealed-field
+      # override is rejected at merge, and an ordinary-residency rule gated on origin/
+      # indigene status is rejected (the mandatory anti-discrimination case).
+      - name: Residency policy engine (evaluator + sealed rights floor)
+        run: npm run smoke:policy
+
       - name: W3C conformance (VC Data Model 2.0, Bitstring Status List, Data Integrity)
         run: npm run test:conformance
 
