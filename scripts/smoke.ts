@@ -6,6 +6,8 @@ import { didKeyFromJwk } from '../src/core/credentials/did';
 import { VcIssuer } from '../src/core/credentials/vc-issuer';
 import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
 import { StatusList } from '../src/core/credentials/status-list';
+import { LdpIssuer } from '../src/core/credentials/ldp-issuer';
+import { StatusListPublisher } from '../src/core/credentials/status-list-publisher';
 import { InMemoryStore } from '../src/core/residency/ports';
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { generateResidentId, isValidResidentId, IdFormat } from '../src/core/residency/resident-id';
@@ -144,6 +146,24 @@ async function main() {
   const v2 = await verifier.verify(jwt, { offline: true });
   check('revoked credential fails offline revocation check', v2.valid === false && v2.reason === 'REVOKED');
   check('revocation check actually ran', v2.checkedRevocation === true);
+
+  // --- Published status list is signed, and re-signed only when it changes ---
+  // The status endpoint is public and unauthenticated, and signing runs canonicalization
+  // plus an issuer-key signature (an HSM/KMS call in production). Re-signing per request
+  // would let a poll drive unbounded signs, so the publisher caches by encoded content:
+  // an unchanged list returns the same signed credential; a changed one is re-signed.
+  const publisher = new StatusListPublisher(new LdpIssuer(key));
+  const slist = await store.loadStatusList('NG');
+  const pub1 = await publisher.publish(statusUrl, issuerDid, slist);
+  const pub2 = await publisher.publish(statusUrl, issuerDid, slist);
+  check('published status list carries a proof', !!pub1.proof);
+  check('unchanged status list is not re-signed (same cached credential)', pub1 === pub2);
+  slist.set(50000, true); // mutate the list content
+  const pub3 = await publisher.publish(statusUrl, issuerDid, slist);
+  check(
+    'a changed status list is re-signed',
+    pub3.proof?.proofValue !== pub1.proof?.proofValue,
+  );
 
   // --- Offline QR carriage ---
   const qr = await encodeCredentialQr(jwt, { residentId, integrity: 'abc123' });

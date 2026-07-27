@@ -27,7 +27,7 @@ import { ProviderRegistry } from '../src/core/foundational/registry';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { VcIssuer } from '../src/core/credentials/vc-issuer';
 import { LdpIssuer, LdpCredential } from '../src/core/credentials/ldp-issuer';
-import { StatusList } from '../src/core/credentials/status-list';
+import { StatusList, unsignedStatusListCredential } from '../src/core/credentials/status-list';
 import { InMemoryStore } from '../src/core/residency/ports';
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { buildDidWebDocument, didKeyFromJwk, didKeyToJwk } from '../src/core/credentials/did';
@@ -91,12 +91,13 @@ async function main() {
 
   const key = await KeyStore.generate('issuer-key-1');
   const residents = new InMemoryStore();
+  const ldpIssuer = new LdpIssuer(key);
   const residency = new ResidencyService(
     new ProviderRegistry('test-pepper'),
     new VcIssuer(key),
     residents,
     () => STATUS_URL,
-    new LdpIssuer(key),
+    ldpIssuer,
   );
 
   const enrolled = await residency.issue(CONFIG, {
@@ -193,14 +194,11 @@ async function main() {
   check('statusListIndex is a STRING, not a number', typeof entry.statusListIndex === 'string');
 
   const list = await residents.loadStatusList('NG');
-  const statusCredential = {
-    '@context': ['https://www.w3.org/ns/credentials/v2'],
+  const statusCredential = unsignedStatusListCredential({
     id: STATUS_URL,
-    type: ['VerifiableCredential', 'BitstringStatusListCredential'],
-    issuer: CONFIG.credential.issuerDid,
-    validFrom: new Date().toISOString(),
-    credentialSubject: list.toCredentialSubject(STATUS_URL),
-  };
+    issuerDid: CONFIG.credential.issuerDid,
+    list,
+  });
   const statusErrors = validateStatusListCredential(statusCredential);
   check('the published status list credential conforms', statusErrors.length === 0, JSON.stringify(statusErrors));
 
@@ -247,6 +245,20 @@ async function main() {
   const issuerPub = createPublicKey({ key: key.publicJwk as any, format: 'jwk' });
   check('the proof verifies', await LdpIssuer.verify(ldp, issuerPub));
 
+  // #27: the PUBLISHED STATUS LIST must itself be signed and verifiable. A verifier syncs
+  // this snapshot and then checks revocation offline against it; if the cached artifact
+  // isn't self-authenticating, the verifier is trusting TLS at fetch time and nothing
+  // afterwards. Sign the same envelope the delivery layer publishes, and prove it verifies.
+  const signedStatus = await ldpIssuer.sign(statusCredential, CONFIG.credential.issuerDid);
+  check('the published status list carries a proof', !!signedStatus.proof);
+  check('the status list proof verifies', await LdpIssuer.verify(signedStatus, issuerPub));
+  const tamperedStatus = JSON.parse(JSON.stringify(signedStatus)) as LdpCredential;
+  (tamperedStatus.credentialSubject as Record<string, unknown>).encodedList = 'uH4sICORRUPTED';
+  check(
+    'a tampered status list does NOT verify',
+    !(await LdpIssuer.verify(tamperedStatus, issuerPub)),
+  );
+
   const tampered = JSON.parse(JSON.stringify(ldp)) as LdpCredential;
   (tampered.credentialSubject as any).residentId = 'KT-FORGED';
   check('a tampered credential does NOT verify', !(await LdpIssuer.verify(tampered, issuerPub)));
@@ -263,6 +275,10 @@ async function main() {
   check(
     'the DID document publishes a Multikey (required by this cryptosuite)',
     methods.some((m) => m.type === 'Multikey' && typeof m.publicKeyMultibase === 'string'),
+  );
+  check(
+    'the status list proof verificationMethod also resolves in the DID document',
+    methods.some((m) => m.id === (signedStatus.proof as { verificationMethod?: string }).verificationMethod),
   );
   console.log('');
 
