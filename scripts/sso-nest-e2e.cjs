@@ -335,6 +335,24 @@ biometric:
   });
   check('a malformed field value is rejected (400)', badValue.status === 400, `status ${badValue.status}`);
 
+  // A well-formed request must NOT be rejected -- guards against an over-strict DTO that
+  // would 400 legitimate traffic.
+  const validShape = await req('POST', `${base}/residency/verify`, jar, {
+    body: JSON.stringify({ credential: 'aaa.bbb.ccc' }),
+  });
+  check('a well-formed request is NOT falsely rejected by validation', validShape.status !== 400, `status ${validShape.status}`);
+
+  // Protocol endpoints stay pass-through: an unknown field must NOT trip forbidNonWhitelisted
+  // (which would say "should not exist"), or OAuth/OID4VCI/VC-API wallet interop breaks.
+  const protoPass = await req('POST', `${base}/oid4vci/token`, jar, {
+    body: JSON.stringify({ grant_type: 'urn:x', 'pre-authorized_code': 'nope', tx_code: '0000', extraSpecField: 'y' }),
+  });
+  check(
+    'protocol endpoints stay pass-through (unknown field is not pipe-rejected)',
+    !/should not exist/i.test(protoPass.body || ''),
+    `body: ${(protoPass.body || '').slice(0, 140)}`,
+  );
+
   // --- Drive Authorization Code + PKCE through the REAL controller ----------
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash('sha256').update(verifier).digest());
@@ -349,6 +367,13 @@ biometric:
   const toLogin = await followToStop(await req('GET', authUrl, jar), base, jar);
   check('the flow redirects into the real interaction endpoint', (toLogin.location ?? '').includes('/interaction/'));
   const uid = interactionUid(toLogin.location, base);
+
+  // The interaction (login) endpoints are validated too: an unknown property is rejected
+  // before the handler runs. This 400s cleanly and leaves the interaction session intact.
+  const otpBadField = await req('POST', `${base}/interaction/${uid}/otp/start`, jar, {
+    body: JSON.stringify({ residentId: RESIDENT_ID, smuggled: 'x' }),
+  });
+  check('interaction endpoints reject unknown properties (400)', otpBadField.status === 400, `status ${otpBadField.status}`);
 
   // The real InteractionController renders the login page.
   const loginPage = await req('GET', `${base}/interaction/${uid}`, jar);

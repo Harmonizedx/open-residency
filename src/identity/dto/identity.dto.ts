@@ -1,4 +1,5 @@
-import { IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsStringRecord } from '../../common/dto/is-string-record.validator';
 
 /** Request body for `POST /identity/challenge`. */
 export class ChallengeDto {
@@ -6,7 +7,7 @@ export class ChallengeDto {
   @Matches(/^[A-Za-z]{2}$/, { message: 'countryCode must be a 2-letter code' })
   countryCode!: string;
 
-  @IsObject()
+  @IsStringRecord()
   identifiers!: Record<string, string>;
 }
 

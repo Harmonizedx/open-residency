@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import type Provider from 'oidc-provider';
 import QRCode from 'qrcode';
 import { PlatformService } from '../platform/platform.service';
+import { AuthStartDto, OtpVerifyDto } from './dto/interaction.dto';
 import { loginPage, consentPage, cspHeader } from './interaction.views';
 import { assess, AuthFactor } from '../core/sso/assurance';
 import { BiometricModality } from '../core/proofing/biometric';
@@ -101,7 +102,7 @@ export class InteractionController {
    * operator can see it and the caller cannot.
    */
   @Post(':uid/otp/start')
-  async otpStart(@Body() body: { residentId?: string }) {
+  async otpStart(@Body() body: AuthStartDto) {
     if (body?.residentId) {
       try {
         await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
@@ -119,8 +120,8 @@ export class InteractionController {
 
   /** Verify a one-time code and, on success, complete the interaction. */
   @Post(':uid/otp/verify')
-  async otpVerify(@Req() req: Request, @Res() res: Response) {
-    const { residentId, code } = (req.body ?? {}) as { residentId?: string; code?: string };
+  async otpVerify(@Body() body: OtpVerifyDto, @Req() req: Request, @Res() res: Response) {
+    const { residentId, code } = body;
     const result =
       residentId && code
         ? await this.platform.getSsoAuth().verifyOtpLogin(residentId, code)
@@ -148,7 +149,7 @@ export class InteractionController {
    * revealing whether the residentId exists.
    */
   @Post(':uid/webauthn/authenticate/start')
-  async webauthnAuthStart(@Body() body: { residentId?: string }, @Res() res: Response) {
+  async webauthnAuthStart(@Body() body: AuthStartDto, @Res() res: Response) {
     const started = body?.residentId
       ? await this.platform.getWebAuthn().startAuthentication(body.residentId)
       : null;

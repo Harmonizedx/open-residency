@@ -1,4 +1,5 @@
-import { Allow, IsBoolean, IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Allow, IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsStringRecord } from '../../common/dto/is-string-record.validator';
 import { ApplicantBinding } from '../../core/proofing/binding';
 import { ResidenceEvidence } from '../../core/proofing/residence';
 
@@ -24,7 +25,7 @@ export class IssueDto {
   @Matches(/^[A-Za-z0-9_-]{1,32}$/, { message: 'subnationalUnit must be 1-32 chars of [A-Za-z0-9_-]' })
   subnationalUnit!: string;
 
-  @IsObject()
+  @IsStringRecord()
   identifiers!: Record<string, string>;
 
   @IsOptional()
