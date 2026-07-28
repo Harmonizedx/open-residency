@@ -318,6 +318,41 @@ biometric:
   const meta = JSON.parse(disco.body || '{}');
   const issuer = meta.issuer;
 
+  // --- Request validation: the global ValidationPipe rejects bad input (#28) ------------
+  // These hit public, side-effect-free endpoints, so a 400 comes from the pipe, not the
+  // handler. Before this change every body interface was erased at runtime and nothing
+  // checked the payload at all.
+  const missingField = await req('POST', `${base}/residency/verify`, jar, { body: JSON.stringify({}) });
+  check('a request missing a required field is rejected (400)', missingField.status === 400, `status ${missingField.status}`);
+
+  const unknownField = await req('POST', `${base}/residency/verify`, jar, {
+    body: JSON.stringify({ credential: 'x.y.z', notAKnownField: 'smuggled' }),
+  });
+  check('an unknown property is rejected, not silently accepted (400)', unknownField.status === 400, `status ${unknownField.status}`);
+
+  const badValue = await req('POST', `${base}/identity/verify`, jar, {
+    body: JSON.stringify({ countryCode: 'NOT-A-COUNTRY-CODE', identifiers: {} }),
+  });
+  check('a malformed field value is rejected (400)', badValue.status === 400, `status ${badValue.status}`);
+
+  // A well-formed request must NOT be rejected -- guards against an over-strict DTO that
+  // would 400 legitimate traffic.
+  const validShape = await req('POST', `${base}/residency/verify`, jar, {
+    body: JSON.stringify({ credential: 'aaa.bbb.ccc' }),
+  });
+  check('a well-formed request is NOT falsely rejected by validation', validShape.status !== 400, `status ${validShape.status}`);
+
+  // Protocol endpoints stay pass-through: an unknown field must NOT trip forbidNonWhitelisted
+  // (which would say "should not exist"), or OAuth/OID4VCI/VC-API wallet interop breaks.
+  const protoPass = await req('POST', `${base}/oid4vci/token`, jar, {
+    body: JSON.stringify({ grant_type: 'urn:x', 'pre-authorized_code': 'nope', tx_code: '0000', extraSpecField: 'y' }),
+  });
+  check(
+    'protocol endpoints stay pass-through (unknown field is not pipe-rejected)',
+    !/should not exist/i.test(protoPass.body || ''),
+    `body: ${(protoPass.body || '').slice(0, 140)}`,
+  );
+
   // --- Drive Authorization Code + PKCE through the REAL controller ----------
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash('sha256').update(verifier).digest());
@@ -332,6 +367,13 @@ biometric:
   const toLogin = await followToStop(await req('GET', authUrl, jar), base, jar);
   check('the flow redirects into the real interaction endpoint', (toLogin.location ?? '').includes('/interaction/'));
   const uid = interactionUid(toLogin.location, base);
+
+  // The interaction (login) endpoints are validated too: an unknown property is rejected
+  // before the handler runs. This 400s cleanly and leaves the interaction session intact.
+  const otpBadField = await req('POST', `${base}/interaction/${uid}/otp/start`, jar, {
+    body: JSON.stringify({ residentId: RESIDENT_ID, smuggled: 'x' }),
+  });
+  check('interaction endpoints reject unknown properties (400)', otpBadField.status === 400, `status ${otpBadField.status}`);
 
   // The real InteractionController renders the login page.
   const loginPage = await req('GET', `${base}/interaction/${uid}`, jar);

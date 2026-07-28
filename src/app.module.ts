@@ -1,5 +1,5 @@
-import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PlatformModule } from './platform/platform.module';
 import { ResidencyModule } from './residency/residency.module';
@@ -36,6 +36,23 @@ import { OperatorModule } from './operator/operator.module';
     MetaModule,
     OperatorModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Global request validation. Registered as an APP_PIPE provider rather than a main.ts
+    // `useGlobalPipes` call so it is active wherever AppModule is instantiated -- the server,
+    // the full-stack e2e harness, and any future test -- and cannot silently be absent in one
+    // bootstrap path. `whitelist` strips unknown props, `forbidNonWhitelisted` rejects them,
+    // `transform` instantiates DTOs (and coerces query types). Only endpoints whose param is a
+    // decorated DTO class are validated; protocol endpoints typed as `Record<...>` (OAuth /
+    // OID4VCI / VC-API) are skipped, preserving wallet and conformance interop.
+    {
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    },
+  ],
 })
 export class AppModule {}
