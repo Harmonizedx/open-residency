@@ -7,6 +7,7 @@ import {
   requireOperator,
 } from '../common/operator.guard';
 import { operatorActor } from '../core/operator/operator';
+import { ListResidentsQueryDto } from './dto/list-residents.dto';
 
 /**
  * Administrative view over the Resident Registry.
@@ -22,22 +23,17 @@ export class AdminController {
   constructor(private platform: PlatformService) {}
 
   @Get('residents')
-  async residents(
-    @Req() req: RequestWithOperator,
-    @Query('countryCode') countryCode?: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string,
-  ) {
+  async residents(@Req() req: RequestWithOperator, @Query() query: ListResidentsQueryDto) {
     const page = await this.platform.getStore().list({
-      countryCode: countryCode ? countryCode.toUpperCase() : undefined,
-      limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
+      countryCode: query.countryCode ? query.countryCode.toUpperCase() : undefined,
+      limit: query.limit,
+      offset: query.offset,
     });
     await this.platform.getAudit().record({
       action: 'admin.read',
       actor: operatorActor(requireOperator(req)),
       outcome: 'success',
-      metadata: { view: 'residents', countryCode },
+      metadata: { view: 'residents', countryCode: query.countryCode },
     });
     return {
       total: page.total,

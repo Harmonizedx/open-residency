@@ -1,18 +1,9 @@
 import { Body, Controller, NotFoundException, Post } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
 import { NormalizedIdentity } from '../core/foundational/types';
+import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
 
-interface VerifyIdentityBody {
-  countryCode: string;
-  identifiers: Record<string, string>;
-  challengeRef?: string;
-  purpose?: string;
-}
-
-interface ChallengeBody {
-  countryCode: string;
-  identifiers: Record<string, string>;
-}
+// Request DTOs (validated by the global ValidationPipe) live in ./dto/identity.dto.ts.
 
 /**
  * Identity Verification API.
@@ -28,7 +19,7 @@ export class IdentityController {
   constructor(private platform: PlatformService) {}
 
   @Post('challenge')
-  async challenge(@Body() body: ChallengeBody) {
+  async challenge(@Body() body: ChallengeDto) {
     const cfg = this.platform.getConfig(body.countryCode);
     if (!cfg) throw new NotFoundException(`No config for country ${body.countryCode}`);
     const provider = this.platform.getResidency().getProvider(cfg);
@@ -52,7 +43,7 @@ export class IdentityController {
   }
 
   @Post('verify')
-  async verify(@Body() body: VerifyIdentityBody) {
+  async verify(@Body() body: VerifyIdentityDto) {
     const cfg = this.platform.getConfig(body.countryCode);
     if (!cfg) throw new NotFoundException(`No config for country ${body.countryCode}`);
     const provider = this.platform.getResidency().getProvider(cfg);

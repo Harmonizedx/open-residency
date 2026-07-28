@@ -318,6 +318,23 @@ biometric:
   const meta = JSON.parse(disco.body || '{}');
   const issuer = meta.issuer;
 
+  // --- Request validation: the global ValidationPipe rejects bad input (#28) ------------
+  // These hit public, side-effect-free endpoints, so a 400 comes from the pipe, not the
+  // handler. Before this change every body interface was erased at runtime and nothing
+  // checked the payload at all.
+  const missingField = await req('POST', `${base}/residency/verify`, jar, { body: JSON.stringify({}) });
+  check('a request missing a required field is rejected (400)', missingField.status === 400, `status ${missingField.status}`);
+
+  const unknownField = await req('POST', `${base}/residency/verify`, jar, {
+    body: JSON.stringify({ credential: 'x.y.z', notAKnownField: 'smuggled' }),
+  });
+  check('an unknown property is rejected, not silently accepted (400)', unknownField.status === 400, `status ${unknownField.status}`);
+
+  const badValue = await req('POST', `${base}/identity/verify`, jar, {
+    body: JSON.stringify({ countryCode: 'NOT-A-COUNTRY-CODE', identifiers: {} }),
+  });
+  check('a malformed field value is rejected (400)', badValue.status === 400, `status ${badValue.status}`);
+
   // --- Drive Authorization Code + PKCE through the REAL controller ----------
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash('sha256').update(verifier).digest());
