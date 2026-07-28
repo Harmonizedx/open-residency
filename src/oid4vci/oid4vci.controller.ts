@@ -13,7 +13,6 @@ import type { Response } from 'express';
 import { PlatformService } from '../platform/platform.service';
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { Oid4vciError, PRE_AUTHORIZED_CODE_GRANT } from '../core/oid4vci/oid4vci-service';
-import { CreateOfferDto } from './dto/create-offer.dto';
 
 /**
  * The OpenID4VCI HTTP surface.
@@ -46,7 +45,7 @@ export class Oid4vciController {
   @Post('offer')
   @UseGuards(OperatorGuard)
   @RequireRoles('registrar')
-  async createOffer(@Body() body: CreateOfferDto) {
+  async createOffer(@Body() body: { residentId?: string }) {
     if (!body?.residentId) {
       throw new HttpException(
         { error: 'invalid_request', error_description: 'residentId is required' },

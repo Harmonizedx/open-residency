@@ -14,9 +14,6 @@ async function bootstrap() {
   app.use(json());
   app.use(urlencoded({ extended: false }));
 
-  // Request validation is a global APP_PIPE in AppModule, so it applies here and in the
-  // full-stack e2e harness alike -- see the note there.
-
   // Reference UI (static). Served under /app so it never collides with API routes.
   app.useStaticAssets(join(process.cwd(), 'public'), { prefix: '/app' });
 

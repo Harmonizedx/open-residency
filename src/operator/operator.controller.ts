@@ -11,14 +11,6 @@ import {
 import { OperatorGuard, RequireRoles, RequestWithOperator, requireOperator } from '../common/operator.guard';
 import { OPERATOR_ROLES, OperatorRole, isOperatorRole, operatorActor } from '../core/operator/operator';
 import { PlatformService } from '../platform/platform.service';
-import {
-  CreateKeyDto,
-  CreateOperatorDto,
-  DisableOperatorDto,
-  OperatorLoginDto,
-  RevokeKeyDto,
-  RotateKeyDto,
-} from './dto/operator.dto';
 
 /**
  * Operator account and credential management.
@@ -43,7 +35,7 @@ export class OperatorController {
    * "wrong password" tells an attacker which half they have already got right.
    */
   @Post('login')
-  async login(@Body() body: OperatorLoginDto) {
+  async login(@Body() body: { email?: string; password?: string; totp?: string }) {
     const auth = this.platform.getOperatorAuth();
     if (auth.mode !== 'local' || !auth.sessions) {
       throw new BadRequestException(
@@ -127,7 +119,7 @@ export class OperatorController {
   @Post('operators')
   async create(
     @Req() req: RequestWithOperator,
-    @Body() body: CreateOperatorDto,
+    @Body() body: { email?: string; displayName?: string; roles?: string[]; password?: string },
   ) {
     const actor = requireOperator(req);
     if (!body?.email) throw new BadRequestException('email is required');
@@ -167,7 +159,7 @@ export class OperatorController {
   @UseGuards(OperatorGuard)
   @RequireRoles('admin')
   @Post('operators/:id/disable')
-  async disable(@Req() req: RequestWithOperator, @Body() body: DisableOperatorDto) {
+  async disable(@Req() req: RequestWithOperator, @Body() body: { operatorId?: string; disabled?: boolean }) {
     const actor = requireOperator(req);
     if (!body?.operatorId) throw new BadRequestException('operatorId is required');
     const disabled = body.disabled !== false;
@@ -206,7 +198,7 @@ export class OperatorController {
   @Post('keys')
   async createKey(
     @Req() req: RequestWithOperator,
-    @Body() body: CreateKeyDto,
+    @Body() body: { label?: string; expiresInDays?: number },
   ) {
     const op = requireOperator(req);
     if (op.via === 'sharedKey') {
@@ -240,7 +232,7 @@ export class OperatorController {
   @Post('keys/rotate')
   async rotateKey(
     @Req() req: RequestWithOperator,
-    @Body() body: RotateKeyDto,
+    @Body() body: { keyId?: string; overlapHours?: number },
   ) {
     const op = requireOperator(req);
     if (!body?.keyId) throw new BadRequestException('keyId is required');
@@ -265,7 +257,7 @@ export class OperatorController {
 
   @UseGuards(OperatorGuard)
   @Post('keys/revoke')
-  async revokeKey(@Req() req: RequestWithOperator, @Body() body: RevokeKeyDto) {
+  async revokeKey(@Req() req: RequestWithOperator, @Body() body: { keyId?: string }) {
     const op = requireOperator(req);
     if (!body?.keyId) throw new BadRequestException('keyId is required');
     const own = await this.platform.getOperatorAuth().operators.listKeys(op.id);

@@ -11,7 +11,6 @@ import {
 import type Provider from 'oidc-provider';
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
-import { GrantConsentDto } from './dto/grant-consent.dto';
 
 /**
  * Consent API for the citizen-facing side.
@@ -47,7 +46,18 @@ export class ConsentController {
   }
 
   @Post('grant')
-  async grant(@Body() body: GrantConsentDto) {
+  async grant(
+    @Body()
+    body: {
+      residentId: string;
+      subjectRef?: string;
+      relyingParty: string;
+      relyingPartyName?: string;
+      purpose: string;
+      scopes: string[];
+      validityDays?: number;
+    },
+  ) {
     const resident = await this.platform.getStore().findByResidentId(body.residentId);
     if (!resident) throw new NotFoundException('Unknown residentId');
     const { record, receipt } = await this.platform.getConsent().grant({

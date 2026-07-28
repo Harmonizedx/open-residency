@@ -12,7 +12,6 @@ import {
 import { PlatformService } from '../platform/platform.service';
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { Oid4vpError } from '../core/oid4vp/oid4vp-service';
-import { CreatePresentationRequestDto } from './dto/create-request.dto';
 
 function toHttp(e: unknown): never {
   if (e instanceof Oid4vpError) {
@@ -38,7 +37,7 @@ export class Oid4vpController {
   @Post('request')
   @UseGuards(OperatorGuard)
   @RequireRoles('support')
-  async createRequest(@Body() body: CreatePresentationRequestDto) {
+  async createRequest(@Body() body: { purpose?: string; reference?: string }) {
     try {
       return await this.platform.getOid4vp().createRequest(body ?? {});
     } catch (e) {

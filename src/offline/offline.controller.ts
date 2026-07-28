@@ -4,7 +4,6 @@ import { PlatformService } from '../platform/platform.service';
 import { encodeCredentialQr } from '../core/offline/qr';
 import { handleUssd } from '../core/offline/ussd';
 import { shortHash } from '../core/foundational/util';
-import { QrDto, UssdDto } from './dto/offline.dto';
 
 /**
  * Inclusion endpoints for low- and no-connectivity contexts.
@@ -16,7 +15,7 @@ export class OfflineController {
   /** Render a credential as an offline-carriable QR (SVG). */
   @Post('qr')
   @Header('content-type', 'application/json')
-  async qr(@Body() body: QrDto) {
+  async qr(@Body() body: { credential: string; residentId: string }) {
     const qr = await encodeCredentialQr(body.credential, {
       residentId: body.residentId,
       integrity: shortHash(body.credential),
@@ -35,7 +34,7 @@ export class OfflineController {
   @UseGuards(UssdGatewayGuard)
   @Post('ussd')
   @Header('content-type', 'text/plain')
-  async ussd(@Body() body: UssdDto) {
+  async ussd(@Body() body: { sessionId?: string; phoneNumber?: string; text?: string }) {
     const result = handleUssd(body.text ?? '');
 
     if (result.action?.type === 'lookupResident') {

@@ -9,14 +9,53 @@ import {
 import { operatorActor } from '../core/operator/operator';
 import { encryptContact } from '../core/messaging/contact-directory';
 import { PlatformService } from '../platform/platform.service';
+import { ApplicantBinding } from '../core/proofing/binding';
+import { ResidenceEvidence } from '../core/proofing/residence';
 import { residentIdPattern } from '../core/residency/resident-id';
-import { IssueDto, VerifyDto } from './dto/residency.dto';
 
-// Request DTOs (validated by the global ValidationPipe) live in ./dto/residency.dto.ts.
-// The trust requirements the old inline docs described still hold: `binding` and
-// `residenceEvidence` are only meaningful from an authenticated operator context (this
-// endpoint sits behind OperatorGuard), and `phone` handling is governed by
-// contactDirectory.mode and never written to the credential, audit log, or any response.
+interface IssueBody {
+  countryCode: string;
+  subnationalUnit: string;
+  identifiers: Record<string, string>;
+  holderId?: string;
+  challengeRef?: string;
+  proofOfResidence?: string;
+  /**
+   * Applicant->identity binding performed by the enrolment channel (an agent's in-person
+   * comparison, a face/fingerprint match). Only meaningful from a trusted enrolment
+   * context: for the attended/biometric methods this endpoint must sit behind operator
+   * authentication, so a citizen cannot self-assert that they were bound. The strongest
+   * of this and any provider-attested binding is what the engine enforces and records.
+   */
+  binding?: ApplicantBinding;
+  /**
+   * Proof-of-residence evidence gathered by the enrolment channel -- a ward operator's
+   * attestation, a sighted utility bill, a geospatial match.
+   *
+   * Carries the same trust requirement as `binding`: only meaningful from an authenticated
+   * operator context, since a citizen who could post their own `authority_attestation`
+   * would be attesting their own residence. Evidence the foundational source supplies is
+   * collected separately by the engine and capped at RAL1; anything above that has to
+   * arrive here, which is why a jurisdiction configured for RAL2 cannot issue without it.
+   */
+  residenceEvidence?: ResidenceEvidence[];
+  /**
+   * The applicant's phone in E.164, captured at the desk.
+   *
+   * Optional, and what happens to it is governed by `contactDirectory.mode`: under
+   * `encrypted` it is stored as ciphertext for OTP delivery plus a hash for matching;
+   * under `external` or `none` only the hash is kept, because the number either lives in
+   * the ministry's own directory or is not wanted here at all. It is never written to the
+   * credential, the audit log, or any response.
+   */
+  phone?: string;
+  offline?: boolean;
+}
+
+interface VerifyBody {
+  credential: string; // VC-JWT
+  offline?: boolean;
+}
 
 /**
  * Public residency API. Note there is no country-specific code here: the controller
@@ -66,7 +105,7 @@ export class ResidencyController {
   @UseGuards(OperatorGuard)
   @RequireRoles('registrar')
   @Post('issue')
-  async issue(@Req() req: RequestWithOperator, @Body() body: IssueDto) {
+  async issue(@Req() req: RequestWithOperator, @Body() body: IssueBody) {
     const operator = requireOperator(req);
     const cfg = this.platform.getConfig(body.countryCode);
     if (!cfg) throw new NotFoundException(`No config for country ${body.countryCode}`);
@@ -175,7 +214,7 @@ export class ResidencyController {
 
   /** Verify a presented residency credential (server-side; verifiers can also do this offline). */
   @Post('verify')
-  async verify(@Body() body: VerifyDto) {
+  async verify(@Body() body: VerifyBody) {
     // Make sure the verifier has the latest revocation snapshot for all configs.
     for (const cfg of this.platform.listConfigs()) {
       await this.platform.syncStatusList(cfg);
