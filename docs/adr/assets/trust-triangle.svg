@@ -1,0 +1,30 @@
+<svg viewBox="0 0 820 520" role="img" aria-label="Verifiable Credentials trust triangle" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="aht" markerWidth="9" markerHeight="9" refX="6.4" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#96a0ae"/></marker>
+  </defs>
+  <!-- flow + trust edges -->
+  <g fill="none" stroke="#b7c0cc" stroke-width="1.8" marker-end="url(#aht)">
+    <path d="M300,90 L518,90"/>
+    <path d="M636,148 C702,252 628,352 514,404"/>
+    <path d="M210,148 C250,176 300,196 330,214"/>
+    <path d="M410,402 L410,310"/>
+  </g>
+  <!-- issuer↔verifier: forbidden direct path -->
+  <path d="M132,148 C86,262 150,378 286,438" fill="none" stroke="#c0392b" stroke-width="1.7" stroke-dasharray="6 4"/>
+  <!-- edge labels -->
+  <g font-size="12.5" fill="#12233f" text-anchor="middle">
+    <g><rect x="330" y="68" width="160" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="410" y="83">① issues credential to</text></g>
+    <g><rect x="596" y="280" width="110" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="651" y="295">② presents (VP)</text></g>
+    <g><rect x="170" y="180" width="166" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="253" y="195">publishes keys + status</text></g>
+    <g><rect x="338" y="346" width="144" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="410" y="361">checks trust anchors</text></g>
+    <g><rect x="78" y="308" width="150" height="21" rx="5" fill="#fdecea" stroke="#c0392b"/><text x="153" y="323" fill="#c0392b" font-weight="640">✗ never talk directly</text></g>
+  </g>
+  <!-- issuer -->
+  <g><rect x="48" y="52" width="252" height="96" rx="10" fill="#dcf4ef" stroke="#0f8f7e" stroke-width="1.5"/><text x="174" y="82" text-anchor="middle" fill="#094f45" font-size="14"><tspan x="174" font-weight="700">Issuer</tspan><tspan x="174" dy="17" font-size="11" fill="#12665b">State / ministry — acts via an Operator</tspan><tspan x="174" dy="15" font-size="11" fill="#12665b">OpenResidency · VcIssuer / LdpIssuer · did:web</tspan></text></g>
+  <!-- holder -->
+  <g><rect x="520" y="52" width="252" height="96" rx="10" fill="#e8edfd" stroke="#2f54c9" stroke-width="1.5"/><text x="646" y="82" text-anchor="middle" fill="#1a2b6b" font-size="14"><tspan x="646" font-weight="700">Holder</tspan><tspan x="646" dy="17" font-size="11" fill="#3a4a86">Citizen’s wallet · Inji / OpenWallet</tspan><tspan x="646" dy="15" font-size="11" fill="#3a4a86">citizen = subject · bound by holder key</tspan></text></g>
+  <!-- registry -->
+  <g><rect x="298" y="214" width="224" height="96" rx="10" fill="#fbf1dd" stroke="#b5791b" stroke-width="1.5"/><text x="410" y="244" text-anchor="middle" fill="#5a3d0a" font-size="13.5"><tspan x="410" font-weight="700">Verifiable Data Registry</tspan><tspan x="410" dy="16" font-size="11" fill="#7a5514">.well-known DID doc (issuer keys)</tspan><tspan x="410" dy="15" font-size="11" fill="#7a5514">Bitstring Status List (revocation)</tspan></text></g>
+  <!-- verifier -->
+  <g><rect x="284" y="402" width="252" height="96" rx="10" fill="#efe7fb" stroke="#7b4fc9" stroke-width="1.5"/><text x="410" y="432" text-anchor="middle" fill="#3f2470" font-size="14"><tspan x="410" font-weight="700">Verifier</tspan><tspan x="410" dy="17" font-size="11" fill="#5a3a94">Sector service · offline verifier</tspan><tspan x="410" dy="15" font-size="11" fill="#5a3a94">VcVerifier / VpVerifier</tspan></text></g>
+</svg>
