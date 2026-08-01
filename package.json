@@ -1,7 +1,7 @@
 {
   "name": "open-residency",
   "version": "0.1.0",
-  "description": "Open-source, configurable subnational Residency ID and SSO platform. A Digital Public Good that binds any country's foundational identity API to a verifiable subnational residency credential, with offline-first inclusion and cross-sector single sign-on.",
+  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
   "author": "HarmonizedX Limited",
   "homepage": "https://github.com/harmonizedx/openresidency",

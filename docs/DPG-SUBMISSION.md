@@ -15,11 +15,12 @@ submitting.
 
 ## Short description
 
-Country-agnostic, open-source subnational Residency ID and single sign-on platform. It
-binds any national foundational ID (NIN, Aadhaar, Huduma, and others via config) to a
-W3C Verifiable Credential, works offline for low-connectivity areas, and provides
-cross-sector SSO, consent, and a tamper-evident audit trail. Reusable by any state,
-province, or county.
+Open-source subnational trust infrastructure that lets governments establish, manage and
+exchange verified, purpose-scoped jurisdictional relationships between residents and their
+jurisdictions — giving citizens inclusive, privacy-preserving access to public services. It
+binds any national foundational ID (NIN, Aadhaar, Huduma, and others via config) to a W3C
+Verifiable Credential, works offline for low-connectivity areas, and records consent and a
+tamper-evident audit trail. Reusable by any state, province, or county.
 
 ## The nine indicators
 

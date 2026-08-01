@@ -1,9 +1,12 @@
 # OpenResidency
 
-An open-source, **jurisdiction-neutral** platform for subnational **Residency ID, verifiable
-credentials, and cross-sector single sign-on** — packaged to be registered and reused as a
-**Digital Public Good (DPG)**. It is a reusable open core, proven first across Nigeria's states
-and reusable, unchanged, by any country.
+OpenResidency is an open-source **subnational trust infrastructure** that lets governments
+establish, manage and exchange verified, **purpose-scoped jurisdictional relationships** between
+residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public
+services.
+
+Packaged to be registered and reused as a **Digital Public Good (DPG)**: a jurisdiction-neutral open
+core, proven first across Nigeria's states and reusable, unchanged, by any country.
 
 It turns this flow into infrastructure any state, province, or county can deploy and own:
 

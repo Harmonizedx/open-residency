@@ -3,10 +3,12 @@ info:
   title: OpenResidency API
   version: 0.1.0
   description: >
-    Country-agnostic subnational Residency ID and SSO platform. Binds any national
-    foundational ID to a W3C Verifiable Credential, issues cross-sector single
-    sign-on, and records consent and a tamper-evident audit trail. The raw national
-    ID is never stored or returned; only a tokenized subjectRef leaves the adapter.
+    Open-source subnational trust infrastructure for verified, purpose-scoped jurisdictional
+    relationships between residents and their jurisdictions, giving citizens inclusive,
+    privacy-preserving access to public services. Binds any national foundational ID to a W3C
+    Verifiable Credential, federates cross-sector access, and records consent and a
+    tamper-evident audit trail. The raw national ID is never stored or returned; only a
+    tokenized subjectRef leaves the adapter.
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
