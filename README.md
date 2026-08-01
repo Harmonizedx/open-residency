@@ -25,7 +25,7 @@ through standards-based OpenID Connect. No jurisdiction's rules are hard-coded i
 | **Deploying** OpenResidency for a jurisdiction | [Quickstart](#quickstart) → [Onboarding a jurisdiction](#onboarding-a-jurisdiction) → [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | **Integrating** an existing service (an MDA, an education/health platform) | [Integrating a service](#integrating-a-service) → [`docs/API.md`](docs/API.md), [`docs/SDK.md`](docs/SDK.md), [`docs/INTEROP.md`](docs/INTEROP.md) |
 | **Evaluating** it as a Digital Public Good / funding it | [DPG alignment](#digital-public-good-alignment) → [`docs/DPG.md`](docs/DPG.md), [`docs/FUNDING-OVERVIEW.md`](docs/FUNDING-OVERVIEW.md) |
-| **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/RESIDENCY-POLICY.md`](docs/RESIDENCY-POLICY.md) |
+| **Understanding the design** | **[Authoritative specification](docs/SPECIFICATION.md)** (v7) → [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 
 ## Why this is different from a bespoke state ID system
 

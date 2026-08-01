@@ -1,5 +1,10 @@
 # Architecture
 
+> The authoritative product, policy and architecture specification is
+> [`SPECIFICATION.md`](SPECIFICATION.md) (Consolidated v7). This document describes the
+> current implementation; where it differs from v7, v7 governs and the implementation is
+> being extended toward it.
+
 OpenResidency is built as a small framework-agnostic core with thin NestJS delivery
 around it. This split is deliberate: the core carries the identity, credential,
 consent, and audit logic with no web framework, so it is unit-testable (see the smoke

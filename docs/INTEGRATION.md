@@ -181,9 +181,9 @@ Your platform  ->  "is this a registered student, in the age band,
                     resident >= 12 months?"               (your business logic)
 ```
 
-This is deliberate — the Layer 3 (credential) → Layer 4 (eligibility) separation described in
-[`RESIDENCY-POLICY.md`](RESIDENCY-POLICY.md). You inherit identity and residency assurance; you do
-not surrender your domain logic.
+This is deliberate — residency assurance is an input to eligibility, never a substitute for it,
+per the [authoritative specification](SPECIFICATION.md). You inherit identity and residency
+assurance; you do not surrender your domain logic.
 
 ---
 
