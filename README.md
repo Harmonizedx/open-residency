@@ -176,6 +176,7 @@ Clean layers, each swappable:
 | Wallet presentation | OpenID4VP: request, direct_post, verification | `src/core/oid4vp/*` |
 | Inclusion | QR carriage, offline verify, USSD/SMS | `src/core/offline/*` |
 | SSO | OpenID Connect IdP for cross-sector login | `src/sso/*` |
+| Open data | Aggregate non-PII statistics as JSON/CSV, with small-cell suppression | `src/core/statistics/*` |
 
 The `src/core/*` tree is framework-agnostic and has no NestJS dependency, so it can be embedded in
 any Node runtime or reused as a library. NestJS is only the delivery mechanism.

@@ -99,6 +99,13 @@ jobs:
       - name: SSO OIDC flow (real provider, Authorization Code + PKCE)
         run: npm run smoke:sso-oidc
 
+      # The non-PII extraction surface we point DPG reviewers at (Standard indicator 6).
+      # Gated because the suppression arithmetic is the kind of thing that looks right in
+      # the output while quietly leaking: the subtraction attack it prevents is invisible
+      # unless something asserts it.
+      - name: Non-PII statistics export (aggregation, suppression, RFC 4180 CSV)
+        run: npm run smoke:statistics
+
       - name: Foundational sources (XML/SOAP and imported dataset adapters)
         run: npm run smoke:sources
 

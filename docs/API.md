@@ -47,6 +47,31 @@ quick orientation.
 - `GET /admin/residents` — list registry entries.
 - `GET /admin/stats` — counts by country.
 
+## Non-PII data extraction
+
+Aggregate residency statistics, in non-proprietary formats, for deployers publishing open
+data. This is the extraction mechanism DPG Standard indicator 6 asks for; the resident-level
+endpoints above are personal data and are not it.
+
+- `GET /admin/statistics` — counts by country, subnational unit, provider, assurance level,
+  and provisional status, as JSON.
+- `GET /admin/statistics.csv` — the same report as RFC 4180 CSV.
+
+Neither response can contain a name, date of birth, gender, contact detail, `residentId`, or
+`subjectRef`: the aggregator consumes a projection whose type has no such field on it
+(`src/core/statistics/aggregate.ts`).
+
+Cells counting fewer residents than `STATISTICS_SUPPRESSION_THRESHOLD` (default 5) are
+withheld, since a ward with one resident in it is re-identifiable by anyone who knows the
+neighbourhood. If exactly one cell would be withheld, the smallest surviving cell is withheld
+too — a single gap beside a truthful total is a subtraction away from being no gap at all —
+and a grand total below the threshold is withheld for the same reason. Set the threshold to
+`0` to disable suppression on deployments that have decided they want raw counts.
+
+This is disclosure control, not a proof. Correlating several releases over time, or starting
+with knowledge of most of the population, can still narrow a suppressed cell. Treat a public
+release as needing its own disclosure review.
+
 ## Offline
 
 - `POST /offline/qr` — render a credential as an SVG QR.

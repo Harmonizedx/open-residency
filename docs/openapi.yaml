@@ -26,6 +26,12 @@ tags:
     description: Tamper-evident audit log (admin)
   - name: admin
     description: Resident registry administration (admin)
+  - name: statistics
+    description: >
+      Aggregate, non-PII residency statistics in JSON and RFC 4180 CSV. This is the
+      documented data-extraction surface (DPG Standard indicator 6): non-proprietary
+      formats a deployer can publish as open data. Resident-level records are personal
+      data and are served by the admin endpoints instead, under their own governance.
   - name: operator
     description: >
       Operator identity: staff sign-in, accounts, and the per-operator API keys machine
@@ -450,6 +456,71 @@ paths:
                   residentsByCountry:
                     type: object
                     additionalProperties: { type: integer }
+  /admin/statistics:
+    get:
+      tags: [statistics]
+      summary: Aggregate non-PII residency statistics (JSON)
+      description: >
+        Residency counts grouped by country, subnational unit, provider, assurance level,
+        and provisional status. No personal data: no identifiers, names, dates of birth,
+        or contact details are present in the response by construction. Cells counting
+        fewer residents than the deployment's suppression threshold
+        (`STATISTICS_SUPPRESSION_THRESHOLD`, default 5) are withheld, as is a second cell
+        whenever exactly one would otherwise be withheld -- publishing a single gap next to
+        a truthful total would give the withheld figure away by subtraction.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: Aggregate statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generatedAt: { type: string, format: date-time }
+                  suppressionThreshold: { type: integer }
+                  totalResidents:
+                    type: [integer, 'null']
+                    description: >
+                      Null when the total is itself below the threshold, which is exactly
+                      the case where publishing it would undo the cell suppression.
+                  countries: { type: integer }
+                  cells:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        countryCode: { type: string }
+                        subnationalUnit: { type: string }
+                        providerCode: { type: string }
+                        assuranceLevel: { type: string }
+                        provisional: { type: boolean }
+                        count:
+                          type: [integer, 'null']
+                          description: Null when this cell is suppressed.
+                        suppressed: { type: boolean }
+        '401': { description: Missing or invalid operator credential }
+  /admin/statistics.csv:
+    get:
+      tags: [statistics]
+      summary: Aggregate non-PII residency statistics (RFC 4180 CSV)
+      description: >
+        The same report as `/admin/statistics`, serialized as RFC 4180 CSV for deployers
+        publishing an open-data file or loading it into an analysis tool. A suppressed
+        cell's `count` is an empty field and its `suppressed` column reads `true`.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: CSV report
+          content:
+            text/csv:
+              schema: { type: string }
+              example: |
+                countryCode,subnationalUnit,providerCode,assuranceLevel,provisional,count,suppressed
+                NG,KN,NIMC,verified,false,4120,false
+                NG,KT,NIMC,verified,false,9877,false
+                NG,ZM,NIMC,verified,false,,true
+        '401': { description: Missing or invalid operator credential }
   /offline/qr:
     post:
       tags: [offline]
