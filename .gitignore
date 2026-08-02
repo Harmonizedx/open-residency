@@ -27,3 +27,9 @@ w3c-report.json
 
 # The W3C test suite is cloned on demand by npm run test:w3c
 test/w3c/.suite/
+
+# Local specification working documents. The ORCS and ORRA sources are circulated
+# separately, and the gap analysis derived from them is a working note rather than a
+# published artifact -- so a `git add -A` must not sweep any of them into the repository.
+docs/*.docx
+docs/ORCS-GAP-ANALYSIS.md

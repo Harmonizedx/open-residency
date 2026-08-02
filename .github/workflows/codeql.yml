@@ -1,0 +1,45 @@
+name: CodeQL
+
+# Static analysis. The conformance suites prove the credential logic behaves correctly on the
+# paths they exercise; they say nothing about injection, unsafe deserialisation, or a tainted
+# path reaching a signing call. That is the gap this fills, and DPG Standard indicator 8 and
+# ORCS §13 both ask for it explicitly.
+#
+# It runs on a schedule as well as on pull requests because a rule added upstream can turn
+# already-merged code into a finding, and nobody re-opens an old PR to notice.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '27 4 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze JavaScript/TypeScript
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # security-and-quality is broader than the default security-extended, and this is a
+          # small enough codebase to absorb the extra findings rather than tune them away.
+          queries: security-and-quality
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript

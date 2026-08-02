@@ -1,0 +1,35 @@
+version: 2
+
+# Dependency scanning. DPG Standard indicator 8 and ORCS §13 ("secure development") both ask
+# for it, and neither is satisfied by "we read the advisories sometimes". This project signs
+# credentials that governments rely on, so a vulnerable transitive dependency in the crypto
+# or JSON-LD path is a credential-integrity issue rather than a maintenance chore.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Patch and minor bumps arrive as one PR per week so CI runs the full conformance
+      # suite over them together, rather than sixteen PRs each re-running it.
+      minor-and-patch:
+        update-types: [minor, patch]
+    # Majors are deliberately left ungrouped: each needs its own review against the
+    # conformance suites, and jose/oidc-provider majors change credential behaviour.
+
+  # The SDK ships to npm separately and has its own dependency surface.
+  - package-ecosystem: npm
+    directory: /sdk
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # Pinned action versions go stale silently and are a supply-chain path into CI.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

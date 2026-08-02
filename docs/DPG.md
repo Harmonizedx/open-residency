@@ -133,13 +133,25 @@ and ingress rate limiting, a tamper-evident audit log, and fail-closed biometric
 CI gates every merge on a typecheck, W3C conformance (VC Data Model 2.0, Bitstring Status List,
 Data Integrity), an Inji Draft-13 profile conformance suite, OpenID4VCI and OpenID4VP flows
 including the attacks they must reject, SSO login factors, WebAuthn, cross-issuer federation,
+operator identity and roles, issuer-key custody against PKCS#11 HSM and AWS/Google Cloud KMS,
 the non-PII statistics export, a full-stack run of the real application against PostgreSQL, and
 a container build.
 
-Not yet in place: automated dependency scanning, a published SBOM, and static analysis in CI.
+Secure development: Dependabot covers the application, the SDK and the GitHub Actions
+themselves; CodeQL runs `security-and-quality` on every pull request and weekly; a CycloneDX
+SBOM is generated from the installed tree and published as a build artifact.
 
-Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`, `SECURITY.md`,
-`docs/INTEROP.md`.
+**Stated plainly:** the dependency audit gate is set at *critical* on runtime dependencies,
+not *high*. The tree does not pass at `high` today — `undici` (via `jsonld`), `lodash` (via
+`@nestjs/config`), and `multer` with `@nestjs/platform-express` carry high-severity
+advisories, and every available fix is a semver-major upgrade. Those upgrades are tracked and
+must land before a production deployment; `jsonld` in particular affects JSON-LD context
+processing, so it cannot be bumped without re-running the full credential conformance suite. A
+gate set where it currently holds, with the debt reported on every run, is more honest than
+one set where it would fail on the first build and be disabled by the following week.
+
+Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
+`.github/workflows/codeql.yml`, `.github/dependabot.yml`, `SECURITY.md`, `docs/INTEROP.md`.
 
 ### 9. Do no harm by design
 
@@ -235,10 +247,13 @@ Indicators 7 and 8 are recorded above as incomplete. The form should not say oth
 ## Pre-submission checklist
 
 - [ ] Repository is public.
-- [ ] `CODE_OF_CONDUCT.md` exists (the DPGA expects one; the repo has none today).
+- [x] `CODE_OF_CONDUCT.md` exists (Contributor Covenant 2.1, with project-specific rules on
+      real personal data and on exclusionary proposals).
 - [ ] Data-protection statement and retention policy published.
 - [ ] PII erasure implemented, or the gap stated with a timeline.
-- [ ] Dependency scanning, SBOM, and static analysis in CI.
+- [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
+      CodeQL). Note the audit gate sits at *critical* pending four semver-major upgrades —
+      see indicator 8.
 - [x] No dead documentation links. Indicator 5 is a documentation indicator, and a broken link
       in the README's front-door table is the first thing a reviewer clicks. Every `docs/` link
       in the repository now resolves.

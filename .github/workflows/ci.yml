@@ -109,6 +109,26 @@ jobs:
       - name: Foundational sources (XML/SOAP and imported dataset adapters)
         run: npm run smoke:sources
 
+      # The four suites below existed and passed, but ran only under `npm test` -- no CI step
+      # referenced them, so nothing gated them on a pull request. That is 136 assertions of
+      # coverage the build was not enforcing, on the two areas least able to afford it:
+      # issuer-key custody and the operator role model.
+      - name: Operator identity, roles, and per-operator API keys
+        run: npm run smoke:operator
+
+      # Issuer-key custody. A deployment signing with a key it does not hold in an HSM or KMS
+      # is the single failure that invalidates every credential it ever issued, so the
+      # custody adapters are gated rather than trusted. All three are hermetic: they drive
+      # simulated PKCS#11 / cloud-KMS backends and need no credentials.
+      - name: Issuer key custody — PKCS#11 HSM
+        run: npm run smoke:hsm
+
+      - name: Issuer key custody — Google Cloud KMS
+        run: npm run smoke:gcpkms
+
+      - name: Issuer key custody — AWS KMS
+        run: npm run smoke:awskms
+
   sso-e2e:
     name: Full-stack SSO (real NestJS app + Postgres)
     runs-on: ubuntu-latest
@@ -156,6 +176,58 @@ jobs:
 
       - name: Drive the real app end-to-end (boot, login, consent, tokens)
         run: node scripts/sso-nest-e2e.cjs
+
+  sbom:
+    name: SBOM and dependency audit
+    runs-on: ubuntu-latest
+    # A published SBOM is what lets a deploying government answer "are we exposed to this
+    # CVE?" without reading our lockfile. DPG Standard indicator 8 and ORCS §13 ask for it;
+    # ORCS §13 also lists data portability and vendor exit, and an SBOM is part of being
+    # auditable from the outside.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # CycloneDX, generated from the installed tree rather than the manifest, so it records
+      # the versions actually resolved.
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cyclonedx.json
+
+      - name: Publish SBOM as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cyclonedx.json
+          if-no-files-found: error
+
+      # Blocking gate, deliberately set at CRITICAL on runtime dependencies only.
+      #
+      # This is lower than it should be, and the honest reason is that the tree does not pass
+      # at `high` today: undici (via jsonld), lodash (via @nestjs/config), and multer plus
+      # @nestjs/platform-express all carry high-severity advisories, and every fix is a
+      # semver-major bump. Setting the gate at `high` would fail the first build and be
+      # switched off within a week, which is worse than a gate set where it holds.
+      #
+      # `--omit=dev` because this gate is about what a deployed government instance runs. The
+      # dev-only advisories are reported in the step below rather than hidden.
+      #
+      # Raise this to `high` once the four majors land -- see the implementation backlog.
+      - name: Audit runtime dependencies (critical fails the build)
+        run: npm audit --omit=dev --audit-level=critical
+
+      # Full picture, non-blocking: every severity including dev-only. Dependabot opens the
+      # PRs; this makes the standing debt visible on every run so it cannot quietly grow.
+      - name: Report all advisories (informational)
+        if: always()
+        continue-on-error: true
+        run: npm audit || true
 
   build:
     name: Docker image builds
