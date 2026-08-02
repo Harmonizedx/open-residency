@@ -232,6 +232,101 @@ async function main() {
   const afterList = await consent.listByResident(residentId);
   check('revoked consent is reflected in listing', afterList.some((c) => c.status === 'revoked'));
 
+  // --- Consent expiry is ENFORCED, not merely recorded (G-08) ---
+  //
+  // `expiresAt` was written at grant time and read nowhere, so a 30-day consent authorized
+  // claim release for ever. Each assertion below fails on the pre-fix code, which is the
+  // point: an expiry the system records but does not honour is worse than no expiry, because
+  // the citizen was told it would lapse.
+  const expiringStore = new InMemoryConsentStore();
+  const expiring = new ConsentService(expiringStore, key, issuerDid);
+  const shortLived = await expiring.grant({
+    subjectRef: 'tok-expiry',
+    residentId: 'NG-KT-EXPIRY',
+    relyingParty: 'health',
+    purpose: 'Eligibility check',
+    scopes: ['openid', 'health'],
+    validityDays: 30,
+  });
+  check('a consent with validityDays records an expiry', !!shortLived.record.expiresAt);
+  check(
+    'the receipt states the expiry, as a claim and as JWT `exp`',
+    (() => {
+      const payload = JSON.parse(
+        Buffer.from(shortLived.receipt.split('.')[1], 'base64url').toString('utf8'),
+      );
+      return payload.expiresAt === shortLived.record.expiresAt && typeof payload.exp === 'number';
+    })(),
+  );
+
+  const beforeLapse = new Date(Date.parse(shortLived.record.expiresAt!) - 1000);
+  const afterLapse = new Date(Date.parse(shortLived.record.expiresAt!) + 1000);
+
+  check(
+    'before the expiry the consent is active',
+    (await expiring.findActive('NG-KT-EXPIRY', 'health', beforeLapse))?.id === shortLived.record.id,
+  );
+  check(
+    'after the expiry it no longer authorizes anything',
+    (await expiring.findActive('NG-KT-EXPIRY', 'health', afterLapse)) === null,
+  );
+  check(
+    'and the stored record converges to expired on that read',
+    (await expiringStore.findById(shortLived.record.id))?.status === 'expired',
+  );
+
+  // The resurrection path: re-granting must not revive a lapsed consent by reusing it.
+  const regrant = await expiring.grant({
+    subjectRef: 'tok-expiry',
+    residentId: 'NG-KT-EXPIRY',
+    relyingParty: 'health',
+    purpose: 'Eligibility check',
+    scopes: ['openid', 'health'],
+    validityDays: 30,
+  });
+  check(
+    'granting again after expiry creates a NEW consent, never resurrects the lapsed one',
+    regrant.record.id !== shortLived.record.id && regrant.record.status === 'active',
+  );
+
+  // A grant with no expiry must be unaffected by any of the above.
+  const perpetual = await expiring.grant({
+    subjectRef: 'tok-perpetual',
+    residentId: 'NG-KT-PERPETUAL',
+    relyingParty: 'tax',
+    purpose: 'Assessment',
+    scopes: ['openid', 'tax'],
+  });
+  check(
+    'a consent granted with no expiry stays active indefinitely',
+    (await expiring.findActive('NG-KT-PERPETUAL', 'tax', afterLapse))?.id === perpetual.record.id,
+  );
+
+  // The sweep, on a grant nobody has read: read-path enforcement is the guarantee, but the
+  // register still has to be reconcilable on demand (a subject-access request, an export).
+  const sweptGrant = await expiring.grant({
+    subjectRef: 'tok-sweep',
+    residentId: 'NG-KT-SWEEP',
+    relyingParty: 'permits',
+    purpose: 'Permit application',
+    scopes: ['openid', 'permits'],
+    validityDays: 30,
+  });
+  const sweepAt = new Date(Date.parse(sweptGrant.record.expiresAt!) + 1000);
+  const firstSweep = await expiring.expireDue('NG-KT-SWEEP', sweepAt);
+  check(
+    'the sweep transitions a lapsed grant nobody had read',
+    firstSweep.length === 1 && firstSweep[0].status === 'expired',
+  );
+  check(
+    'and is idempotent — a second sweep reports nothing left to change',
+    (await expiring.expireDue('NG-KT-SWEEP', sweepAt)).length === 0,
+  );
+  check(
+    'a lapsed grant is listed as expired, never as active',
+    (await expiring.listByResident('NG-KT-SWEEP', sweepAt)).every((c) => c.status !== 'active'),
+  );
+
   // --- Binding policy: a jurisdiction that REQUIRES owner binding refuses a bare lookup ---
   const boundCfg: CountryConfig = parseCountryConfig({
     countryCode: 'KE',

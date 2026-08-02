@@ -15,6 +15,26 @@ import { signJwt } from '../credentials/signer';
 
 export type ConsentStatus = 'active' | 'revoked' | 'expired';
 
+/**
+ * Has this grant's expiry already passed?
+ *
+ * `expiresAt` was written at grant time and then read nowhere, so a consent created with
+ * `validityDays: 30` kept authorizing claim release for ever: `status` stayed `'active'`
+ * and every read gated on `status` alone. An expiry that only exists in the record is a
+ * promise to the citizen that the system does not keep.
+ *
+ * The rule lives here, once, and `ConsentService` applies it on every read path. Stores
+ * deliberately do NOT duplicate it as a query predicate: a store that filtered expired rows
+ * out would hide them from the service, and the service could no longer transition them to
+ * `'expired'` -- the record would sit `'active'` in the database for ever while behaving as
+ * expired, which is the harder bug to see.
+ */
+export function isExpired(record: ConsentRecord, now: Date = new Date()): boolean {
+  if (!record.expiresAt) return false;
+  const at = Date.parse(record.expiresAt);
+  return Number.isFinite(at) && at <= now.getTime();
+}
+
 export interface ConsentRecord {
   id: string;
   subjectRef: string; // tokenized resident reference (not the raw id)
@@ -70,7 +90,11 @@ export class ConsentService {
 
   async grant(input: GrantInput): Promise<{ record: ConsentRecord; receipt: string }> {
     // Reuse an existing active consent for the same resident+RP+scopes if present.
-    const existing = await this.store.findActive(input.residentId, input.relyingParty);
+    //
+    // This must go through the expiry-aware read, not the store directly. Reusing a lapsed
+    // grant would resurrect it -- the citizen's 30-day consent silently becoming perpetual
+    // at the moment they were asked to consent again.
+    const existing = await this.findActive(input.residentId, input.relyingParty);
     if (existing && sameScopes(existing.scopes, input.scopes)) {
       // Adopt the caller's grant id if this reuse authorized a different grant than the one
       // on record. Letting the record keep a stale id would quietly untrack the live grant,
@@ -115,13 +139,57 @@ export class ConsentService {
     return this.store.update(record);
   }
 
-  listByResident(residentId: string): Promise<ConsentRecord[]> {
-    return this.store.listByResident(residentId);
+  /**
+   * Every consent for a resident, with lapsed grants reported as `'expired'`.
+   *
+   * This is what the citizen and an auditor see, so it must not show a grant as live when it
+   * is not. Convergence of the stored row is left to `findActive`/`expireDue`: a list read is
+   * the wrong place to take a write.
+   */
+  async listByResident(residentId: string, now: Date = new Date()): Promise<ConsentRecord[]> {
+    const records = await this.store.listByResident(residentId);
+    return records.map((r) =>
+      r.status === 'active' && isExpired(r, now) ? { ...r, status: 'expired' as const } : r,
+    );
   }
 
-  /** The active consent for a resident+RP pair, if any. */
-  findActive(residentId: string, relyingParty: string): Promise<ConsentRecord | null> {
-    return this.store.findActive(residentId, relyingParty);
+  /**
+   * The active consent for a resident+RP pair, if any.
+   *
+   * A lapsed grant is not active. It is also transitioned in place, so the stored state
+   * converges on first read rather than drifting until a sweep happens to run.
+   */
+  async findActive(
+    residentId: string,
+    relyingParty: string,
+    now: Date = new Date(),
+  ): Promise<ConsentRecord | null> {
+    const record = await this.store.findActive(residentId, relyingParty);
+    if (!record) return null;
+    if (!isExpired(record, now)) return record;
+    await this.store.update({ ...record, status: 'expired' });
+    return null;
+  }
+
+  /**
+   * Transition every lapsed grant for a resident to `'expired'`, returning those changed.
+   *
+   * Read-path enforcement is what makes the guarantee hold; this exists so the register can
+   * be brought into line deliberately -- on a subject-access request, or before an export --
+   * without waiting for someone to read each grant.
+   *
+   * Deployment note: there is no scheduled global sweep, because a `CONSENT.EXPIRED` event
+   * has nowhere to go until the event registry exists (G-04). Until then, expiry is enforced
+   * on read and reconciled per resident here.
+   */
+  async expireDue(residentId: string, now: Date = new Date()): Promise<ConsentRecord[]> {
+    const records = await this.store.listByResident(residentId);
+    const changed: ConsentRecord[] = [];
+    for (const r of records) {
+      if (r.status !== 'active' || !isExpired(r, now)) continue;
+      changed.push(await this.store.update({ ...r, status: 'expired' }));
+    }
+    return changed;
   }
 
   /**
@@ -140,6 +208,11 @@ export class ConsentService {
         scopes: record.scopes,
         status: record.status,
         grantedAt: record.grantedAt,
+        // The receipt is the citizen's evidence of what they agreed to. A receipt that
+        // cannot say when the permission lapses is part of how the expiry got lost in the
+        // first place, so it is stated -- and as `exp`, so any JWT verifier enforces it too.
+        expiresAt: record.expiresAt,
+        ...(record.expiresAt ? { exp: Math.floor(Date.parse(record.expiresAt) / 1000) } : {}),
         iss: this.issuerDid,
         sub: record.residentId,
       },
