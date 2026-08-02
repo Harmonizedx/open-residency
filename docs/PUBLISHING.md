@@ -37,9 +37,14 @@ cd sdk && npm run build && npm publish --access public
 
 ## 3. Submit to the DPG Registry
 
-Use `docs/DPG-SUBMISSION.md` as the answer set. Submit at digitalpublicgoods.net with
-the public repo URL. The nine indicators are mapped to files in the repo, and the
-ownership indicator is satisfied by `NOTICE` and `GOVERNANCE.md`.
+Use `docs/DPG.md` as the answer set: the nine indicators are mapped to files in the repo,
+and the "Registry submission pack" section at the end carries the project basics, the
+attachments list, and a pre-submission checklist. Submit at digitalpublicgoods.net with
+the public repo URL. The ownership indicator is satisfied by `NOTICE` and `GOVERNANCE.md`.
+
+Two indicators are recorded there as incomplete (privacy: no PII erasure or retention;
+best practices: no dependency scanning or SBOM). Resolve or disclose them before
+submitting — do not answer around them.
 
 ## 4. First deployment (optional, to have a live reference)
 
