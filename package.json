@@ -50,7 +50,8 @@
     "smoke:webauthn-service": "tsc -p tsconfig.core.json && node dist-core/scripts/webauthn-service-smoke.js",
     "smoke:inji": "tsc -p tsconfig.core.json && node dist-core/scripts/inji-conformance-smoke.js",
     "smoke:biometric": "tsc -p tsconfig.core.json && node dist-core/scripts/biometric-smoke.js",
-    "smoke:statistics": "tsc -p tsconfig.core.json && node dist-core/scripts/statistics-smoke.js"
+    "smoke:statistics": "tsc -p tsconfig.core.json && node dist-core/scripts/statistics-smoke.js",
+    "conformance:orcs": "tsc -p tsconfig.core.json && node dist-core/scripts/orcs-conformance.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.22",
