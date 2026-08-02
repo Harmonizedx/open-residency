@@ -232,6 +232,39 @@ async function main() {
   const afterList = await consent.listByResident(residentId);
   check('revoked consent is reflected in listing', afterList.some((c) => c.status === 'revoked'));
 
+  // --- A config that does not state its assurance is REFUSED, not defaulted ---
+  //
+  // `assuranceOnSuccess` was optional, and an omitted value resolved to 'verified' -- the
+  // second-highest rung, reached by saying nothing. The value is released to every relying
+  // party over SSO as `assurance_level`, so a deployment that never declared what its
+  // identity source proves was silently credited with having proved a great deal. Only the
+  // deployer knows what their register establishes, so there is no safe default: the config
+  // must say, and is rejected at load if it does not.
+  let refusedSilentAssurance = false;
+  try {
+    parseCountryConfig({
+      countryCode: 'ZZ',
+      countryName: 'Nowhere',
+      defaultSubnationalUnit: 'DX',
+      foundational: { provider: 'MOCK', inputs: [] }, // no assuranceOnSuccess
+      residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
+      credential: {
+        issuerDid,
+        issuerName: 'Test',
+        type: 'StateResidencyCredential',
+        validityDays: 365,
+        context: ['https://www.w3.org/ns/credentials/v2'],
+      },
+      subnationalUnits: [{ code: 'DX', name: 'Demo', parent: 'ZZ', level: 'state' }],
+    });
+  } catch {
+    refusedSilentAssurance = true;
+  }
+  check(
+    'a config that omits assuranceOnSuccess is refused, never defaulted to "verified"',
+    refusedSilentAssurance,
+  );
+
   // --- Consent expiry is ENFORCED, not merely recorded (G-08) ---
   //
   // `expiresAt` was written at grant time and read nowhere, so a 30-day consent authorized

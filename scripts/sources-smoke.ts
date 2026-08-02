@@ -180,6 +180,7 @@ async function main(): Promise<void> {
       code: 'IMPORT',
       dataset: { path: jsonPath, format: 'json', recordsPath: 'data.residents', keyField: 'id' },
       responseMapping: { familyName: 'surname' },
+      assuranceOnSuccess: 'verified',
     });
     const jhit = await jsonDs.verify({ countryCode: 'XF', identifiers: { id: 'A1' } });
     check('IMPORT alias resolves to dataset adapter', jhit.verified === true && jhit.providerCode === 'IMPORT');
@@ -192,6 +193,7 @@ async function main(): Promise<void> {
       code: 'DATASET_FILE',
       dataset: { path: yamlPath, keyField: 'id' }, // format inferred from .yaml
       responseMapping: { familyName: 'surname' },
+      assuranceOnSuccess: 'verified',
     });
     const yhit = await yamlDs.verify({ countryCode: 'XF', identifiers: { id: 'B3' } });
     check('YAML dataset (format inferred) matches', yhit.verified === true && yhit.identity?.familyName === 'Ali');
