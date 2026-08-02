@@ -2,6 +2,11 @@ import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
+import {
+  DEFAULT_PURPOSE,
+  RelationshipStatus,
+  RelationshipType,
+} from '../core/residency/relationship';
 import { BindingMethod } from '../core/proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
@@ -46,6 +51,13 @@ export class PrismaResidencyStore implements ResidencyStore {
       subnationalUnit: r.subnationalUnit,
       providerCode: r.providerCode,
       assuranceLevel: r.assuranceLevel,
+      // Relationship fields (ORCS §4.3, §6.1, §6.2). The fallbacks are the migration's
+      // reading of a pre-relationship row: it was implicitly a general residency, and it was
+      // live unless flagged provisional. Rows written after the migration always carry their
+      // own values, so the fallbacks age out rather than becoming load-bearing.
+      relationshipType: (r.relationshipType ?? 'GENERAL_RESIDENCY') as RelationshipType,
+      purposeCode: r.purposeCode ?? DEFAULT_PURPOSE.GENERAL_RESIDENCY,
+      status: (r.status ?? 'ACTIVE') as RelationshipStatus,
       binding: {
         method: (r.bindingMethod ?? 'none') as BindingMethod,
         ref: r.bindingRef ?? undefined,
@@ -72,9 +84,36 @@ export class PrismaResidencyStore implements ResidencyStore {
     };
   }
 
-  async findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null> {
-    const r = await this.prisma.resident.findUnique({ where: { subjectRef } });
+  /**
+   * The person's relationship for one purpose in one jurisdiction.
+   *
+   * `findUnique({ where: { subjectRef } })` no longer compiles, and could not be right if it
+   * did: subjectRef identifies a person, and a person may now hold several relationships. The
+   * lookup is scoped instead, defaulting to the general residency — the question the
+   * enrolment path is actually asking.
+   */
+  async findBySubjectRef(
+    subjectRef: string,
+    scope?: { subnationalUnit?: string; purposeCode?: string },
+  ): Promise<ResidentRecord | null> {
+    const r = await this.prisma.resident.findFirst({
+      where: {
+        subjectRef,
+        purposeCode: scope?.purposeCode ?? DEFAULT_PURPOSE.GENERAL_RESIDENCY,
+        ...(scope?.subnationalUnit ? { subnationalUnit: scope.subnationalUnit } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
     return r ? this.toRecord(r) : null;
+  }
+
+  /** Every relationship held by a person, in any jurisdiction, at any status. */
+  async listBySubjectRef(subjectRef: string): Promise<ResidentRecord[]> {
+    const rows = await this.prisma.resident.findMany({
+      where: { subjectRef },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => this.toRecord(r));
   }
 
   async findByResidentId(residentId: string): Promise<ResidentRecord | null> {
@@ -107,6 +146,13 @@ export class PrismaResidencyStore implements ResidencyStore {
         subnationalUnit: record.subnationalUnit,
         providerCode: record.providerCode,
         assuranceLevel: record.assuranceLevel,
+        // Written explicitly rather than left to the column defaults. The defaults exist to
+        // interpret rows that predate the relationship model; relying on them here would
+        // silently discard a status the service had already decided -- an EVIDENCE_PENDING
+        // record would land as ACTIVE, which is the one direction that must never happen.
+        relationshipType: record.relationshipType,
+        purposeCode: record.purposeCode,
+        status: record.status,
         bindingMethod: record.binding?.method ?? 'none',
         bindingRef: record.binding?.ref,
         bindingAt: record.binding?.verifiedAt ? new Date(record.binding.verifiedAt) : undefined,

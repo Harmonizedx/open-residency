@@ -12,45 +12,64 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// A jurisdictional relationship (ORCS §4.3), still named `Resident` because it remains the
+// compatibility surface for every existing endpoint and caller.
+//
+// `subjectRef` was `@unique`, which encoded "one person, one residency" into the database and
+// made the ORCS §4.4 case -- family home in Katsina, employment in Kano, study in Lagos, all
+// concurrent -- physically unrepresentable. Uniqueness now sits on
+// (subjectRef, providerCode, subnationalUnit, purposeCode): the same person may hold as many
+// relationships as they have distinct purposes and jurisdictions, but not two identical ones.
 model Resident {
-  id              String   @id @default(uuid())
-  residentId      String   @unique
-  subjectRef      String   @unique
-  countryCode     String
-  subnationalUnit String
-  providerCode    String
-  assuranceLevel  String
+  id                 String    @id @default(uuid())
+  residentId         String    @unique
+  subjectRef         String
+  countryCode        String
+  subnationalUnit    String
+  providerCode       String
+  assuranceLevel     String
+  // ORCS §6.1 relationship type. Every record written before the relationship model existed
+  // was implicitly a general residency, which is why that is the default.
+  relationshipType   String    @default("GENERAL_RESIDENCY")
+  // What the relationship is for (ORCS §4.3). Part of the natural key: two relationships
+  // differing in purpose are distinct and may both be ACTIVE.
+  purposeCode        String    @default("general_administrative_residence")
+  // ORCS §6.2 lifecycle. Nine states replace `provisional: boolean`, which could express two.
+  // `provisional` is retained below during the migration and is no longer authoritative.
+  status             String    @default("ACTIVE")
   // Applicant -> identity binding: HOW the applicant was proven to own this identity.
   // A foundational match alone is not owner proof, so the method is recorded explicitly.
-  bindingMethod   String   @default("none")
-  bindingRef      String? // opaque: auth txn, biometric match id, or enrolment operator id
-  bindingAt       DateTime?
-  bindingScore    Float? // biometric match score, when the subsystem reports one
+  bindingMethod      String    @default("none")
+  bindingRef         String? // opaque: auth txn, biometric match id, or enrolment operator id
+  bindingAt          DateTime?
+  bindingScore       Float? // biometric match score, when the subsystem reports one
   // Proof of residence: the assurance level achieved for this resident in their unit, how
   // it was established, and the unit it is anchored to. A foundational residence field is
   // recorded as register_declared_residence, never as origin.
-  residenceAssurance String @default("RAL0")
-  residenceMethod    String @default("self_declared")
+  residenceAssurance String    @default("RAL0")
+  residenceMethod    String    @default("self_declared")
   residenceUnit      String?
   residenceAsOf      DateTime?
-  provisional     Boolean  @default(false)
-  credentialId    String?
-  statusListIndex Int
+  provisional        Boolean   @default(false)
+  credentialId       String?
+  statusListIndex    Int
   // Minimized demographic attributes carried into the credential.
-  fullName        String?
-  givenName       String?
-  familyName      String?
-  dateOfBirth     String?
-  gender          String?
-  phoneHash       String? // for USSD/OTP binding and matching; one-way, cannot be dialled
+  fullName           String?
+  givenName          String?
+  familyName         String?
+  dateOfBirth        String?
+  gender             String?
+  phoneHash          String? // for USSD/OTP binding and matching; one-way, cannot be dialled
   // AES-256-GCM ciphertext of the E.164 number, under a key held outside the database
   // (CONTACT_ENCRYPTION_KEY). Present only when contactDirectory.mode is `encrypted`:
   // a one-way hash cannot be dialled, so actually delivering a one-time code needs the
   // number back in a recoverable form. A database dump yields ciphertext only.
-  phoneEnc        String?
-  createdAt       DateTime @default(now())
+  phoneEnc           String?
+  createdAt          DateTime  @default(now())
 
+  @@unique([subjectRef, providerCode, subnationalUnit, purposeCode])
   @@index([countryCode, subnationalUnit])
+  @@index([subjectRef])
 }
 
 // One growable revocation bitstring per country/deployment, plus a monotonic counter
@@ -105,15 +124,15 @@ model Oid4vciNonce {
 // outcome while the request is still `pending`, so a captured vp_token replayed a second
 // time cannot overwrite a verdict.
 model PresentationRequest {
-  id         String    @id @default(uuid())
-  nonce      String    @unique
-  clientId   String
-  purpose    String
-  reference  String?
-  status     String    @default("pending")
-  outcome    Json?
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
+  id        String   @id @default(uuid())
+  nonce     String   @unique
+  clientId  String
+  purpose   String
+  reference String?
+  status    String   @default("pending")
+  outcome   Json?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([expiresAt])
 }
@@ -191,15 +210,15 @@ model Operator {
 // window, so callers move across one at a time instead of every client cutting over on a
 // single restart -- which was the only option with the shared static key.
 model OperatorKey {
-  id         String    @id @default(uuid())
-  operatorId String
-  label      String
-  keyHash    String    @unique
-  expiresAt  DateTime?
-  lastUsedAt DateTime?
-  revokedAt  DateTime?
+  id          String    @id @default(uuid())
+  operatorId  String
+  label       String
+  keyHash     String    @unique
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
   rotatedFrom String?
-  createdAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
@@ -233,16 +252,16 @@ model ConsentRecord {
 // A passkey (WebAuthn credential) enrolled to a resident. The private key never leaves the
 // resident's device; only the public key and the clone-detection counter are stored here.
 model WebAuthnCredential {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   // base64url credential id from the authenticator. Unique across residents.
-  credentialId String   @unique
+  credentialId String    @unique
   residentId   String
   // Public key as a JWK (JSON), plus its JOSE alg (EdDSA / ES256 / RS256).
   publicJwk    Json
   alg          String
   // Authenticator signature counter; a value that fails to advance signals a clone.
-  signCount    Int      @default(0)
-  createdAt    DateTime @default(now())
+  signCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
   lastUsedAt   DateTime?
 
   @@index([residentId])

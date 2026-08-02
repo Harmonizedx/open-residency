@@ -20,6 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { InMemoryStore, ResidentRecord } from '../src/core/residency/ports';
+import { DEFAULT_PURPOSE, RelationshipType } from '../src/core/residency/relationship';
 import { ConsentService, InMemoryConsentStore, isExpired } from '../src/core/consent/consent';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
@@ -62,7 +63,11 @@ async function main() {
   const store = new InMemoryStore();
   const person = { subjectRef: 'tok_shared_person', providerCode: 'MOCK' };
 
-  function relationship(unit: string, id: string): ResidentRecord {
+  function relationship(
+    unit: string,
+    id: string,
+    relationshipType: RelationshipType,
+  ): ResidentRecord {
     return {
       id: `uuid-${unit}`,
       residentId: id,
@@ -71,6 +76,9 @@ async function main() {
       subnationalUnit: unit,
       providerCode: person.providerCode,
       assuranceLevel: 'verified',
+      relationshipType,
+      purposeCode: DEFAULT_PURPOSE[relationshipType],
+      status: 'ACTIVE',
       binding: { method: 'none' } as ResidentRecord['binding'],
       residence: { assuranceLevel: 'RAL0', method: 'self_declared' } as ResidentRecord['residence'],
       provisional: false,
@@ -80,44 +88,57 @@ async function main() {
     };
   }
 
-  await store.save(relationship('KT', 'NG-KT-0001')); // household
-  await store.save(relationship('KN', 'NG-KN-0001')); // employment
-  await store.save(relationship('LA', 'NG-LA-0001')); // education
+  await store.save(relationship('KT', 'NG-KT-0001', 'GENERAL_RESIDENCY')); // household
+  await store.save(relationship('KN', 'NG-KN-0001', 'EMPLOYMENT_CONNECTION')); // employment
+  await store.save(relationship('LA', 'NG-LA-0001', 'EDUCATION_CONNECTION')); // education
   const held = await store.list({ countryCode: 'NG' });
 
-  // Two structural facts decide this, and neither is visible from InMemoryStore -- which
-  // happily holds all three rows because `list()` iterates its residentId index and never
-  // consults the subjectRef one. Asserting against it would report a false PASS, so the
-  // criterion is checked against the two things that actually constrain production.
+  // Three facts decide this, and the structural two matter as much as the behavioural one --
+  // InMemoryStore once held all three rows regardless, because `list()` iterates its
+  // residentId index and never consulted the subjectRef one. Asserting only on behaviour
+  // would have reported a PASS that production could not honour.
   //
-  // (a) The persisted record cannot express a purpose. Three rows for one person are three
-  //     general residencies, not a household plus an employment plus an education
+  // (a) Behavioural: the store returns all three for one person, each with its own purpose,
+  //     all ACTIVE. Before the migration `save()` keyed on subjectRef alone, so the second
+  //     relationship silently overwrote the first.
+  const forPerson = await store.listBySubjectRef(person.subjectRef);
+  const coexist =
+    forPerson.length === 3 &&
+    new Set(forPerson.map((r) => r.purposeCode)).size === 3 &&
+    forPerson.every((r) => r.status === 'ACTIVE');
+
+  // (b) The persisted record can say what a relationship is for. Without this, three rows are
+  //     three general residencies rather than a household, an employment and an education
   //     relationship -- ORCS §4.3 requires type and purpose on every relationship.
   const sampleRecord = held.items[0];
   const canExpressPurpose =
-    sampleRecord !== undefined &&
-    ('purposeCode' in sampleRecord || 'relationshipType' in sampleRecord);
+    sampleRecord !== undefined && 'purposeCode' in sampleRecord && 'relationshipType' in sampleRecord;
 
-  // (b) The production schema forbids a second row for the same person+provider outright.
+  // (c) The production schema no longer forbids a second row for the same person+provider.
+  //     The in-memory store cannot speak to this, so the schema is read directly.
   const schema = readFileSync(join(__dirname, '../../prisma/schema.prisma'), 'utf8');
   const subjectRefIsUnique = /subjectRef\s+String\s+@unique/.test(schema);
+  const compositeKey = /@@unique\(\[subjectRef,\s*providerCode,\s*subnationalUnit,\s*purposeCode\]\)/.test(
+    schema,
+  );
 
-  if (canExpressPurpose && !subjectRefIsUnique) {
+  if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey) {
     record(
       1,
       'Concurrent relationships in multiple jurisdictions',
       'PASS',
-      'the record carries a purpose and the schema permits several per person',
+      `Katsina household + Kano employment + Lagos education coexist, all ACTIVE, each with a ` +
+        `distinct purpose; uniqueness is the composite (subjectRef, providerCode, ` +
+        `subnationalUnit, purposeCode) rather than the person alone`,
     );
   } else {
     record(
       1,
       'Concurrent relationships in multiple jurisdictions',
       'FAIL',
-      `record expresses a purpose: ${canExpressPurpose}; schema declares subjectRef @unique: ` +
-        `${subjectRefIsUnique}. One person maps to exactly one residency row, and that row cannot ` +
-        'say what the relationship is for — so Katsina household + Kano employment + Lagos ' +
-        'education is not representable',
+      `coexist: ${coexist} (${forPerson.length} of 3 held); record expresses a purpose: ` +
+        `${canExpressPurpose}; subjectRef @unique: ${subjectRefIsUnique}; composite key present: ` +
+        `${compositeKey}`,
       'G-01',
     );
   }
@@ -145,9 +166,11 @@ async function main() {
     3,
     'Assurance values resolve to a governed registry',
     resolvesToRegistry ? 'PASS' : 'FAIL',
-    `assuranceLevel is the bare string "${sample?.assuranceLevel}"; no AssuranceProfile registry ` +
-      'exists, and src/core/foundational/mapping.ts:162 defaults a config that declares no level ' +
-      'to "verified" — the second-highest rung, reached by omission',
+    `assuranceLevel is the bare string "${sample?.assuranceLevel}" from a four-value enum; no ` +
+      'AssuranceProfile registry exists to resolve it against, no per-authority mapping records ' +
+      'what a given verification establishes, and identity assurance is not separated from ' +
+      'authentication assurance. (The fail-open default that handed "verified" to a config ' +
+      'declaring no level is fixed; the registry itself is not built.)',
     'G-02',
   );
 
