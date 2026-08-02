@@ -21,6 +21,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { InMemoryStore, ResidentRecord } from '../src/core/residency/ports';
 import { DEFAULT_PURPOSE, RelationshipType } from '../src/core/residency/relationship';
+import { ResidencyService } from '../src/core/residency/residency-service';
+import { ProviderRegistry } from '../src/core/foundational/registry';
+import { VcIssuer } from '../src/core/credentials/vc-issuer';
+import { parseCountryConfig } from '../src/core/config/country-config';
 import { ConsentService, InMemoryConsentStore, isExpired } from '../src/core/consent/consent';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
@@ -62,6 +66,30 @@ async function main() {
   // education in Lagos, concurrently. This is the product thesis.
   const store = new InMemoryStore();
   const person = { subjectRef: 'tok_shared_person', providerCode: 'MOCK' };
+
+  const e2eCfg = parseCountryConfig({
+    countryCode: 'NG',
+    countryName: 'Nigeria',
+    defaultSubnationalUnit: 'KT',
+    foundational: {
+      provider: 'MOCK',
+      inputs: [{ key: 'nin', label: 'NIN', pattern: '^\\d{11}$' }],
+      assuranceOnSuccess: 'verified',
+    },
+    residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
+    credential: {
+      issuerDid,
+      issuerName: 'Conformance Issuer',
+      type: 'StateResidencyCredential',
+      validityDays: 365,
+      context: ['https://www.w3.org/ns/credentials/v2'],
+    },
+    subnationalUnits: [
+      { code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' },
+      { code: 'KN', name: 'Kano', parent: 'NG', level: 'state' },
+      { code: 'LA', name: 'Lagos', parent: 'NG', level: 'state' },
+    ],
+  });
 
   function relationship(
     unit: string,
@@ -122,14 +150,52 @@ async function main() {
     schema,
   );
 
-  if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey) {
+  // (d) End-to-end: can a person actually OBTAIN a second relationship?
+  //
+  // (a) saves hand-built records straight to the store, which proves the model holds them but
+  //     not that anything can create them. Issuing the same person into three jurisdictions
+  //     through ResidencyService is the question ORCS §15 criterion 1 actually asks -- a
+  //     citizen who cannot get the Kano relationship does not have it, however well the schema
+  //     could have represented it.
+  const e2eStore = new InMemoryStore();
+  const e2e = new ResidencyService(
+    new ProviderRegistry('conformance-pepper'),
+    new VcIssuer(key),
+    e2eStore,
+    () => 'https://example.gov/status',
+  );
+  const nin = '12345678902';
+  const issued = [];
+  for (const unit of ['KT', 'KN', 'LA']) {
+    issued.push(await e2e.issue(e2eCfg, { countryCode: 'NG', subnationalUnit: unit, identifiers: { nin } }));
+  }
+  const first = issued[0];
+  const obtainedE2E =
+    first.status === 'issued'
+      ? (await e2eStore.listBySubjectRef(first.record.subjectRef)).length
+      : 0;
+
+  if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey && obtainedE2E === 3) {
     record(
       1,
       'Concurrent relationships in multiple jurisdictions',
       'PASS',
       `Katsina household + Kano employment + Lagos education coexist, all ACTIVE, each with a ` +
-        `distinct purpose; uniqueness is the composite (subjectRef, providerCode, ` +
-        `subnationalUnit, purposeCode) rather than the person alone`,
+        `distinct purpose, and all three are obtainable through ResidencyService`,
+    );
+  } else if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey) {
+    record(
+      1,
+      'Concurrent relationships in multiple jurisdictions',
+      'PARTIAL',
+      `the MODEL holds concurrent relationships (composite key in place, purpose on the record, ` +
+        `${forPerson.length} coexisting when written directly) but NOTHING CAN CREATE THEM: ` +
+        `issuing one person into KT/KN/LA yields ${issued.map((r) => r.status).join(', ')} and ` +
+        `${obtainedE2E} relationship(s). ResidencyService.issue() looks up by subjectRef scoped ` +
+        `to the general-residency purpose and every record it writes hardcodes GENERAL_RESIDENCY, ` +
+        `so the second enrolment reads as a duplicate. Criterion 1 is not met until an issuance ` +
+        `path carries relationship type and purpose`,
+      'G-01',
     );
   } else {
     record(
@@ -138,7 +204,7 @@ async function main() {
       'FAIL',
       `coexist: ${coexist} (${forPerson.length} of 3 held); record expresses a purpose: ` +
         `${canExpressPurpose}; subjectRef @unique: ${subjectRefIsUnique}; composite key present: ` +
-        `${compositeKey}`,
+        `${compositeKey}; obtainable end-to-end: ${obtainedE2E} of 3`,
       'G-01',
     );
   }
