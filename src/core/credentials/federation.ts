@@ -1,5 +1,6 @@
 import { JWK } from 'jose';
 import { TrustedIssuer } from './vc-verifier';
+import { StatusList } from './status-list';
 import { VpTrustedIssuer, keyObjectFromJwk } from '../oid4vp/vp-verifier';
 
 /**
@@ -57,4 +58,89 @@ export function applyFederation(
     trust.set(peer.did, federatedTrustedIssuer(peer));
     ldpTrust.set(peer.did, federatedVpTrustedIssuer(peer));
   }
+}
+
+/**
+ * Extract a StatusList from a published BitstringStatusListCredential document.
+ *
+ * The published shape is the one this project serves at `/.well-known/status/{cc}.json`:
+ * a credential whose `credentialSubject` carries `encodedList`. Peers running other
+ * implementations publish the same W3C shape, which is the point of using it.
+ *
+ * Returns null rather than throwing on anything unrecognised. A peer that publishes
+ * something we cannot parse must not take this deployment's boot down with it, and the
+ * caller already treats "no list" as the safe state.
+ */
+export function statusListFromPublished(doc: unknown): StatusList | null {
+  const subject = (doc as { credentialSubject?: unknown })?.credentialSubject;
+  const encoded = (subject as { encodedList?: unknown })?.encodedList;
+  if (typeof encoded !== 'string' || encoded.length === 0) return null;
+  try {
+    return StatusList.fromEncoded(encoded);
+  } catch {
+    return null;
+  }
+}
+
+/** Outcome of one peer's status-list sync, for logging and for the operator to see. */
+export interface PeerStatusSyncResult {
+  did: string;
+  name?: string;
+  url?: string;
+  status: 'synced' | 'not-configured' | 'unreachable' | 'unparseable';
+  detail?: string;
+}
+
+/**
+ * Fetch each federated peer's status list and cache it against their trust entry.
+ *
+ * Without this, `federatedTrustedIssuer` hands the verifier an empty `statusLists`, and the
+ * peer's `statusListUrl` -- which is parsed, typed and documented -- is never read. Both
+ * verification paths then go wrong, in opposite directions and for the same reason:
+ *
+ *   - the offline VC path reports `checkedRevocation: false` and returns valid, so a REVOKED
+ *     peer credential is accepted;
+ *   - the OpenID4VP path fails closed on exactly that flag, so a VALID peer credential is
+ *     rejected as REVOCATION_UNCHECKABLE.
+ *
+ * The fetcher is injected rather than imported so this is exercisable without a network, and
+ * so a deployment behind a proxy or an air gap can supply its own transport. A peer that
+ * cannot be reached leaves its cache untouched: the OpenID4VP path keeps failing closed,
+ * which is the correct posture for "I do not know whether this is revoked".
+ */
+export async function syncFederatedStatusLists(
+  trust: Map<string, TrustedIssuer>,
+  peers: FederatedIssuer[],
+  fetchJson: (url: string) => Promise<unknown>,
+): Promise<PeerStatusSyncResult[]> {
+  const results: PeerStatusSyncResult[] = [];
+  for (const peer of peers) {
+    const base = { did: peer.did, name: peer.name, url: peer.statusListUrl };
+    if (!peer.statusListUrl) {
+      results.push({ ...base, status: 'not-configured' });
+      continue;
+    }
+    let doc: unknown;
+    try {
+      doc = await fetchJson(peer.statusListUrl);
+    } catch (e) {
+      results.push({ ...base, status: 'unreachable', detail: (e as Error).message });
+      continue;
+    }
+    const list = statusListFromPublished(doc);
+    if (!list) {
+      results.push({ ...base, status: 'unparseable' });
+      continue;
+    }
+    const entry = trust.get(peer.did);
+    if (!entry) {
+      results.push({ ...base, status: 'unreachable', detail: 'peer not in trust map' });
+      continue;
+    }
+    // Keyed by the peer's published URL, because that is the value that appears in the
+    // credential's `credentialStatus.statusListCredential` and is what the verifier looks up.
+    entry.statusLists = { ...(entry.statusLists ?? {}), [peer.statusListUrl]: list };
+    results.push({ ...base, status: 'synced' });
+  }
+  return results;
 }

@@ -15,7 +15,13 @@ import { VcIssuer } from '../src/core/credentials/vc-issuer';
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../src/core/credentials/ldp-issuer';
 import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
 import { VpTrustedIssuer } from '../src/core/oid4vp/vp-verifier';
-import { applyFederation, FederatedIssuer } from '../src/core/credentials/federation';
+import {
+  applyFederation,
+  FederatedIssuer,
+  statusListFromPublished,
+  syncFederatedStatusLists,
+} from '../src/core/credentials/federation';
+import { StatusList } from '../src/core/credentials/status-list';
 import { parseCountryConfig } from '../src/core/config/country-config';
 
 let pass = 0;
@@ -117,6 +123,100 @@ async function main() {
   const peerOutcome = await verifier.verify(peerJwt, { offline: true });
   check('a VC-JWT issued by the FEDERATED peer verifies', peerOutcome.valid, peerOutcome.reason);
   check('and is attributed to the peer issuer', peerOutcome.issuerDid === PEER_DID);
+
+  // --- A peer's REVOCATION is checkable, once their status list is synced ---
+  //
+  // This is what `statusListUrl` on a federated peer is for, and it was parsed, typed and
+  // documented while `federatedTrustedIssuer` hardcoded `statusLists: {}` and nothing ever
+  // read it. The consequence was two failures pointing in opposite directions, from one
+  // cause: the offline path accepted a REVOKED peer credential (no list to check, so
+  // `checkedRevocation: false` and `valid: true`), while the OpenID4VP path refused a VALID
+  // one, because it fails closed on exactly that flag.
+  const PEER_STATUS_URL = 'https://id.kano.gov.ng/status/ng.json';
+  const peerRevokedJwt = (
+    await new VcIssuer(peer).issue(
+      { ...claims, residentId: 'KN-REVOKED-0001' },
+      { ...issueOpts(PEER_DID), statusListUrl: PEER_STATUS_URL, statusListIndex: 7 },
+    )
+  ).jwt;
+
+  // Before any sync: accepted, but explicitly unchecked. That flag is the only thing
+  // standing between this and accepting a revoked credential outright.
+  const beforeSync = await verifier.verify(peerRevokedJwt, { offline: true });
+  check(
+    'before syncing a peer list, a peer credential is accepted but flagged unchecked',
+    beforeSync.valid === true && beforeSync.checkedRevocation === false,
+  );
+
+  // The peer publishes a Bitstring Status List with index 7 revoked.
+  const peerList = new StatusList();
+  peerList.set(7, true);
+  const published = {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: PEER_STATUS_URL,
+    type: ['VerifiableCredential', 'BitstringStatusListCredential'],
+    issuer: PEER_DID,
+    credentialSubject: peerList.toCredentialSubject(PEER_STATUS_URL),
+  };
+
+  const syncResults = await syncFederatedStatusLists(
+    trust,
+    [{ did: PEER_DID, name: 'Kano', publicJwks: [peer.publicJwk], statusListUrl: PEER_STATUS_URL }],
+    async (url) => (url === PEER_STATUS_URL ? published : Promise.reject(new Error('404'))),
+  );
+  check('syncing a peer status list reports success', syncResults[0]?.status === 'synced');
+
+  const afterSync = await verifier.verify(peerRevokedJwt, { offline: true });
+  check(
+    "a REVOKED peer credential is now rejected, not silently accepted",
+    afterSync.valid === false && afterSync.reason === 'REVOKED',
+  );
+  check('and the revocation check actually ran', afterSync.checkedRevocation === true);
+
+  // A peer credential that is NOT revoked must still pass, and now with the check having
+  // genuinely run -- which is what unblocks the OpenID4VP path, since it refuses anything
+  // whose revocation could not be confirmed.
+  const peerLiveJwt = (
+    await new VcIssuer(peer).issue(
+      { ...claims, residentId: 'KN-LIVE-0002' },
+      { ...issueOpts(PEER_DID), statusListUrl: PEER_STATUS_URL, statusListIndex: 8 },
+    )
+  ).jwt;
+  const liveOutcome = await verifier.verify(peerLiveJwt, { offline: true });
+  check(
+    'a live peer credential verifies WITH revocation confirmed (unblocks presentation)',
+    liveOutcome.valid === true && liveOutcome.checkedRevocation === true,
+  );
+
+  // An unreachable peer must not poison the cache or crash the sync -- another government's
+  // server being down is an ordinary operating condition.
+  const unreachable = await syncFederatedStatusLists(
+    trust,
+    [{ did: PEER_DID, publicJwks: [peer.publicJwk], statusListUrl: 'https://down.example/s.json' }],
+    async () => {
+      throw new Error('ECONNREFUSED');
+    },
+  );
+  check('an unreachable peer is reported, not thrown', unreachable[0]?.status === 'unreachable');
+  check(
+    'and the previously synced list is left intact',
+    (await verifier.verify(peerRevokedJwt, { offline: true })).reason === 'REVOKED',
+  );
+
+  const noUrl = await syncFederatedStatusLists(
+    trust,
+    [{ did: PEER_DID, publicJwks: [peer.publicJwk] }],
+    async () => ({}),
+  );
+  check(
+    'a peer declaring no statusListUrl is reported as not-configured',
+    noUrl[0]?.status === 'not-configured',
+  );
+  check(
+    'an unparseable published document yields no list rather than a bad one',
+    statusListFromPublished({ credentialSubject: { encodedList: 'not-a-bitstring' } }) === null &&
+      statusListFromPublished({}) === null,
+  );
 
   // --- A home-issued credential still verifies (federation is additive) -----
   const homeJwt = (await new VcIssuer(home).issue({ ...claims, residentId: 'KT-9Z8Y-7X6W' }, issueOpts(HOME_DID))).jwt;
