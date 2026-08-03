@@ -207,6 +207,9 @@ This repository is the generic public infrastructure, not a single-country app:
   destroys the OIDC grant it authorized and revokes every token issued under it, so the
   relying party stops receiving claims immediately rather than at token expiry.
 
+For a fuller account of what personal data the software processes, on what basis, and how it
+is retained, see [`PRIVACY.md`](PRIVACY.md).
+
 ## Honest caveats (this is a foundation, not a finished national system)
 
 - **Issuer key management.** Signing goes through a `Signer` port, so the private key can stay
@@ -303,6 +306,7 @@ Apache-2.0. See `LICENSE` and `NOTICE`.
 
 ## Ownership and governance
 
-Owned and stewarded by HarmonizedX Limited. See `GOVERNANCE.md`, `CONTRIBUTING.md`, and
-`SECURITY.md`. To publish this as a Digital Public Good, follow `docs/PUBLISHING.md` and submit with
+Owned and stewarded by HarmonizedX Limited. See `GOVERNANCE.md`, `CONTRIBUTING.md`,
+`SECURITY.md`, [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), and [`PRIVACY.md`](PRIVACY.md). To
+publish this as a Digital Public Good, follow `docs/PUBLISHING.md` and submit with
 `docs/DPG-SUBMISSION.md`.
