@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { StatusList } from '../credentials/status-list';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';

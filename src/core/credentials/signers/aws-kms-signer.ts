@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createPublicKey } from 'node:crypto';
 import { JWK } from 'jose';
 import { Signer, SignatureAlg } from '../signer';

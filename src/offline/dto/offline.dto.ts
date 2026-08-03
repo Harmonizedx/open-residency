@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 /** Request body for `POST /offline/qr` — render a credential as a QR. */

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Body, Controller, Header, Post, UseGuards } from '@nestjs/common';
 import { UssdGatewayGuard } from '../common/ussd-gateway.guard';
 import { PlatformService } from '../platform/platform.service';

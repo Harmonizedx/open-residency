@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { jwtVerify, type CryptoKey } from 'jose';
 import { Operator, OperatorRole, isOperatorRole } from './operator';
 import { signJwt, type Signer } from '../credentials/signer';

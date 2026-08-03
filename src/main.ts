@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';

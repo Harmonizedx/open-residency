@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Authentication assurance, and how sign-in factors combine into it.
  *

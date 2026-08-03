@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { IssuerKey } from './keystore';
 import { signJwt } from './signer';
 import { ApplicantBinding } from '../proofing/binding';

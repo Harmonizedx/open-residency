@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createHash, createHmac } from 'node:crypto';
 
 /** Safe dot-path getter: getPath({a:{b:1}}, 'a.b') -> 1 */

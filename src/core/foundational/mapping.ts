@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Shared, transport-agnostic mapping from a provider's response *body* to a
  * NormalizedIdentity / FoundationalVerificationResult.

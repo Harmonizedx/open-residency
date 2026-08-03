@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Retention enforcement (DPG Standard indicator 7, ORCS §14).
  *

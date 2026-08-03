@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Global, Module, OnModuleInit } from '@nestjs/common';
 import {
   PrismaAuditStore,

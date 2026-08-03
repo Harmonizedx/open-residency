@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Body, Controller, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {

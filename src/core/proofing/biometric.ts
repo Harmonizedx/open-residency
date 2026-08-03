@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Attested authoritative biometric match, as a pluggable port.
  *

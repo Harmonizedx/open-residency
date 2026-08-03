@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * USSD state machine for feature phones (no smartphone, no data plan).
  *

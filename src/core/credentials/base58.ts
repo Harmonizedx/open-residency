@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Minimal base58btc encoder with the multibase 'z' prefix used by did:key.
  * Kept dependency-free so the credential core has no heavy crypto-library tail.

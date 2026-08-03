@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Module } from '@nestjs/common';
 import { OfflineController } from './offline.controller';
 import { WellKnownController } from '../credentials/well-known.controller';

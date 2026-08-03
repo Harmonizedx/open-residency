@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { CountryConfig } from '../config/country-config';
 import { ProviderRegistry } from '../foundational/registry';
 import {

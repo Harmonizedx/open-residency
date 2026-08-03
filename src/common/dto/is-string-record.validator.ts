@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { registerDecorator, ValidationArguments, ValidationOptions } from 'class-validator';
 
 /**

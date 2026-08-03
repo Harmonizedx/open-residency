@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { randomBytes, randomUUID } from 'node:crypto';
 import { IssuerKey } from '../credentials/keystore';
 import { signJwt } from '../credentials/signer';

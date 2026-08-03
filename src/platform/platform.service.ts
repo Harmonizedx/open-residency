@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { join } from 'node:path';
 import { JWK, exportJWK } from 'jose';

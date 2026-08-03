@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Non-PII statistical aggregation over the Resident Registry.
  *

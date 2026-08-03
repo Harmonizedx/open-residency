@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { JWK } from 'jose';
 import { TrustedIssuer } from './vc-verifier';
 import { StatusList } from './status-list';

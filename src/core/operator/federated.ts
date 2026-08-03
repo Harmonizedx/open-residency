@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createRemoteJWKSet, jwtVerify, JWTPayload } from 'jose';
 import { OperatorRole, isOperatorRole } from './operator';
 
