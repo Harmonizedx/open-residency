@@ -12,21 +12,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// A jurisdictional relationship (ORCS §4.3), still named `Resident` because it remains the
-// compatibility surface for every existing endpoint and caller.
+// One person's residency in this deployment.
 //
-// `subjectRef` is unique, and deliberately so. A deployment is ONE subnational government, so
-// one person holds one residency here -- the duplicate-enrolment guard is a feature, not the
-// limitation it first looks like.
+// `subjectRef` is unique because a deployment is ONE subnational government: Katsina's
+// instance issues Katsina residency and nothing else, so one person holds one record here
+// and the constraint is a duplicate-enrolment guard rather than a limitation.
 //
-// ORCS §4.4's case (family home in Katsina, employment in Kano, study in Lagos) is real, but
-// it spans three deployments and three databases. Katsina's instance never holds the Kano
-// relationship; it VERIFIES the credential Kano issued, through the federation trust list. The
-// ecosystem holds the several relationships. Each deployment holds its own.
-//
-// The relationship fields below are therefore descriptive rather than a multiplicity key: they
-// record what this relationship is and where it is in its lifecycle, which is what a peer
-// verifier and an appeal both need.
+// A person's connections to OTHER jurisdictions are held by those jurisdictions' own
+// deployments and reach this one as credentials to verify through the federation trust
+// list -- never as rows in this table.
 model Resident {
   id                 String    @id @default(uuid())
   residentId         String    @unique
@@ -35,15 +29,6 @@ model Resident {
   subnationalUnit    String
   providerCode       String
   assuranceLevel     String
-  // ORCS §6.1 relationship type. Every record written before the relationship model existed
-  // was implicitly a general residency, which is why that is the default.
-  relationshipType   String    @default("GENERAL_RESIDENCY")
-  // What the relationship is for (ORCS §4.3). Part of the natural key: two relationships
-  // differing in purpose are distinct and may both be ACTIVE.
-  purposeCode        String    @default("general_administrative_residence")
-  // ORCS §6.2 lifecycle. Nine states replace `provisional: boolean`, which could express two.
-  // `provisional` is retained below during the migration and is no longer authoritative.
-  status             String    @default("ACTIVE")
   // Applicant -> identity binding: HOW the applicant was proven to own this identity.
   // A foundational match alone is not owner proof, so the method is recorded explicitly.
   bindingMethod      String    @default("none")

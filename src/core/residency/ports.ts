@@ -1,38 +1,23 @@
 import { StatusList } from '../credentials/status-list';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
-import { RelationshipStatus, RelationshipType } from './relationship';
 
 /**
  * A residency record as persisted. Note: no raw national id is ever stored.
  *
- * ORCS §4.3 calls this a *jurisdictional relationship*: one person may hold several, each
- * with its own type, purpose, jurisdiction and lifecycle. The record is still named
- * `ResidentRecord` because it remains the compatibility surface every existing caller and
- * endpoint uses; the relationship fields below are what make several of them per person
- * legitimate rather than a duplicate to be reconciled away.
+ * One per person, in this deployment. A deployment is a single subnational government, so
+ * "this person's residency" is a well-formed question with one answer. Their connections to
+ * other jurisdictions belong to those jurisdictions and arrive here as credentials to
+ * verify, never as records to hold.
  */
 export interface ResidentRecord {
   id: string; // internal uuid
   residentId: string; // human-facing id
-  subjectRef: string; // tokenized foundational reference (per person+provider, NOT unique alone)
+  subjectRef: string; // tokenized foundational reference (unique per person+provider)
   countryCode: string;
   subnationalUnit: string;
   providerCode: string;
   assuranceLevel: string;
-  /**
-   * ORCS §6.1 relationship type. Defaults to GENERAL_RESIDENCY, which is what every record
-   * written before the relationship model existed implicitly was.
-   */
-  relationshipType: RelationshipType;
-  /**
-   * What this relationship is *for* (ORCS §4.3). Together with the jurisdiction it forms the
-   * natural key: two relationships differing in purpose are distinct and may both be ACTIVE,
-   * which is precisely what ORCS §7 means by "multiple relationships are normal".
-   */
-  purposeCode: string;
-  /** ORCS §6.2 lifecycle state. Supersedes `provisional`, which is retained below for now. */
-  status: RelationshipStatus;
   /** How the applicant was proven to own this identity at enrolment. */
   binding: ApplicantBinding;
   /** The proof-of-residence achieved for this resident in their claimed unit. */

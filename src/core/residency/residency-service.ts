@@ -13,7 +13,6 @@ import {
 } from '../credentials/vc-issuer';
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
-import { DEFAULT_PURPOSE } from './relationship';
 import { generateResidentId } from './resident-id';
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
 import {
@@ -398,15 +397,6 @@ export class ResidencyService {
       subnationalUnit: req.subnationalUnit,
       providerCode: result.providerCode,
       assuranceLevel: result.assuranceLevel,
-      // Issuance through this path establishes a general residency. Other relationship types
-      // (employment, education, tax) arrive through their own flows and carry their own
-      // purpose; recording it explicitly is what keeps a second relationship for the same
-      // person from looking like a duplicate of this one.
-      relationshipType: 'GENERAL_RESIDENCY',
-      purposeCode: DEFAULT_PURPOSE.GENERAL_RESIDENCY,
-      // ORCS §6.2. A provisional record is one whose evidence has not cleared policy, which
-      // is EVIDENCE_PENDING rather than a live relationship.
-      status: provisional ? 'EVIDENCE_PENDING' : 'ACTIVE',
       binding,
       residence: residenceClaim,
       provisional,
