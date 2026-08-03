@@ -165,23 +165,57 @@ async function main() {
     () => 'https://example.gov/status',
   );
   const nin = '12345678902';
+  const enrolments: Array<[string, RelationshipType]> = [
+    ['KT', 'GENERAL_RESIDENCY'], // family home
+    ['KN', 'EMPLOYMENT_CONNECTION'], // workplace
+    ['LA', 'EDUCATION_CONNECTION'], // university
+  ];
   const issued = [];
-  for (const unit of ['KT', 'KN', 'LA']) {
-    issued.push(await e2e.issue(e2eCfg, { countryCode: 'NG', subnationalUnit: unit, identifiers: { nin } }));
+  for (const [subnationalUnit, relationshipType] of enrolments) {
+    issued.push(
+      await e2e.issue(e2eCfg, {
+        countryCode: 'NG',
+        subnationalUnit,
+        relationshipType,
+        identifiers: { nin },
+      }),
+    );
   }
   const first = issued[0];
-  const obtainedE2E =
-    first.status === 'issued'
-      ? (await e2eStore.listBySubjectRef(first.record.subjectRef)).length
-      : 0;
+  const heldE2E =
+    first.status === 'issued' ? await e2eStore.listBySubjectRef(first.record.subjectRef) : [];
+  const obtainedE2E = heldE2E.length;
+  const allIssued = issued.every((r) => r.status === 'issued');
 
-  if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey && obtainedE2E === 3) {
+  // Re-enrolling for a purpose already held must still be idempotent: concurrency is about
+  // distinct purposes, not about issuing the same relationship twice.
+  const repeat = await e2e.issue(e2eCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KN',
+    relationshipType: 'EMPLOYMENT_CONNECTION',
+    identifiers: { nin },
+  });
+  const stillIdempotent =
+    repeat.status === 'exists' &&
+    (await e2eStore.listBySubjectRef(first.status === 'issued' ? first.record.subjectRef : '')).length === 3;
+
+  if (
+    coexist &&
+    canExpressPurpose &&
+    !subjectRefIsUnique &&
+    compositeKey &&
+    allIssued &&
+    obtainedE2E === 3 &&
+    stillIdempotent
+  ) {
     record(
       1,
       'Concurrent relationships in multiple jurisdictions',
       'PASS',
-      `Katsina household + Kano employment + Lagos education coexist, all ACTIVE, each with a ` +
-        `distinct purpose, and all three are obtainable through ResidencyService`,
+      `one person enrolled through ResidencyService holds Katsina household + Kano employment + ` +
+        `Lagos education concurrently (${heldE2E
+          .map((r) => `${r.subnationalUnit}/${r.relationshipType}/${r.status}`)
+          .join(', ')}); re-enrolling an existing purpose stays idempotent`,
     );
   } else if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey) {
     record(

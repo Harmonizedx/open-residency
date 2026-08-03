@@ -12,11 +12,23 @@ import { PlatformService } from '../platform/platform.service';
 import { ApplicantBinding } from '../core/proofing/binding';
 import { ResidenceEvidence } from '../core/proofing/residence';
 import { residentIdPattern } from '../core/residency/resident-id';
+import { RelationshipType } from '../core/residency/relationship';
 
 interface IssueBody {
   countryCode: string;
   subnationalUnit: string;
   identifiers: Record<string, string>;
+  /**
+   * What kind of relationship to establish (ORCS §6.1) and what it is for (§4.3). Both
+   * optional; omitting them issues a general residency, which is what every caller before
+   * the relationship model got.
+   *
+   * Supplying them is how one person comes to hold a household relationship in one state and
+   * an employment relationship in another. An unknown type is rejected -- the vocabulary is
+   * closed so that a conflict rule written in one deployment means the same thing in another.
+   */
+  relationshipType?: RelationshipType;
+  purposeCode?: string;
   holderId?: string;
   challengeRef?: string;
   proofOfResidence?: string;
@@ -114,6 +126,8 @@ export class ResidencyController {
       countryCode: body.countryCode,
       subnationalUnit: body.subnationalUnit,
       identifiers: body.identifiers,
+      relationshipType: body.relationshipType,
+      purposeCode: body.purposeCode,
       holderId: body.holderId,
       challengeRef: body.challengeRef,
       proofOfResidence: body.proofOfResidence,

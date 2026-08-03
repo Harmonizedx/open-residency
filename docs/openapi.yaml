@@ -891,6 +891,35 @@ components:
         identifiers:
           type: object
           additionalProperties: { type: string }
+        relationshipType:
+          type: string
+          default: GENERAL_RESIDENCY
+          enum:
+            - GENERAL_RESIDENCY
+            - ORDINARY_RESIDENCY
+            - TEMPORARY_RESIDENCY
+            - EMPLOYMENT_CONNECTION
+            - EDUCATION_CONNECTION
+            - TAX_CONNECTION
+            - HEALTH_SERVICE_CONNECTION
+            - BUSINESS_CONNECTION
+            - AGRICULTURAL_CONNECTION
+            - DISPLACEMENT_CONNECTION
+            - FORMER_RESIDENCY
+          description: >-
+            What kind of relationship to establish. A person holds several at once: a family
+            home in one state, employment in another, study in a third, all concurrent and
+            none a duplicate of the others. Omit for a general residency. The vocabulary is
+            closed, so an unknown value is rejected as `UNKNOWN_RELATIONSHIP_TYPE` rather
+            than stored.
+        purposeCode:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+          description: >-
+            What the relationship is for. Defaults to the type's default purpose. Together
+            with the person, provider and jurisdiction it forms the natural key, so two
+            relationships differing only in purpose are distinct and may both be active.
+            Re-enrolling a purpose already held is idempotent and returns `exists`.
         holderId: { type: string, description: did:key the holder controls }
         challengeRef: { type: string }
         proofOfResidence: { type: string }
