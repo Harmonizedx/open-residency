@@ -13,7 +13,7 @@ import {
 } from '../credentials/vc-issuer';
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
-import { DEFAULT_PURPOSE, RelationshipType, isRelationshipType } from './relationship';
+import { DEFAULT_PURPOSE } from './relationship';
 import { generateResidentId } from './resident-id';
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
 import {
@@ -46,12 +46,6 @@ const ASSURANCE_RANK: Record<AssuranceLevel, number> = {
 const UNIT_CODE_PATTERN = /^[A-Za-z0-9-]{1,32}$/;
 
 /**
- * Purpose codes are jurisdiction-defined but still identifiers, not prose. Underscores are
- * allowed because the shipped defaults use them (`general_administrative_residence`).
- */
-const PURPOSE_CODE_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-
-/**
  * Check a requested subnational unit, returning a rejection reason or `undefined`.
  *
  * Two independent checks, deliberately not collapsed into one. Membership is the real
@@ -74,21 +68,6 @@ export interface IssueResidencyRequest {
   countryCode: string;
   subnationalUnit: string; // unit code, e.g. KT
   identifiers: Record<string, string>;
-  /**
-   * What kind of relationship this is (ORCS §6.1), and what it is for (§4.3).
-   *
-   * Both default to a general residency, so every existing caller is unaffected. Supplying
-   * them is what makes ORCS §4.4 reachable: the same person enrolling for
-   * `EMPLOYMENT_CONNECTION` in Kano obtains a second relationship rather than being told they
-   * already exist. Without this, the composite key permits concurrent relationships that
-   * nothing can actually create.
-   *
-   * `purposeCode` defaults to the type's default purpose. Jurisdictions may use their own
-   * purposes within a type -- ORCS §4.3 requires only that one is recorded -- and it is part
-   * of the natural key, so two relationships differing only in purpose are distinct.
-   */
-  relationshipType?: RelationshipType;
-  purposeCode?: string;
   challengeRef?: string;
   /** did:key the holder controls; falls back to a urn if omitted (custodial wallet). */
   holderId?: string;
@@ -322,34 +301,8 @@ export class ResidencyService {
 
     const identity = result.identity!;
 
-    // 4. Idempotent issuance, scoped to the RELATIONSHIP rather than the person.
-    //
-    // This lookup used to ask "does this person exist here?", which was the right question
-    // when a person could hold exactly one residency and the wrong one the moment they could
-    // hold several: a citizen enrolling for employment in Kano was told they already existed,
-    // and handed back their Katsina household record. ORCS §7 is explicit that relationships
-    // for different purposes coexist and create no conflict.
-    //
-    // Deliberately scoped by purpose and NOT by jurisdiction. Two relationships for the same
-    // purpose in different jurisdictions is the case ORCS §3 says must be settled by that
-    // purpose's exclusivity and precedence rules -- and no conflict engine exists yet (G-06).
-    // Until it does, a second same-purpose enrolment stays idempotent rather than silently
-    // creating a competing claim nothing is able to adjudicate.
-    // Both arrive from a request body, so the static types guarantee nothing at runtime. The
-    // type is a closed ORCS §6.1 vocabulary and is checked against it; the purpose is
-    // jurisdiction-defined, so it is held to the same character class as a unit code -- it is
-    // persisted, keyed on, and rendered in the admin console, which is exactly the path that
-    // turns an unvalidated string into stored injection.
-    if (req.relationshipType !== undefined && !isRelationshipType(req.relationshipType)) {
-      return { status: 'rejected', reason: 'UNKNOWN_RELATIONSHIP_TYPE' };
-    }
-    const relationshipType: RelationshipType = req.relationshipType ?? 'GENERAL_RESIDENCY';
-    if (req.purposeCode !== undefined && !PURPOSE_CODE_PATTERN.test(req.purposeCode)) {
-      return { status: 'rejected', reason: 'INVALID_PURPOSE_CODE' };
-    }
-    const purposeCode = req.purposeCode ?? DEFAULT_PURPOSE[relationshipType];
-
-    const existing = await this.store.findBySubjectRef(identity.subjectRef, { purposeCode });
+    // 4. One person per (provider subject) per deployment: idempotent issuance.
+    const existing = await this.store.findBySubjectRef(identity.subjectRef);
     if (existing) {
       return { status: 'exists', residentId: existing.residentId, record: existing };
     }
@@ -445,10 +398,12 @@ export class ResidencyService {
       subnationalUnit: req.subnationalUnit,
       providerCode: result.providerCode,
       assuranceLevel: result.assuranceLevel,
-      // Resolved at the idempotency check above, so the record and the duplicate lookup can
-      // never disagree about which relationship this is.
-      relationshipType,
-      purposeCode,
+      // Issuance through this path establishes a general residency. Other relationship types
+      // (employment, education, tax) arrive through their own flows and carry their own
+      // purpose; recording it explicitly is what keeps a second relationship for the same
+      // person from looking like a duplicate of this one.
+      relationshipType: 'GENERAL_RESIDENCY',
+      purposeCode: DEFAULT_PURPOSE.GENERAL_RESIDENCY,
       // ORCS §6.2. A provisional record is one whose evidence has not cleared policy, which
       // is EVIDENCE_PENDING rather than a live relationship.
       status: provisional ? 'EVIDENCE_PENDING' : 'ACTIVE',

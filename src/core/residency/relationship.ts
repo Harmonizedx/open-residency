@@ -189,23 +189,3 @@ export const DEFAULT_PURPOSE: Record<RelationshipType, string> = {
   DISPLACEMENT_CONNECTION: 'displacement_support',
   FORMER_RESIDENCY: 'historical_residence',
 };
-
-/**
- * The identity of a relationship, for uniqueness purposes.
- *
- * ORCS §7 is explicit that concurrent relationships are normal and that a conflict exists
- * only where two claims are mutually exclusive *for the same purpose*. So the natural key is
- * (person, jurisdiction, purpose) — not the person alone, which is what `subjectRef @unique`
- * enforced and what made the Katsina/Kano/Lagos case impossible.
- *
- * Two relationships sharing this key are the same relationship. Two differing in any
- * component are distinct, and may both be ACTIVE.
- */
-export function relationshipKey(parts: {
-  subjectRef: string;
-  providerCode: string;
-  subnationalUnit: string;
-  purposeCode: string;
-}): string {
-  return [parts.subjectRef, parts.providerCode, parts.subnationalUnit, parts.purposeCode].join('|');
-}

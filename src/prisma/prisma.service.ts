@@ -85,35 +85,15 @@ export class PrismaResidencyStore implements ResidencyStore {
   }
 
   /**
-   * The person's relationship for one purpose in one jurisdiction.
+   * This person's residency in this deployment, if they hold one.
    *
-   * `findUnique({ where: { subjectRef } })` no longer compiles, and could not be right if it
-   * did: subjectRef identifies a person, and a person may now hold several relationships. The
-   * lookup is scoped instead, defaulting to the general residency — the question the
-   * enrolment path is actually asking.
+   * `findUnique` because `subjectRef` is unique: one subnational government, one residency
+   * per person. Relationships with other jurisdictions are held by those jurisdictions and
+   * reach this deployment as credentials to verify, not as rows to store.
    */
-  async findBySubjectRef(
-    subjectRef: string,
-    scope?: { subnationalUnit?: string; purposeCode?: string },
-  ): Promise<ResidentRecord | null> {
-    const r = await this.prisma.resident.findFirst({
-      where: {
-        subjectRef,
-        purposeCode: scope?.purposeCode ?? DEFAULT_PURPOSE.GENERAL_RESIDENCY,
-        ...(scope?.subnationalUnit ? { subnationalUnit: scope.subnationalUnit } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null> {
+    const r = await this.prisma.resident.findUnique({ where: { subjectRef } });
     return r ? this.toRecord(r) : null;
-  }
-
-  /** Every relationship held by a person, in any jurisdiction, at any status. */
-  async listBySubjectRef(subjectRef: string): Promise<ResidentRecord[]> {
-    const rows = await this.prisma.resident.findMany({
-      where: { subjectRef },
-      orderBy: { createdAt: 'desc' },
-    });
-    return rows.map((r) => this.toRecord(r));
   }
 
   async findByResidentId(residentId: string): Promise<ResidentRecord | null> {

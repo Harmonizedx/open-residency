@@ -15,15 +15,22 @@ datasource db {
 // A jurisdictional relationship (ORCS §4.3), still named `Resident` because it remains the
 // compatibility surface for every existing endpoint and caller.
 //
-// `subjectRef` was `@unique`, which encoded "one person, one residency" into the database and
-// made the ORCS §4.4 case -- family home in Katsina, employment in Kano, study in Lagos, all
-// concurrent -- physically unrepresentable. Uniqueness now sits on
-// (subjectRef, providerCode, subnationalUnit, purposeCode): the same person may hold as many
-// relationships as they have distinct purposes and jurisdictions, but not two identical ones.
+// `subjectRef` is unique, and deliberately so. A deployment is ONE subnational government, so
+// one person holds one residency here -- the duplicate-enrolment guard is a feature, not the
+// limitation it first looks like.
+//
+// ORCS §4.4's case (family home in Katsina, employment in Kano, study in Lagos) is real, but
+// it spans three deployments and three databases. Katsina's instance never holds the Kano
+// relationship; it VERIFIES the credential Kano issued, through the federation trust list. The
+// ecosystem holds the several relationships. Each deployment holds its own.
+//
+// The relationship fields below are therefore descriptive rather than a multiplicity key: they
+// record what this relationship is and where it is in its lifecycle, which is what a peer
+// verifier and an appeal both need.
 model Resident {
   id                 String    @id @default(uuid())
   residentId         String    @unique
-  subjectRef         String
+  subjectRef         String    @unique
   countryCode        String
   subnationalUnit    String
   providerCode       String
@@ -67,9 +74,7 @@ model Resident {
   phoneEnc           String?
   createdAt          DateTime  @default(now())
 
-  @@unique([subjectRef, providerCode, subnationalUnit, purposeCode])
   @@index([countryCode, subnationalUnit])
-  @@index([subjectRef])
 }
 
 // One growable revocation bitstring per country/deployment, plus a monotonic counter

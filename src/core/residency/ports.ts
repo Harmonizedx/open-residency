@@ -1,7 +1,7 @@
 import { StatusList } from '../credentials/status-list';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
-import { DEFAULT_PURPOSE, RelationshipStatus, RelationshipType, relationshipKey } from './relationship';
+import { RelationshipStatus, RelationshipType } from './relationship';
 
 /**
  * A residency record as persisted. Note: no raw national id is ever stored.
@@ -62,20 +62,13 @@ export interface ResidentRecord {
  */
 export interface ResidencyStore {
   /**
-   * The person's general residency, if they hold one.
+   * This person's residency in this deployment, if they hold one.
    *
-   * Deliberately narrower than it looks: a subjectRef now identifies a *person*, who may hold
-   * several relationships, so "the record for this person" is no longer a well-formed
-   * question. Callers wanting all of them use `listBySubjectRef`. This one answers the
-   * question the enrolment path actually asks — "is this person already generally resident
-   * here?" — and is scoped by jurisdiction and purpose for that reason.
+   * At most one: a deployment is a single subnational government, and `subjectRef` is unique.
+   * A person's relationships with OTHER jurisdictions live in those jurisdictions' own
+   * deployments and are seen here only as credentials to verify, never as rows.
    */
-  findBySubjectRef(
-    subjectRef: string,
-    scope?: { subnationalUnit?: string; purposeCode?: string },
-  ): Promise<ResidentRecord | null>;
-  /** Every relationship held by a person, in any jurisdiction, at any status. */
-  listBySubjectRef(subjectRef: string): Promise<ResidentRecord[]>;
+  findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null>;
   findByResidentId(residentId: string): Promise<ResidentRecord | null>;
   nextStatusIndex(countryCode: string): Promise<number>;
   save(record: ResidentRecord): Promise<ResidentRecord>;
@@ -94,22 +87,8 @@ export class InMemoryStore implements ResidencyStore {
   private counters = new Map<string, number>();
   private statusLists = new Map<string, StatusList>();
 
-  async findBySubjectRef(
-    subjectRef: string,
-    scope?: { subnationalUnit?: string; purposeCode?: string },
-  ): Promise<ResidentRecord | null> {
-    const purposeCode = scope?.purposeCode ?? DEFAULT_PURPOSE.GENERAL_RESIDENCY;
-    const held = await this.listBySubjectRef(subjectRef);
-    return (
-      held.find(
-        (r) =>
-          r.purposeCode === purposeCode &&
-          (scope?.subnationalUnit === undefined || r.subnationalUnit === scope.subnationalUnit),
-      ) ?? null
-    );
-  }
-  async listBySubjectRef(subjectRef: string): Promise<ResidentRecord[]> {
-    return [...this.residents.values()].filter((r) => r.subjectRef === subjectRef);
+  async findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null> {
+    return this.residents.get(subjectRef) ?? null;
   }
   async findByResidentId(residentId: string): Promise<ResidentRecord | null> {
     return this.byResidentId.get(residentId) ?? null;
@@ -120,11 +99,11 @@ export class InMemoryStore implements ResidencyStore {
     return n;
   }
   async save(record: ResidentRecord): Promise<ResidentRecord> {
-    // Keyed by (person, provider, jurisdiction, purpose), not by person alone. Keying on
-    // subjectRef silently overwrote: saving a Kano employment relationship for someone who
-    // already held a Katsina household one left a single row, so the in-memory store
-    // disagreed with its own `list()` about how many relationships existed.
-    this.residents.set(relationshipKey(record), record);
+    // Keyed by subjectRef, matching the `@unique` constraint in Prisma. One person, one
+    // residency, in this deployment. If these two ever diverge the in-memory store will
+    // accept enrolments PostgreSQL rejects, and the smoke suites will stop predicting
+    // production -- which is the only reason this store is worth having.
+    this.residents.set(record.subjectRef, record);
     this.byResidentId.set(record.residentId, record);
     return record;
   }

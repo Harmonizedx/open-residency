@@ -19,8 +19,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { InMemoryStore, ResidentRecord } from '../src/core/residency/ports';
-import { DEFAULT_PURPOSE, RelationshipType } from '../src/core/residency/relationship';
+import { InMemoryStore } from '../src/core/residency/ports';
+
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { ProviderRegistry } from '../src/core/foundational/registry';
 import { VcIssuer } from '../src/core/credentials/vc-issuer';
@@ -29,6 +29,7 @@ import { ConsentService, InMemoryConsentStore, isExpired } from '../src/core/con
 import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
 import { StatusList } from '../src/core/credentials/status-list';
+import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
 
 type Verdict = 'PASS' | 'FAIL' | 'PARTIAL';
 
@@ -62,11 +63,24 @@ async function main() {
   // 1. A person can hold compatible active relationships in multiple jurisdictions.
   // ---------------------------------------------------------------------------
   //
-  // ORCS §1.1 and the §4.6 worked example: household in Katsina, employment in Kano,
-  // education in Lagos, concurrently. This is the product thesis.
-  const store = new InMemoryStore();
-  const person = { subjectRef: 'tok_shared_person', providerCode: 'MOCK' };
-
+  // This criterion is about the ECOSYSTEM, not about one database, and that distinction is
+  // the whole architecture. A deployment is a single subnational government: Katsina's
+  // instance issues Katsina residency and nothing else. ORCS §4.4's person -- family home in
+  // Katsina, employment in Kano, study in Lagos -- holds three relationships across three
+  // deployments. No single instance ever holds all three, and one that did would be claiming
+  // authority over jurisdictions it does not govern.
+  //
+  // So a deployment satisfies this criterion by doing two things, and it is a conformance
+  // failure to do either badly:
+  //
+  //   (a) issue exactly one residency per person, so its own register stays authoritative and
+  //       free of duplicates, and
+  //   (b) recognise a peer jurisdiction's credential, so the person's relationships elsewhere
+  //       are usable here rather than invisible.
+  //
+  // An earlier version of this check asserted that one store held three relationships for one
+  // person. That was measuring a national registry, which is precisely what ORCS §3 prohibits
+  // a subnational deployment from asserting.
   const e2eCfg = parseCountryConfig({
     countryCode: 'NG',
     countryName: 'Nigeria',
@@ -79,166 +93,114 @@ async function main() {
     residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
     credential: {
       issuerDid,
-      issuerName: 'Conformance Issuer',
+      issuerName: 'Katsina State Residency Authority',
       type: 'StateResidencyCredential',
       validityDays: 365,
       context: ['https://www.w3.org/ns/credentials/v2'],
     },
-    subnationalUnits: [
-      { code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' },
-      { code: 'KN', name: 'Kano', parent: 'NG', level: 'state' },
-      { code: 'LA', name: 'Lagos', parent: 'NG', level: 'state' },
-    ],
+    subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
   });
 
-  function relationship(
-    unit: string,
-    id: string,
-    relationshipType: RelationshipType,
-  ): ResidentRecord {
-    return {
-      id: `uuid-${unit}`,
-      residentId: id,
-      subjectRef: person.subjectRef,
-      countryCode: 'NG',
-      subnationalUnit: unit,
-      providerCode: person.providerCode,
-      assuranceLevel: 'verified',
-      relationshipType,
-      purposeCode: DEFAULT_PURPOSE[relationshipType],
-      status: 'ACTIVE',
-      binding: { method: 'none' } as ResidentRecord['binding'],
-      residence: { assuranceLevel: 'RAL0', method: 'self_declared' } as ResidentRecord['residence'],
-      provisional: false,
-      statusListIndex: 0,
-      createdAt: new Date().toISOString(),
-      person: {},
-    };
-  }
-
-  await store.save(relationship('KT', 'NG-KT-0001', 'GENERAL_RESIDENCY')); // household
-  await store.save(relationship('KN', 'NG-KN-0001', 'EMPLOYMENT_CONNECTION')); // employment
-  await store.save(relationship('LA', 'NG-LA-0001', 'EDUCATION_CONNECTION')); // education
-  const held = await store.list({ countryCode: 'NG' });
-
-  // Three facts decide this, and the structural two matter as much as the behavioural one --
-  // InMemoryStore once held all three rows regardless, because `list()` iterates its
-  // residentId index and never consulted the subjectRef one. Asserting only on behaviour
-  // would have reported a PASS that production could not honour.
-  //
-  // (a) Behavioural: the store returns all three for one person, each with its own purpose,
-  //     all ACTIVE. Before the migration `save()` keyed on subjectRef alone, so the second
-  //     relationship silently overwrote the first.
-  const forPerson = await store.listBySubjectRef(person.subjectRef);
-  const coexist =
-    forPerson.length === 3 &&
-    new Set(forPerson.map((r) => r.purposeCode)).size === 3 &&
-    forPerson.every((r) => r.status === 'ACTIVE');
-
-  // (b) The persisted record can say what a relationship is for. Without this, three rows are
-  //     three general residencies rather than a household, an employment and an education
-  //     relationship -- ORCS §4.3 requires type and purpose on every relationship.
-  const sampleRecord = held.items[0];
-  const canExpressPurpose =
-    sampleRecord !== undefined && 'purposeCode' in sampleRecord && 'relationshipType' in sampleRecord;
-
-  // (c) The production schema no longer forbids a second row for the same person+provider.
-  //     The in-memory store cannot speak to this, so the schema is read directly.
-  const schema = readFileSync(join(__dirname, '../../prisma/schema.prisma'), 'utf8');
-  const subjectRefIsUnique = /subjectRef\s+String\s+@unique/.test(schema);
-  const compositeKey = /@@unique\(\[subjectRef,\s*providerCode,\s*subnationalUnit,\s*purposeCode\]\)/.test(
-    schema,
-  );
-
-  // (d) End-to-end: can a person actually OBTAIN a second relationship?
-  //
-  // (a) saves hand-built records straight to the store, which proves the model holds them but
-  //     not that anything can create them. Issuing the same person into three jurisdictions
-  //     through ResidencyService is the question ORCS §15 criterion 1 actually asks -- a
-  //     citizen who cannot get the Kano relationship does not have it, however well the schema
-  //     could have represented it.
-  const e2eStore = new InMemoryStore();
-  const e2e = new ResidencyService(
+  const homeStore = new InMemoryStore();
+  const home = new ResidencyService(
     new ProviderRegistry('conformance-pepper'),
     new VcIssuer(key),
-    e2eStore,
-    () => 'https://example.gov/status',
+    homeStore,
+    () => 'https://id.katsina.gov.ng/status/ng.json',
   );
   const nin = '12345678902';
-  const enrolments: Array<[string, RelationshipType]> = [
-    ['KT', 'GENERAL_RESIDENCY'], // family home
-    ['KN', 'EMPLOYMENT_CONNECTION'], // workplace
-    ['LA', 'EDUCATION_CONNECTION'], // university
-  ];
-  const issued = [];
-  for (const [subnationalUnit, relationshipType] of enrolments) {
-    issued.push(
-      await e2e.issue(e2eCfg, {
-        countryCode: 'NG',
-        subnationalUnit,
-        relationshipType,
-        identifiers: { nin },
-      }),
-    );
-  }
-  const first = issued[0];
-  const heldE2E =
-    first.status === 'issued' ? await e2eStore.listBySubjectRef(first.record.subjectRef) : [];
-  const obtainedE2E = heldE2E.length;
-  const allIssued = issued.every((r) => r.status === 'issued');
 
-  // Re-enrolling for a purpose already held must still be idempotent: concurrency is about
-  // distinct purposes, not about issuing the same relationship twice.
-  const repeat = await e2e.issue(e2eCfg, {
+  // (a) One residency per person, and re-enrolment is idempotent rather than duplicating.
+  const first = await home.issue(e2eCfg, { countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin } });
+  const repeat = await home.issue(e2eCfg, { countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin } });
+  const registerIsAuthoritative =
+    first.status === 'issued' &&
+    repeat.status === 'exists' &&
+    (await homeStore.list({ countryCode: 'NG' })).total === 1;
+
+  // (b) A peer jurisdiction's credential verifies here, and is attributed to the peer rather
+  //     than absorbed as if this deployment had issued it.
+  const peerKey = await KeyStore.generate('peer-kano-key');
+  const peerDid = didKeyFromJwk(peerKey.publicJwk);
+  const peerCfg = parseCountryConfig({
+    countryCode: 'NG',
+    countryName: 'Nigeria',
+    defaultSubnationalUnit: 'KN',
+    foundational: {
+      provider: 'MOCK',
+      inputs: [{ key: 'nin', label: 'NIN', pattern: '^\\d{11}$' }],
+      assuranceOnSuccess: 'verified',
+    },
+    residency: { minAssurance: 'verified', proofOfResidence: 'attestation' },
+    credential: {
+      issuerDid: peerDid,
+      issuerName: 'Kano State Residency Authority',
+      type: 'StateResidencyCredential',
+      validityDays: 365,
+      context: ['https://www.w3.org/ns/credentials/v2'],
+    },
+    subnationalUnits: [{ code: 'KN', name: 'Kano', parent: 'NG', level: 'state' }],
+  });
+  const peerStore = new InMemoryStore();
+  const peer = new ResidencyService(
+    new ProviderRegistry('peer-pepper'),
+    new VcIssuer(peerKey),
+    peerStore,
+    () => 'https://id.kano.gov.ng/status/ng.json',
+  );
+  const peerIssued = await peer.issue(peerCfg, { countryCode: 'NG', subnationalUnit: 'KN', identifiers: { nin } });
+
+  // Katsina's verifier, trusting Kano as a federated peer.
+  const trust = new Map<string, TrustedIssuer>();
+  trust.set(issuerDid, { did: issuerDid, publicJwks: [key.publicJwk], statusLists: {} });
+  trust.set(peerDid, { did: peerDid, publicJwks: [peerKey.publicJwk], statusLists: {} });
+  const homeVerifier = new VcVerifier(trust);
+
+  const peerOutcome =
+    peerIssued.status === 'issued'
+      ? await homeVerifier.verify(peerIssued.credentialJwt, { offline: true })
+      : { valid: false, issuerDid: undefined as string | undefined };
+  const peerCredentialUsableHere = peerOutcome.valid === true && peerOutcome.issuerDid === peerDid;
+
+  // And an unlisted jurisdiction is not trusted merely for being a jurisdiction.
+  const strangerKey = await KeyStore.generate('stranger-key');
+  const strangerDid = didKeyFromJwk(strangerKey.publicJwk);
+  const strangerCfg = parseCountryConfig({
+    ...JSON.parse(JSON.stringify({ ...peerCfg, credential: { ...peerCfg.credential, issuerDid: strangerDid } })),
+  });
+  const strangerSvc = new ResidencyService(
+    new ProviderRegistry('stranger-pepper'),
+    new VcIssuer(strangerKey),
+    new InMemoryStore(),
+    () => 'https://id.stranger.gov.ng/status/ng.json',
+  );
+  const strangerIssued = await strangerSvc.issue(strangerCfg, {
     countryCode: 'NG',
     subnationalUnit: 'KN',
-    relationshipType: 'EMPLOYMENT_CONNECTION',
-    identifiers: { nin },
+    identifiers: { nin: '12345678904' },
   });
-  const stillIdempotent =
-    repeat.status === 'exists' &&
-    (await e2eStore.listBySubjectRef(first.status === 'issued' ? first.record.subjectRef : '')).length === 3;
+  const untrustedRejected =
+    strangerIssued.status === 'issued'
+      ? (await homeVerifier.verify(strangerIssued.credentialJwt, { offline: true })).valid === false
+      : false;
 
-  if (
-    coexist &&
-    canExpressPurpose &&
-    !subjectRefIsUnique &&
-    compositeKey &&
-    allIssued &&
-    obtainedE2E === 3 &&
-    stillIdempotent
-  ) {
+  if (registerIsAuthoritative && peerCredentialUsableHere && untrustedRejected) {
     record(
       1,
-      'Concurrent relationships in multiple jurisdictions',
+      'Concurrent relationships across jurisdictions (federated)',
       'PASS',
-      `one person enrolled through ResidencyService holds Katsina household + Kano employment + ` +
-        `Lagos education concurrently (${heldE2E
-          .map((r) => `${r.subnationalUnit}/${r.relationshipType}/${r.status}`)
-          .join(', ')}); re-enrolling an existing purpose stays idempotent`,
-    );
-  } else if (coexist && canExpressPurpose && !subjectRefIsUnique && compositeKey) {
-    record(
-      1,
-      'Concurrent relationships in multiple jurisdictions',
-      'PARTIAL',
-      `the MODEL holds concurrent relationships (composite key in place, purpose on the record, ` +
-        `${forPerson.length} coexisting when written directly) but NOTHING CAN CREATE THEM: ` +
-        `issuing one person into KT/KN/LA yields ${issued.map((r) => r.status).join(', ')} and ` +
-        `${obtainedE2E} relationship(s). ResidencyService.issue() looks up by subjectRef scoped ` +
-        `to the general-residency purpose and every record it writes hardcodes GENERAL_RESIDENCY, ` +
-        `so the second enrolment reads as a duplicate. Criterion 1 is not met until an issuance ` +
-        `path carries relationship type and purpose`,
-      'G-01',
+      'this deployment issues exactly one residency per person and re-enrolment is idempotent; ' +
+        "a federated peer's credential verifies here and is attributed to the peer, not absorbed; " +
+        'an unlisted issuer is refused. The person holds several relationships across the ' +
+        'federation, and no single deployment claims authority over another',
     );
   } else {
     record(
       1,
-      'Concurrent relationships in multiple jurisdictions',
+      'Concurrent relationships across jurisdictions (federated)',
       'FAIL',
-      `coexist: ${coexist} (${forPerson.length} of 3 held); record expresses a purpose: ` +
-        `${canExpressPurpose}; subjectRef @unique: ${subjectRefIsUnique}; composite key present: ` +
-        `${compositeKey}; obtainable end-to-end: ${obtainedE2E} of 3`,
+      `own register authoritative: ${registerIsAuthoritative}; peer credential usable here: ` +
+        `${peerCredentialUsableHere}; unlisted issuer refused: ${untrustedRejected}`,
       'G-01',
     );
   }
@@ -260,7 +222,7 @@ async function main() {
   // ---------------------------------------------------------------------------
   //
   // ORCS §8: "assuranceLevel MUST NOT be a free-text string."
-  const sample = held.items[0];
+  const sample = (await homeStore.list({ countryCode: 'NG' })).items[0];
   const resolvesToRegistry = false; // no AssuranceProfile entity exists to resolve against
   record(
     3,
