@@ -59,6 +59,7 @@ export class PrismaResidencyStore implements ResidencyStore {
         asOf: r.residenceAsOf ? r.residenceAsOf.toISOString() : undefined,
       },
       provisional: r.provisional,
+      erasedAt: r.erasedAt ? r.erasedAt.toISOString() : undefined,
       credentialId: r.credentialId ?? undefined,
       statusListIndex: r.statusListIndex,
       createdAt: r.createdAt.toISOString(),
@@ -87,6 +88,33 @@ export class PrismaResidencyStore implements ResidencyStore {
   async findByResidentId(residentId: string): Promise<ResidentRecord | null> {
     const r = await this.prisma.resident.findUnique({ where: { residentId } });
     return r ? this.toRecord(r) : null;
+  }
+
+  /**
+   * Destroy every identifying field, keeping the row.
+   *
+   * `statusListIndex` and `residentId` are deliberately not touched: reusing an erased
+   * person's status index would hand their revocation bit to the next resident issued, and
+   * the residentId is what keeps the revocation attributable.
+   */
+  async erase(residentId: string, tombstone: string, at: Date): Promise<ResidentRecord | null> {
+    const existing = await this.prisma.resident.findUnique({ where: { residentId } });
+    if (!existing) return null;
+    const r = await this.prisma.resident.update({
+      where: { residentId },
+      data: {
+        subjectRef: tombstone,
+        fullName: null,
+        givenName: null,
+        familyName: null,
+        dateOfBirth: null,
+        gender: null,
+        phoneHash: null,
+        phoneEnc: null,
+        erasedAt: at,
+      },
+    });
+    return this.toRecord(r);
   }
 
   async nextStatusIndex(countryCode: string): Promise<number> {
@@ -227,6 +255,25 @@ export class PrismaAuditStore implements AuditStore {
     });
   }
 
+  /**
+   * Overwrite an event in place. Redaction only -- `record` never calls this.
+   *
+   * `hash` and `prevHash` are not in the update: the original hash is the commitment to what
+   * the event said before redaction, and rewriting it would turn an auditable redaction into
+   * an untraceable edit.
+   */
+  async replace(event: AuditEvent): Promise<void> {
+    await this.prisma.auditEvent.update({
+      where: { seq: event.seq },
+      data: {
+        actor: event.actor,
+        target: event.target ?? null,
+        metadata: (event.metadata ?? null) as any,
+        redactedAt: event.redactedAt ? new Date(event.redactedAt) : null,
+      },
+    });
+  }
+
   async tail(): Promise<{ seq: number; hash: string } | null> {
     const last = await this.prisma.auditEvent.findFirst({ orderBy: { seq: 'desc' } });
     return last ? { seq: last.seq, hash: last.hash } : null;
@@ -259,6 +306,7 @@ export class PrismaAuditStore implements AuditStore {
     metadata: (r.metadata ?? undefined) as Record<string, unknown> | undefined,
     prevHash: r.prevHash,
     hash: r.hash,
+    redactedAt: r.redactedAt ? r.redactedAt.toISOString() : undefined,
   });
 }
 

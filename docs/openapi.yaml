@@ -133,6 +133,60 @@ paths:
                 $ref: '#/components/schemas/ResidencyStatus'
         '404':
           description: Unknown residentId
+  /residency/{residentId}/erase:
+    post:
+      tags: [residency]
+      summary: Erase a resident's personal data
+      description: >-
+        Destroys every identifying field on the record (names, date of birth, gender, contact
+        details, and the tokenized reference linking it to a foundational identity) and
+        redacts the subject from the audit log. The credential is revoked FIRST, so what the
+        citizen holds is dead before its subject becomes unidentifiable.
+
+
+        Audit events are redacted, not deleted: rows and hashes remain so the tamper-evident
+        chain still verifies, and each redaction is appended as its own chained event naming
+        who performed it and under what authority. The response reports whether the chain is
+        still intact, so a data protection officer signing off a deletion need not take that
+        on trust.
+
+
+        A hollow row survives, carrying only `residentId`, `statusListIndex` and `erasedAt`:
+        the status index must never be reused (it would hand the erased person's revocation
+        bit to the next resident enrolled) and the credential must stay revocable. See
+        `docs/PRIVACY.md`.
+
+
+        Requires the `admin` role — stricter than revocation, because a caller who can erase
+        can also destroy evidence of their own earlier actions.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, example: Erasure request under NDPA s.34 }
+                legalBasis: { type: string, example: NDPA s.34 }
+      responses:
+        '200':
+          description: Erasure outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [erased, already-erased, unknown] }
+                  residentId: { type: string }
+                  erasedAt: { type: string, format: date-time }
+                  auditEventsRedacted: { type: integer }
+                  auditChainIntact:
+                    type: boolean
+                    description: The audit chain still verifies after the redaction.
+        '404': { description: Unknown residentId }
   /residency/verify:
     post:
       tags: [residency]

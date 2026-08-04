@@ -106,6 +106,13 @@ jobs:
       - name: Non-PII statistics export (aggregation, suppression, RFC 4180 CSV)
         run: npm run smoke:statistics
 
+      # Erasure and retention (DPG indicator 7, ORCS §14). Gated because the load-bearing
+      # assertion is one nothing else covers: that the tamper-evident audit chain still
+      # verifies AFTER personal data has been removed from it. Get that wrong and the choice
+      # is between a citizen's erasure right and an auditable register.
+      - name: Erasure and retention (chain survives redaction)
+        run: npm run smoke:privacy
+
       - name: Foundational sources (XML/SOAP and imported dataset adapters)
         run: npm run smoke:sources
 

@@ -58,6 +58,10 @@ model Resident {
   // number back in a recoverable form. A database dump yields ciphertext only.
   phoneEnc           String?
   createdAt          DateTime  @default(now())
+  // Set when this resident's personal data was erased. The row survives so the credential
+  // stays revocable and its status-list index is never reused; what is gone is everything
+  // that identifies a person.
+  erasedAt           DateTime?
 
   @@index([countryCode, subnationalUnit])
 }
@@ -159,6 +163,10 @@ model AuditEvent {
   metadata    Json?
   prevHash    String
   hash        String
+  // Set when this event's personal data was redacted under an erasure request. The row and
+  // its hash stay: the hash still commits to the original content, so the redaction is
+  // provable rather than a silent edit.
+  redactedAt  DateTime?
 
   @@index([target])
   @@index([action])

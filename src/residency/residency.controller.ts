@@ -212,6 +212,75 @@ export class ResidencyController {
     return { revoked: ok };
   }
 
+  /**
+   * Erase a resident's personal data, on request or under retention policy.
+   *
+   * The mechanism DPG Standard indicator 7 and ORCS §14 require. Three things happen, in this
+   * order, and the order is the design:
+   *
+   *   1. The credential is revoked, so what the citizen holds is dead before its subject
+   *      becomes unidentifiable. Erasing first would leave a credential that still verifies
+   *      against a register no longer able to say whose it is.
+   *   2. Every identifying field on the record is destroyed -- names, date of birth, gender,
+   *      contact details, and the tokenized reference linking it to a foundational identity.
+   *   3. Audit events naming the subject are REDACTED, not deleted. The rows and their hashes
+   *      stay, so the tamper-evident chain still verifies; the plaintext goes; and each
+   *      redaction is itself appended as a chained event naming who did it and under what
+   *      authority. Erasure cannot be performed invisibly.
+   *
+   * `admin`-guarded rather than `revoker`: this is more destructive than revocation, and a
+   * caller who can erase can also destroy the evidence of their own earlier actions --
+   * which is exactly why the redaction record exists and why the actor is named in it.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('admin')
+  @Post(':residentId/erase')
+  async erase(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: { reason?: string; legalBasis?: string },
+  ) {
+    const operator = requireOperator(req);
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+    const cfg = this.platform.getConfig(record.countryCode)!;
+
+    const result = await this.platform.getResidency().erase(cfg, residentId);
+    await this.platform.syncStatusList(cfg);
+
+    // Recorded BEFORE redaction, so the erasure itself is in the chain that gets verified.
+    await this.platform.getAudit().record({
+      action: 'resident.erase',
+      actor: operatorActor(operator),
+      target: residentId,
+      countryCode: cfg.countryCode,
+      outcome: result.status === 'unknown' ? 'failure' : 'success',
+      metadata: {
+        status: result.status,
+        reason: body?.reason ?? null,
+        legalBasis: body?.legalBasis ?? null,
+      },
+    });
+
+    const redactedSeqs = await this.platform.getAudit().redactSubject(residentId, {
+      actor: operatorActor(operator),
+      reason: body?.reason ?? 'erasure request',
+      legalBasis: body?.legalBasis,
+    });
+
+    const chain = await this.platform.getAudit().verifyChain();
+    return {
+      status: result.status,
+      residentId,
+      erasedAt: result.record?.erasedAt,
+      auditEventsRedacted: redactedSeqs.length,
+      // Returned so the caller can see, in the same response, that erasing did not damage
+      // the integrity guarantee. A DPO signing off on a deletion should not have to take
+      // that on trust.
+      auditChainIntact: chain.ok,
+    };
+  }
+
   /** Verify a presented residency credential (server-side; verifiers can also do this offline). */
   @Post('verify')
   async verify(@Body() body: VerifyBody) {

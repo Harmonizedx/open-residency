@@ -28,6 +28,8 @@ export interface ResidentRecord {
     asOf?: string;
   };
   provisional: boolean;
+  /** Set when this resident's identifying data was erased. See core/privacy/erasure.ts. */
+  erasedAt?: string;
   credentialId?: string;
   statusListIndex: number;
   createdAt: string;
@@ -54,6 +56,14 @@ export interface ResidencyStore {
    * deployments and are seen here only as credentials to verify, never as rows.
    */
   findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null>;
+  /**
+   * Destroy every identifying field on a record, in place, keeping the hollow row.
+   *
+   * `tombstone` replaces `subjectRef`: the column is unique and NOT NULL, so erasure needs a
+   * value that cannot collide with another erased row and cannot match a future foundational
+   * lookup. Returns null if the resident is unknown.
+   */
+  erase(residentId: string, tombstone: string, at: Date): Promise<ResidentRecord | null>;
   findByResidentId(residentId: string): Promise<ResidentRecord | null>;
   nextStatusIndex(countryCode: string): Promise<number>;
   save(record: ResidentRecord): Promise<ResidentRecord>;
@@ -74,6 +84,22 @@ export class InMemoryStore implements ResidencyStore {
 
   async findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null> {
     return this.residents.get(subjectRef) ?? null;
+  }
+  async erase(residentId: string, tombstone: string, at: Date): Promise<ResidentRecord | null> {
+    const existing = this.byResidentId.get(residentId);
+    if (!existing) return null;
+    // Drop the old subjectRef key too, or a lookup by the pre-erasure reference still finds
+    // the record and the erasure is cosmetic.
+    this.residents.delete(existing.subjectRef);
+    const erased: ResidentRecord = {
+      ...existing,
+      subjectRef: tombstone,
+      person: {},
+      erasedAt: at.toISOString(),
+    };
+    this.residents.set(tombstone, erased);
+    this.byResidentId.set(residentId, erased);
+    return erased;
   }
   async findByResidentId(residentId: string): Promise<ResidentRecord | null> {
     return this.byResidentId.get(residentId) ?? null;

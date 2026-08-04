@@ -105,24 +105,34 @@ Against the six privacy requirements the DPGA added to the Standard in 2024:
 | --- | --- |
 | Data minimisation | **Met.** Raw national IDs are never stored; only an HMAC-tokenised `subjectRef` is persisted. The national ID is never shared with relying parties. Phone numbers are stored encrypted, off the residency port, so the core service cannot reach them. |
 | User consent mechanisms | **Met.** First-class, revocable consent records with signed, portable receipts, plus per-client OIDC consent. |
-| Data usage transparency | **Partial.** Consent flows and processing are documented in the API reference and architecture docs; there is no standalone data-protection statement yet. |
-| Privacy by design (PII deletion) | **Not met.** There is no erasure endpoint today. See the gap note below. |
-| Data retention transparency | **Not met.** No retention policy or automated purge exists today. |
+| Data usage transparency | **Met.** `docs/PRIVACY.md` states what is collected, what is deliberately not, who receives it, and the known gaps. |
+| Privacy by design (PII deletion) | **Met.** `POST /residency/{id}/erase` destroys every identifying field and redacts the subject from the audit log. The credential is revoked first, so what the citizen holds is dead before its subject becomes unidentifiable. |
+| Data retention transparency | **Met, with one caveat.** Per-class periods with a legal hold that suspends all of them; selection logic is implemented and tested. The shipped default expires nothing — retention is a controller's decision against their own law, not this repository's. No scheduler is wired; running the sweep is a deployment decision. |
 | Data governance and access controls | **Met.** Role-scoped operator identity with per-operator API keys and rotation, replacing a shared admin key; privileged reads are audited to a named operator; the audit log is a tamper-evident hash chain. |
 
-**Known gap.** PII erasure and retention are not implemented. They are not a documentation
-task: the audit log is a hash chain, so "delete the resident" and "keep the chain verifiable"
-have to be reconciled deliberately (tombstone the payload, retain the hash) rather than by
-adding a `DELETE` route. Until that lands, this indicator is partially met, and saying otherwise
-in a submission would be an over-claim a reviewer can check in ten minutes.
+**How erasure and a tamper-evident log were reconciled.** They pull in opposite directions:
+the citizen may require their data destroyed, and the register must show nothing was quietly
+rewritten. Deleting rows satisfies the first and destroys the second. So erasure removes the
+person, not the record that a transaction occurred — identifying fields are destroyed, audit
+events naming the subject are *redacted* with their hashes retained, and each redaction is
+appended as its own chained event naming who did it and under what authority. The chain still
+verifies afterwards and reports how many events were redacted rather than concealing it;
+editing an event without redacting it is still detected as tampering.
+
+**Remaining gaps, stated rather than omitted.** No Legal Basis Registry, so `purpose` is free
+text and statutory bases are not modelled (G-09). Audit events do not carry purpose or legal
+basis (G-10). Assurance values are not governed by a registry (G-02). No scheduler runs the
+retention sweep. All four are recorded in `docs/PRIVACY.md` §8.
 
 A DPIA assesses a deployment processing real people's data; this repository is software and
 processes none. The adopter completes the DPIA and the records of processing against their
 governing law — for a Nigerian deployment, the Nigeria Data Protection Act — and confirms the
 identity authority's usage terms permit the binding.
 
-Evidence: `src/core/consent/*`, `src/core/foundational/*`, `src/core/audit/*`,
-`src/core/operator/*`, `src/core/messaging/contact-directory.ts`.
+Evidence: `docs/PRIVACY.md`, `docs/templates/DPIA-TEMPLATE.md`, `docs/templates/ROPA-TEMPLATE.md`,
+`src/core/privacy/erasure.ts`, `src/core/audit/audit-log.ts` (redaction), `src/core/consent/*`,
+`src/core/foundational/*`, `src/core/operator/*`, `src/core/messaging/contact-directory.ts`,
+`scripts/privacy-smoke.ts` (gated in CI).
 
 ### 8. Adherence to standards and best practices
 
@@ -249,8 +259,8 @@ Indicators 7 and 8 are recorded above as incomplete. The form should not say oth
 - [ ] Repository is public.
 - [x] `CODE_OF_CONDUCT.md` exists (Contributor Covenant 2.1, with project-specific rules on
       real personal data and on exclusionary proposals).
-- [ ] Data-protection statement and retention policy published.
-- [ ] PII erasure implemented, or the gap stated with a timeline.
+- [x] Data-protection statement and retention policy published (`docs/PRIVACY.md`).
+- [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
 - [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
       CodeQL). Note the audit gate sits at *critical* pending four semver-major upgrades —
       see indicator 8.
