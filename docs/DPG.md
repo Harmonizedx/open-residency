@@ -186,7 +186,9 @@ Stated openly rather than hidden, because a reviewer will find them:
 - SMS/USSD delivery is stubbed at the gateway boundary — the state machine and webhook are
   real, the aggregator integration is the deployer's.
 - Proof of residence is a policy input the system records and levels, but does not adjudicate.
-- PII erasure and retention are not implemented (indicator 7).
+- Erasure is implemented (`POST /residency/{id}/erase`); retention is a per-class policy with
+  selection logic implemented and tested, but no scheduler runs the sweep — running it is a
+  deployment decision (indicator 7).
 
 ## What an adopter completes before production
 
@@ -238,15 +240,18 @@ separately:
 
 Repeat the "Honest caveats" section verbatim in the submission rather than smoothing it over.
 
-## Two indicators need a decision before submitting
+## Indicators 7 and 8: previously open, now landed
 
-Indicators 7 and 8 are recorded above as incomplete. The form should not say otherwise:
+Earlier drafts flagged these two as incomplete. Both are now implemented and evidenced in the
+sections above — answer the form from those sections, not from the old caveat:
 
-- **Indicator 7.** PII erasure and retention are not implemented. Either land them first, or
-  submit with the gap stated plainly and a timeline. Do not answer the deletion and retention
-  questions as though the capability exists.
-- **Indicator 8.** No dependency scanning, SBOM, or static analysis in CI yet. Cheap to add;
-  better added than explained.
+- **Indicator 7.** Erasure is implemented (`POST /residency/{id}/erase`), with audit redaction
+  that keeps the tamper-evident chain verifiable. Retention is a published, per-class policy
+  with selection logic implemented and tested. The one honest residual — stated in §7 — is
+  that no scheduler runs the sweep; running it is a deployment decision.
+- **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
+  analysis all run in CI. The audit gate sits at *critical* pending four semver-major
+  upgrades — see indicator 8.
 
 ## Attachments to reference
 
