@@ -79,9 +79,8 @@ submission, where a reviewer will test the README against the API.
 
 | | |
 | --- | --- |
-| Implementation tracker (finding status, what landed) | `docs/architecture/IMPLEMENTATION-JOURNAL.md` |
-| Phase 0 baseline audit + execution order | `docs/architecture/ORRA-PHASE0-BASELINE-AUDIT.md` |
-| Decision records | `docs/adr/` |
+| Implementation tracker — baseline, findings, what landed, what remains | `docs/architecture/IMPLEMENTATION-JOURNAL.md` |
+| Decision records | `docs/adr/` ([index](docs/adr/README.md)) |
 | Conformance suite | `scripts/orcs-conformance.ts` |
 | Residency domain + persistence port | `src/core/residency/` |
 | Cross-jurisdiction trust (peer verification) | `src/core/credentials/federation.ts` |
