@@ -73,7 +73,7 @@
     "rdf-canonize": "^4.0.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.5",
