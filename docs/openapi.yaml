@@ -3,10 +3,12 @@ info:
   title: OpenResidency API
   version: 0.1.0
   description: >
-    Country-agnostic subnational Residency ID and SSO platform. Binds any national
-    foundational ID to a W3C Verifiable Credential, issues cross-sector single
-    sign-on, and records consent and a tamper-evident audit trail. The raw national
-    ID is never stored or returned; only a tokenized subjectRef leaves the adapter.
+    Open-source subnational trust infrastructure for verified, purpose-scoped jurisdictional
+    relationships between residents and their jurisdictions, giving citizens inclusive,
+    privacy-preserving access to public services. Binds any national foundational ID to a W3C
+    Verifiable Credential, federates cross-sector access, and records consent and a
+    tamper-evident audit trail. The raw national ID is never stored or returned; only a
+    tokenized subjectRef leaves the adapter.
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -24,6 +26,12 @@ tags:
     description: Tamper-evident audit log (admin)
   - name: admin
     description: Resident registry administration (admin)
+  - name: statistics
+    description: >
+      Aggregate, non-PII residency statistics in JSON and RFC 4180 CSV. This is the
+      documented data-extraction surface (DPG Standard indicator 6): non-proprietary
+      formats a deployer can publish as open data. Resident-level records are personal
+      data and are served by the admin endpoints instead, under their own governance.
   - name: operator
     description: >
       Operator identity: staff sign-in, accounts, and the per-operator API keys machine
@@ -125,6 +133,60 @@ paths:
                 $ref: '#/components/schemas/ResidencyStatus'
         '404':
           description: Unknown residentId
+  /residency/{residentId}/erase:
+    post:
+      tags: [residency]
+      summary: Erase a resident's personal data
+      description: >-
+        Destroys every identifying field on the record (names, date of birth, gender, contact
+        details, and the tokenized reference linking it to a foundational identity) and
+        redacts the subject from the audit log. The credential is revoked FIRST, so what the
+        citizen holds is dead before its subject becomes unidentifiable.
+
+
+        Audit events are redacted, not deleted: rows and hashes remain so the tamper-evident
+        chain still verifies, and each redaction is appended as its own chained event naming
+        who performed it and under what authority. The response reports whether the chain is
+        still intact, so a data protection officer signing off a deletion need not take that
+        on trust.
+
+
+        A hollow row survives, carrying only `residentId`, `statusListIndex` and `erasedAt`:
+        the status index must never be reused (it would hand the erased person's revocation
+        bit to the next resident enrolled) and the credential must stay revocable. See
+        `docs/PRIVACY.md`.
+
+
+        Requires the `admin` role — stricter than revocation, because a caller who can erase
+        can also destroy evidence of their own earlier actions.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, example: Erasure request under NDPA s.34 }
+                legalBasis: { type: string, example: NDPA s.34 }
+      responses:
+        '200':
+          description: Erasure outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [erased, already-erased, unknown] }
+                  residentId: { type: string }
+                  erasedAt: { type: string, format: date-time }
+                  auditEventsRedacted: { type: integer }
+                  auditChainIntact:
+                    type: boolean
+                    description: The audit chain still verifies after the redaction.
+        '404': { description: Unknown residentId }
   /residency/verify:
     post:
       tags: [residency]
@@ -448,6 +510,71 @@ paths:
                   residentsByCountry:
                     type: object
                     additionalProperties: { type: integer }
+  /admin/statistics:
+    get:
+      tags: [statistics]
+      summary: Aggregate non-PII residency statistics (JSON)
+      description: >
+        Residency counts grouped by country, subnational unit, provider, assurance level,
+        and provisional status. No personal data: no identifiers, names, dates of birth,
+        or contact details are present in the response by construction. Cells counting
+        fewer residents than the deployment's suppression threshold
+        (`STATISTICS_SUPPRESSION_THRESHOLD`, default 5) are withheld, as is a second cell
+        whenever exactly one would otherwise be withheld -- publishing a single gap next to
+        a truthful total would give the withheld figure away by subtraction.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: Aggregate statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generatedAt: { type: string, format: date-time }
+                  suppressionThreshold: { type: integer }
+                  totalResidents:
+                    type: [integer, 'null']
+                    description: >
+                      Null when the total is itself below the threshold, which is exactly
+                      the case where publishing it would undo the cell suppression.
+                  countries: { type: integer }
+                  cells:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        countryCode: { type: string }
+                        subnationalUnit: { type: string }
+                        providerCode: { type: string }
+                        assuranceLevel: { type: string }
+                        provisional: { type: boolean }
+                        count:
+                          type: [integer, 'null']
+                          description: Null when this cell is suppressed.
+                        suppressed: { type: boolean }
+        '401': { description: Missing or invalid operator credential }
+  /admin/statistics.csv:
+    get:
+      tags: [statistics]
+      summary: Aggregate non-PII residency statistics (RFC 4180 CSV)
+      description: >
+        The same report as `/admin/statistics`, serialized as RFC 4180 CSV for deployers
+        publishing an open-data file or loading it into an analysis tool. A suppressed
+        cell's `count` is an empty field and its `suppressed` column reads `true`.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: CSV report
+          content:
+            text/csv:
+              schema: { type: string }
+              example: |
+                countryCode,subnationalUnit,providerCode,assuranceLevel,provisional,count,suppressed
+                NG,KN,NIMC,verified,false,4120,false
+                NG,KT,NIMC,verified,false,9877,false
+                NG,ZM,NIMC,verified,false,,true
+        '401': { description: Missing or invalid operator credential }
   /offline/qr:
     post:
       tags: [offline]

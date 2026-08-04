@@ -11,7 +11,11 @@ import { VcIssuer } from '../core/credentials/vc-issuer';
 import { LdpIssuer } from '../core/credentials/ldp-issuer';
 import { residencyContextDocument } from '../core/credentials/jsonld/document-loader';
 import { VcVerifier, TrustedIssuer } from '../core/credentials/vc-verifier';
-import { applyFederation, FederatedIssuer } from '../core/credentials/federation';
+import {
+  applyFederation,
+  FederatedIssuer,
+  syncFederatedStatusLists,
+} from '../core/credentials/federation';
 import { buildDidWebDocument } from '../core/credentials/did';
 import { ResidencyService } from '../core/residency/residency-service';
 import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
@@ -46,6 +50,7 @@ import {
   PrismaWebAuthnCredentialStore,
 } from '../prisma/prisma.service';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import axios from 'axios';
 
 /**
  * Everything the OperatorGuard needs to authenticate a member of staff, assembled once at
@@ -66,6 +71,10 @@ export interface OperatorAuthContext {
  */
 @Injectable()
 export class PlatformService implements OnModuleDestroy {
+  /** Federated peers, kept so their status lists can be re-synced after boot. */
+  private federatedPeers: FederatedIssuer[] = [];
+  private federationTimer?: NodeJS.Timeout;
+
   private readonly log = new Logger('Platform');
   private configs!: Map<string, CountryConfig>;
   private key!: IssuerKey;
@@ -184,6 +193,7 @@ export class PlatformService implements OnModuleDestroy {
         `Federation: trusting ${federated.length} peer issuer(s): ` +
           federated.map((f) => f.name ?? f.did).join(', '),
       );
+      this.federatedPeers = federated;
     }
 
     this.vpVerifier = new VpVerifier(this.verifier, ldpTrust);
@@ -233,6 +243,14 @@ export class PlatformService implements OnModuleDestroy {
     if (this.biometric) {
       this.log.log(`Biometric step-up: ${defaultCfg?.biometric.provider} authority configured.`);
     }
+
+    // Federated peers' status lists. Fire-and-forget: another government's server is not
+    // ours to depend on at boot, and an unsynced peer keeps the safe posture (presentations
+    // of its credentials fail closed) rather than a dangerous one.
+    void this.syncFederatedStatusLists().catch((e) =>
+      this.log.warn(`Federation: initial status sync failed: ${(e as Error).message}`),
+    );
+    this.startFederationRefresh();
 
     // Operator identity for privileged routes.
     this.operatorAuth = this.buildOperatorAuth(defaultCfg);
@@ -507,6 +525,7 @@ export class PlatformService implements OnModuleDestroy {
   }
   /** Release the HSM session, if the signing backend holds one. */
   async onModuleDestroy(): Promise<void> {
+    if (this.federationTimer) clearInterval(this.federationTimer);
     if (!this.closeSigner) return;
     try {
       await this.closeSigner();
@@ -795,4 +814,58 @@ export class PlatformService implements OnModuleDestroy {
     const t = this.trust.get(cfg.credential.issuerDid);
     if (t) t.statusLists = { [this.statusListUrl(cfg)]: list };
   }
+
+  /**
+   * Pull each federated peer's published status list into the verifier's cache.
+   *
+   * Peer revocation is only checkable against a synced snapshot; until one exists, a peer's
+   * credential is accepted unchecked on the offline path and rejected outright on the
+   * OpenID4VP path. Both are wrong, and both are fixed by having the list.
+   *
+   * Non-fatal by construction. A peer being unreachable is an ordinary operating condition
+   * -- another government's server is not ours to depend on at boot -- and must not stop this
+   * deployment starting. An unsynced peer keeps the safe posture: presentations fail closed.
+   */
+  async syncFederatedStatusLists(): Promise<void> {
+    if (!this.federatedPeers.length) return;
+    const results = await syncFederatedStatusLists(this.trust, this.federatedPeers, (url) =>
+      axios.get(url, { timeout: 10_000 }).then((r) => r.data),
+    );
+    for (const r of results) {
+      const who = r.name ?? r.did;
+      if (r.status === 'synced') {
+        this.log.log(`Federation: synced status list for ${who}`);
+      } else if (r.status === 'not-configured') {
+        this.log.warn(
+          `Federation: ${who} declares no statusListUrl, so revocation of its credentials ` +
+            'cannot be checked here. Presentations of its credentials will be refused as ' +
+            'REVOCATION_UNCHECKABLE.',
+        );
+      } else {
+        this.log.warn(
+          `Federation: status list for ${who} is ${r.status}${r.detail ? ` (${r.detail})` : ''}. ` +
+            'Its credentials will be refused on the presentation path until a sync succeeds.',
+        );
+      }
+    }
+  }
+
+  /**
+   * Re-sync peer status lists on an interval, because a revocation published by a peer is
+   * only as timely as our last pull. `FEDERATION_STATUS_REFRESH_SECONDS=0` disables it for
+   * deployments that drive the sync themselves.
+   */
+  private startFederationRefresh(): void {
+    if (!this.federatedPeers.length) return;
+    const seconds = Number(process.env.FEDERATION_STATUS_REFRESH_SECONDS ?? 900);
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    this.federationTimer = setInterval(() => {
+      void this.syncFederatedStatusLists().catch((e) =>
+        this.log.warn(`Federation: status refresh failed: ${(e as Error).message}`),
+      );
+    }, seconds * 1000);
+    // Do not hold the process open for a cache refresh.
+    this.federationTimer.unref?.();
+  }
+
 }

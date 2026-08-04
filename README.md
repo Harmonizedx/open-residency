@@ -1,9 +1,12 @@
 # OpenResidency
 
-An open-source, **jurisdiction-neutral** platform for subnational **Residency ID, verifiable
-credentials, and cross-sector single sign-on** — packaged to be registered and reused as a
-**Digital Public Good (DPG)**. It is a reusable open core, proven first across Nigeria's states
-and reusable, unchanged, by any country.
+OpenResidency is an open-source **subnational trust infrastructure** that lets governments
+establish, manage and exchange verified, **purpose-scoped jurisdictional relationships** between
+residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public
+services.
+
+Packaged to be registered and reused as a **Digital Public Good (DPG)**: a jurisdiction-neutral open
+core, proven first across Nigeria's states and reusable, unchanged, by any country.
 
 It turns this flow into infrastructure any state, province, or county can deploy and own:
 
@@ -24,8 +27,8 @@ through standards-based OpenID Connect. No jurisdiction's rules are hard-coded i
 |---|---|
 | **Deploying** OpenResidency for a jurisdiction | [Quickstart](#quickstart) → [Onboarding a jurisdiction](#onboarding-a-jurisdiction) → [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | **Integrating** an existing service (an MDA, an education/health platform) | [Integrating a service](#integrating-a-service) → [`docs/API.md`](docs/API.md), [`docs/SDK.md`](docs/SDK.md), [`docs/INTEROP.md`](docs/INTEROP.md) |
-| **Evaluating** it as a Digital Public Good / funding it | [DPG alignment](#digital-public-good-alignment) → [`docs/DPG.md`](docs/DPG.md), [`docs/FUNDING-OVERVIEW.md`](docs/FUNDING-OVERVIEW.md) |
-| **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`docs/RESIDENCY-POLICY.md`](docs/RESIDENCY-POLICY.md) |
+| **Evaluating** it as a Digital Public Good / funding it | [DPG alignment](#digital-public-good-alignment) → [`docs/DPG.md`](docs/DPG.md) |
+| **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 
 ## Why this is different from a bespoke state ID system
 
@@ -173,6 +176,7 @@ Clean layers, each swappable:
 | Wallet presentation | OpenID4VP: request, direct_post, verification | `src/core/oid4vp/*` |
 | Inclusion | QR carriage, offline verify, USSD/SMS | `src/core/offline/*` |
 | SSO | OpenID Connect IdP for cross-sector login | `src/sso/*` |
+| Open data | Aggregate non-PII statistics as JSON/CSV, with small-cell suppression | `src/core/statistics/*` |
 
 The `src/core/*` tree is framework-agnostic and has no NestJS dependency, so it can be embedded in
 any Node runtime or reused as a library. NestJS is only the delivery mechanism.
@@ -273,9 +277,8 @@ all) and, through inclusive service access, SDGs 1, 3, and 10. Building on open 
 interoperable with any conformant wallet, verifier, or relying party and avoids the proprietary
 lock-in that would disqualify it as a DPG.
 
-See [`docs/DPG.md`](docs/DPG.md) for the mapping to all nine DPG Standard indicators and what an
-adopter completes before production, and [`docs/FUNDING-OVERVIEW.md`](docs/FUNDING-OVERVIEW.md) for
-the development-partner overview.
+See [`docs/DPG.md`](docs/DPG.md) for the mapping to all nine DPG Standard indicators, the honest
+gaps, what an adopter completes before production, and the registry submission pack.
 
 ## Standards conformance
 
@@ -304,5 +307,5 @@ Apache-2.0. See `LICENSE` and `NOTICE`.
 ## Ownership and governance
 
 Owned and stewarded by HarmonizedX Limited. See `GOVERNANCE.md`, `CONTRIBUTING.md`, and
-`SECURITY.md`. To publish this as a Digital Public Good, follow `docs/PUBLISHING.md` and submit with
-`docs/DPG-SUBMISSION.md`.
+`SECURITY.md`. To publish this as a Digital Public Good, follow `docs/PUBLISHING.md` and submit
+using the registry submission pack at the end of [`docs/DPG.md`](docs/DPG.md).

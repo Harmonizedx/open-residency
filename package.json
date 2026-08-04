@@ -1,7 +1,7 @@
 {
   "name": "open-residency",
   "version": "0.1.0",
-  "description": "Open-source, configurable subnational Residency ID and SSO platform. A Digital Public Good that binds any country's foundational identity API to a verifiable subnational residency credential, with offline-first inclusion and cross-sector single sign-on.",
+  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
   "author": "HarmonizedX Limited",
   "homepage": "https://github.com/harmonizedx/openresidency",
@@ -32,7 +32,7 @@
     "prisma:migrate": "prisma migrate dev",
     "smoke": "tsc -p tsconfig.core.json && node dist-core/scripts/smoke.js",
     "smoke:sources": "tsc -p tsconfig.core.json && node dist-core/scripts/sources-smoke.js",
-    "test": "npm run smoke && npm run smoke:sources && npm run smoke:oid4vci && npm run smoke:inji && npm run smoke:oid4vp && npm run smoke:sso && npm run smoke:federation && npm run smoke:webauthn && npm run smoke:webauthn-service && npm run smoke:biometric && npm run smoke:sso-oidc && npm run smoke:operator && npm run smoke:hsm && npm run smoke:gcpkms && npm run smoke:awskms && npm run test:conformance",
+    "test": "npm run smoke && npm run smoke:sources && npm run smoke:oid4vci && npm run smoke:inji && npm run smoke:oid4vp && npm run smoke:sso && npm run smoke:federation && npm run smoke:webauthn && npm run smoke:webauthn-service && npm run smoke:biometric && npm run smoke:statistics && npm run smoke:privacy && npm run smoke:sso-oidc && npm run smoke:operator && npm run smoke:hsm && npm run smoke:gcpkms && npm run smoke:awskms && npm run test:conformance",
     "smoke:oid4vci": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vci-smoke.js",
     "smoke:oid4vp": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vp-smoke.js",
     "test:conformance": "tsc -p tsconfig.core.json && node dist-core/scripts/conformance.js",
@@ -49,7 +49,10 @@
     "test:sso-e2e": "bash scripts/run-sso-nest-e2e.sh",
     "smoke:webauthn-service": "tsc -p tsconfig.core.json && node dist-core/scripts/webauthn-service-smoke.js",
     "smoke:inji": "tsc -p tsconfig.core.json && node dist-core/scripts/inji-conformance-smoke.js",
-    "smoke:biometric": "tsc -p tsconfig.core.json && node dist-core/scripts/biometric-smoke.js"
+    "smoke:biometric": "tsc -p tsconfig.core.json && node dist-core/scripts/biometric-smoke.js",
+    "smoke:statistics": "tsc -p tsconfig.core.json && node dist-core/scripts/statistics-smoke.js",
+    "conformance:orcs": "tsc -p tsconfig.core.json && node dist-core/scripts/orcs-conformance.js",
+    "smoke:privacy": "tsc -p tsconfig.core.json && node dist-core/scripts/privacy-smoke.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.22",

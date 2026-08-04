@@ -159,7 +159,10 @@ export function resultFromBody(
   return {
     verified: true,
     providerCode: code,
-    assuranceLevel: cfg.assuranceOnSuccess ?? 'verified',
+    // No fallback: the config schema requires assuranceOnSuccess, so an absent value is a
+    // load-time error rather than something to guess at here. `?? 'verified'` used to sit on
+    // this line and handed the second-highest assurance to any config that stayed silent.
+    assuranceLevel: cfg.assuranceOnSuccess,
     identity: mapIdentity(cfg, code, pepper, body, input),
     applicantBinding: applicantBindingFrom(cfg, input),
   };

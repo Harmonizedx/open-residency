@@ -74,7 +74,26 @@ const foundationalSchema = z.object({
   verifiedFlag: z
     .object({ path: z.string(), equals: z.unknown().optional() })
     .optional(),
-  assuranceOnSuccess: z.enum(['none', 'basic', 'verified', 'high']).optional(),
+  /**
+   * The assurance a successful verification by THIS provider establishes.
+   *
+   * Required, and deliberately so. It was optional, and `mapping.ts` resolved an omitted
+   * value to `'verified'` -- the second-highest rung, reached by saying nothing. A
+   * deployment that forgot to state what its identity source actually proves was silently
+   * credited with having proved a great deal, and the value is released to every relying
+   * party over SSO as `assurance_level`.
+   *
+   * There is no safe default here: only the deployer knows what their register, eID or
+   * field-verification process establishes. So the config must say, and a config that does
+   * not is rejected at load rather than guessed at during issuance. Every shipped config
+   * already declares it.
+   */
+  assuranceOnSuccess: z.enum(['none', 'basic', 'verified', 'high'], {
+    required_error:
+      'foundational.assuranceOnSuccess is required: state what a successful verification by ' +
+      'this provider proves (none | basic | verified | high). It is released to relying ' +
+      'parties as assurance_level, so it must not be inferred.',
+  }),
   /**
    * True only for providers whose verification authenticates the APPLICANT as the owner
    * (an eID / OIDC redirect, or an OTP to the device registered against the record). Such

@@ -27,3 +27,9 @@ w3c-report.json
 
 # The W3C test suite is cloned on demand by npm run test:w3c
 test/w3c/.suite/
+
+# The ORCS and ORRA specification sources are circulated separately and are never committed:
+# they are cited by identifier and section (`ORCS §8`, `ORRA §14`), never by committed path.
+# The migration notes derived from them ARE tracked -- docs/architecture/ and docs/adr/ are the
+# project's record of how the specification is being implemented.
+docs/*.docx

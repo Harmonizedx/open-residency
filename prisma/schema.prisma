@@ -12,43 +12,56 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// One person's residency in this deployment.
+//
+// `subjectRef` is unique because a deployment is ONE subnational government: Katsina's
+// instance issues Katsina residency and nothing else, so one person holds one record here
+// and the constraint is a duplicate-enrolment guard rather than a limitation.
+//
+// A person's connections to OTHER jurisdictions are held by those jurisdictions' own
+// deployments and reach this one as credentials to verify through the federation trust
+// list -- never as rows in this table.
 model Resident {
-  id              String   @id @default(uuid())
-  residentId      String   @unique
-  subjectRef      String   @unique
-  countryCode     String
-  subnationalUnit String
-  providerCode    String
-  assuranceLevel  String
+  id                 String    @id @default(uuid())
+  residentId         String    @unique
+  subjectRef         String    @unique
+  countryCode        String
+  subnationalUnit    String
+  providerCode       String
+  assuranceLevel     String
   // Applicant -> identity binding: HOW the applicant was proven to own this identity.
   // A foundational match alone is not owner proof, so the method is recorded explicitly.
-  bindingMethod   String   @default("none")
-  bindingRef      String? // opaque: auth txn, biometric match id, or enrolment operator id
-  bindingAt       DateTime?
-  bindingScore    Float? // biometric match score, when the subsystem reports one
+  bindingMethod      String    @default("none")
+  bindingRef         String? // opaque: auth txn, biometric match id, or enrolment operator id
+  bindingAt          DateTime?
+  bindingScore       Float? // biometric match score, when the subsystem reports one
   // Proof of residence: the assurance level achieved for this resident in their unit, how
   // it was established, and the unit it is anchored to. A foundational residence field is
   // recorded as register_declared_residence, never as origin.
-  residenceAssurance String @default("RAL0")
-  residenceMethod    String @default("self_declared")
+  residenceAssurance String    @default("RAL0")
+  residenceMethod    String    @default("self_declared")
   residenceUnit      String?
   residenceAsOf      DateTime?
-  provisional     Boolean  @default(false)
-  credentialId    String?
-  statusListIndex Int
+  provisional        Boolean   @default(false)
+  credentialId       String?
+  statusListIndex    Int
   // Minimized demographic attributes carried into the credential.
-  fullName        String?
-  givenName       String?
-  familyName      String?
-  dateOfBirth     String?
-  gender          String?
-  phoneHash       String? // for USSD/OTP binding and matching; one-way, cannot be dialled
+  fullName           String?
+  givenName          String?
+  familyName         String?
+  dateOfBirth        String?
+  gender             String?
+  phoneHash          String? // for USSD/OTP binding and matching; one-way, cannot be dialled
   // AES-256-GCM ciphertext of the E.164 number, under a key held outside the database
   // (CONTACT_ENCRYPTION_KEY). Present only when contactDirectory.mode is `encrypted`:
   // a one-way hash cannot be dialled, so actually delivering a one-time code needs the
   // number back in a recoverable form. A database dump yields ciphertext only.
-  phoneEnc        String?
-  createdAt       DateTime @default(now())
+  phoneEnc           String?
+  createdAt          DateTime  @default(now())
+  // Set when this resident's personal data was erased. The row survives so the credential
+  // stays revocable and its status-list index is never reused; what is gone is everything
+  // that identifies a person.
+  erasedAt           DateTime?
 
   @@index([countryCode, subnationalUnit])
 }
@@ -105,15 +118,15 @@ model Oid4vciNonce {
 // outcome while the request is still `pending`, so a captured vp_token replayed a second
 // time cannot overwrite a verdict.
 model PresentationRequest {
-  id         String    @id @default(uuid())
-  nonce      String    @unique
-  clientId   String
-  purpose    String
-  reference  String?
-  status     String    @default("pending")
-  outcome    Json?
-  expiresAt  DateTime
-  createdAt  DateTime  @default(now())
+  id        String   @id @default(uuid())
+  nonce     String   @unique
+  clientId  String
+  purpose   String
+  reference String?
+  status    String   @default("pending")
+  outcome   Json?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 
   @@index([expiresAt])
 }
@@ -150,6 +163,10 @@ model AuditEvent {
   metadata    Json?
   prevHash    String
   hash        String
+  // Set when this event's personal data was redacted under an erasure request. The row and
+  // its hash stay: the hash still commits to the original content, so the redaction is
+  // provable rather than a silent edit.
+  redactedAt  DateTime?
 
   @@index([target])
   @@index([action])
@@ -191,15 +208,15 @@ model Operator {
 // window, so callers move across one at a time instead of every client cutting over on a
 // single restart -- which was the only option with the shared static key.
 model OperatorKey {
-  id         String    @id @default(uuid())
-  operatorId String
-  label      String
-  keyHash    String    @unique
-  expiresAt  DateTime?
-  lastUsedAt DateTime?
-  revokedAt  DateTime?
+  id          String    @id @default(uuid())
+  operatorId  String
+  label       String
+  keyHash     String    @unique
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
   rotatedFrom String?
-  createdAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
 
   operator Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
@@ -233,16 +250,16 @@ model ConsentRecord {
 // A passkey (WebAuthn credential) enrolled to a resident. The private key never leaves the
 // resident's device; only the public key and the clone-detection counter are stored here.
 model WebAuthnCredential {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   // base64url credential id from the authenticator. Unique across residents.
-  credentialId String   @unique
+  credentialId String    @unique
   residentId   String
   // Public key as a JWK (JSON), plus its JOSE alg (EdDSA / ES256 / RS256).
   publicJwk    Json
   alg          String
   // Authenticator signature counter; a value that fails to advance signals a clone.
-  signCount    Int      @default(0)
-  createdAt    DateTime @default(now())
+  signCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
   lastUsedAt   DateTime?
 
   @@index([residentId])

@@ -14,6 +14,7 @@ import {
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
 import { generateResidentId } from './resident-id';
+import { erasureTombstone } from '../privacy/erasure';
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
 import {
   DEFAULT_RESIDENCE_POLICY,
@@ -436,5 +437,31 @@ export class ResidencyService {
     list.set(record.statusListIndex, true);
     await this.store.saveStatusList(cfg.countryCode, list);
     return true;
+  }
+
+  /**
+   * Erase a resident's personal data (DPG indicator 7, ORCS §14).
+   *
+   * Revocation happens FIRST and the order is load-bearing. Erasing the record before
+   * revoking would leave a credential in the citizen's wallet that still verifies, against a
+   * register that no longer knows who it belongs to -- a credential nobody can revoke because
+   * nobody can identify it. Revoke, then erase, and the outstanding credential is dead before
+   * its subject becomes unidentifiable.
+   *
+   * Idempotent: erasing an already-erased resident is a no-op that reports success, so a
+   * retried request or a re-run sweep cannot fail halfway and leave a caller unsure.
+   */
+  async erase(
+    cfg: CountryConfig,
+    residentId: string,
+    at: Date = new Date(),
+  ): Promise<{ status: 'erased' | 'already-erased' | 'unknown'; record?: ResidentRecord }> {
+    const record = await this.store.findByResidentId(residentId);
+    if (!record) return { status: 'unknown' };
+    if (record.erasedAt) return { status: 'already-erased', record };
+
+    await this.revoke(cfg, residentId);
+    const erased = await this.store.erase(residentId, erasureTombstone(), at);
+    return { status: 'erased', record: erased ?? undefined };
   }
 }

@@ -148,8 +148,13 @@ export interface ProviderConfig {
   responseMapping?: Partial<Record<keyof NormalizedIdentity, string>>;
   /** Dot-path in the response that signals success, plus the value that means "verified". */
   verifiedFlag?: { path: string; equals?: unknown };
-  /** Assurance level this provider yields on success. */
-  assuranceOnSuccess?: AssuranceLevel;
+  /**
+   * Assurance level this provider yields on success. Required: there is no safe default,
+   * because only the deployer knows what their register or eID actually establishes, and the
+   * value reaches every relying party as the `assurance_level` claim. A config that omits it
+   * is rejected at load rather than silently credited with `'verified'`.
+   */
+  assuranceOnSuccess: AssuranceLevel;
   /**
    * Declares that this provider's verification authenticates the applicant as the OWNER
    * (an eID / OIDC redirect, or an OTP to the registered device), not merely that the

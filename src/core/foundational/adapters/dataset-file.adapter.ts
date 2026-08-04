@@ -125,7 +125,11 @@ export class DatasetFileAdapter implements FoundationalProvider {
     return {
       verified: true,
       providerCode: this.code,
-      assuranceLevel: this.cfg.assuranceOnSuccess ?? 'verified',
+      // No fallback, matching mapping.ts: assuranceOnSuccess is required by both the config
+      // schema and ProviderConfig, so an absent value is a load-time error. This was the last
+      // `?? 'verified'` in the tree, and it sat on the imported-register path -- the one most
+      // likely to be stood up hurriedly for an air-gapped pilot.
+      assuranceLevel: this.cfg.assuranceOnSuccess,
       identity: mapIdentity(this.cfg, this.code, this.pepper, record, input),
       applicantBinding: applicantBindingFrom(this.cfg, input),
     };

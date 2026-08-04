@@ -1,6 +1,6 @@
 apiVersion: v2
 name: openresidency
-description: Country-agnostic subnational Residency ID and SSO platform (DPG).
+description: Open-source subnational trust infrastructure for verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions (DPG).
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
