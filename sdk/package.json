@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Typed client for the OpenResidency API (identity verification, residency, consent, SSO helpers).",
   "license": "Apache-2.0",
-  "author": "HarmonizedX Limited",
+  "author": "Chinonso Williams <nonso@harmonizedx.com>",
+  "contributors": [
+    "HarmonizedX Limited"
+  ],
   "homepage": "https://github.com/Harmonizedx/open-residency",
   "repository": {
     "type": "git",
