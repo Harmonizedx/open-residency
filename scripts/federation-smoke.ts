@@ -148,21 +148,90 @@ async function main() {
     beforeSync.valid === true && beforeSync.checkedRevocation === false,
   );
 
-  // The peer publishes a Bitstring Status List with index 7 revoked.
+  // The peer publishes a SIGNED Bitstring Status List with index 7 revoked. Signed, because
+  // an unsigned one is now refused -- see the authentication block below.
   const peerList = new StatusList();
   peerList.set(7, true);
-  const published = {
+
+  // A peer's status list must be AUTHENTICATED before it is believed.
+  //
+  // This is the one artifact where trusting a forgery fails in the dangerous direction: a
+  // forged revocation list does not grant access it should not, it RESTORES access that was
+  // deliberately taken away. Cached unsigned, the list is authenticated only by TLS to
+  // whatever host answered, so an attacker who can serve the URL just omits the proof.
+  // Built inline rather than imported: the shared envelope helper arrives with the
+  // status-list signing change, and this suite must pass both before and after that lands.
+  const statusEnvelope = (list: StatusList, issuerDid: string) => ({
     '@context': ['https://www.w3.org/ns/credentials/v2'],
     id: PEER_STATUS_URL,
     type: ['VerifiableCredential', 'BitstringStatusListCredential'],
-    issuer: PEER_DID,
-    credentialSubject: peerList.toCredentialSubject(PEER_STATUS_URL),
-  };
+    issuer: issuerDid,
+    validFrom: '2026-01-01T00:00:00Z',
+    credentialSubject: list.toCredentialSubject(PEER_STATUS_URL),
+  });
+  const signedPublished = await new LdpIssuer(peer).sign(
+    statusEnvelope(peerList, PEER_DID) as any,
+    PEER_DID,
+  );
+
+  const unsignedSync = await syncFederatedStatusLists(
+    trust,
+    [{ did: PEER_DID, publicJwks: [peer.publicJwk], statusListUrl: PEER_STATUS_URL }],
+    async () => ({ ...signedPublished, proof: undefined }),
+  );
+  check(
+    'an UNSIGNED peer status list is refused, not cached',
+    unsignedSync[0]?.status === 'unsigned',
+  );
+
+  // The attack the signature exists to stop: a list forged by someone else, claiming to
+  // un-revoke the peer's credentials.
+  const forged = new StatusList(); // index 7 NOT revoked
+  const forgedPublished = await new LdpIssuer(stranger).sign(
+    statusEnvelope(forged, PEER_DID) as any,
+    PEER_DID,
+  );
+  const forgedSync = await syncFederatedStatusLists(
+    trust,
+    [{ did: PEER_DID, publicJwks: [peer.publicJwk], statusListUrl: PEER_STATUS_URL }],
+    async () => forgedPublished,
+  );
+  check(
+    'a status list signed by the WRONG key is refused (no silent un-revocation)',
+    forgedSync[0]?.status === 'untrusted',
+  );
+
+  // An explicit, per-peer opt-out exists for a peer still publishing bare JSON -- and it has
+  // to be asked for.
+  const optedIn = await syncFederatedStatusLists(
+    trust,
+    [
+      {
+        did: PEER_DID,
+        publicJwks: [peer.publicJwk],
+        statusListUrl: PEER_STATUS_URL,
+        allowUnsignedStatusList: true,
+      },
+    ],
+    async () => ({ ...signedPublished, proof: undefined }),
+  );
+  check(
+    'an unsigned list is accepted only when that peer explicitly opts in',
+    optedIn[0]?.status === 'synced',
+  );
+
+  // And a properly signed list from the right key syncs and is believed.
+  const signedSync = await syncFederatedStatusLists(
+    trust,
+    [{ did: PEER_DID, publicJwks: [peer.publicJwk], statusListUrl: PEER_STATUS_URL }],
+    async () => signedPublished,
+  );
+  check('a correctly signed peer status list syncs', signedSync[0]?.status === 'synced');
 
   const syncResults = await syncFederatedStatusLists(
     trust,
     [{ did: PEER_DID, name: 'Kano', publicJwks: [peer.publicJwk], statusListUrl: PEER_STATUS_URL }],
-    async (url) => (url === PEER_STATUS_URL ? published : Promise.reject(new Error('404'))),
+    async (url) => (url === PEER_STATUS_URL ? signedPublished : Promise.reject(new Error('404'))),
   );
   check('syncing a peer status list reports success', syncResults[0]?.status === 'synced');
 
