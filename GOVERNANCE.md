@@ -16,7 +16,9 @@ commercial and government deployments, without permission.
 The maintainer team is appointed by HarmonizedX. Maintainers review and merge changes,
 cut releases, and triage security reports.
 
-- Lead maintainer: HarmonizedX Limited (engineering)
+- **Chinonso Williams** (<nonso@harmonizedx.com>) — original author and lead maintainer.
+  Created OpenResidency before it was handed to HarmonizedX for stewardship.
+- HarmonizedX Limited (engineering) — maintainer team.
 - Add individual maintainers here as the community grows.
 
 ## How decisions are made

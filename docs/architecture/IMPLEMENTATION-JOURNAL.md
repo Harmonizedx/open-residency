@@ -265,7 +265,7 @@ architecture kept separate from the audit hash chain.
 
 ## Open questions
 
-- `package.json` carries the wrong repository URL (`harmonizedx/openresidency`; actual is
-  `Harmonizedx/open-residency`) in `homepage`, `repository` and `bugs`. Fix?
 - Wire `conformance:orcs` into CI as a **no-regression** gate — failing only if a criterion goes
   backwards — rather than waiting for all-PASS?
+- Add `.github/CODEOWNERS`? The `Harmonizedx/maintainers` team exists and would resolve. Held
+  deliberately, not forgotten.

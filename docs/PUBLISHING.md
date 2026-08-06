@@ -13,7 +13,7 @@ git init
 git add .
 git commit -m "OpenResidency: initial public release"
 git branch -M main
-git remote add origin https://github.com/harmonizedx/openresidency.git
+git remote add origin https://github.com/Harmonizedx/open-residency.git
 git push -u origin main
 ```
 

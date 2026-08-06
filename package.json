@@ -3,14 +3,17 @@
   "version": "0.1.0",
   "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
-  "author": "HarmonizedX Limited",
-  "homepage": "https://github.com/harmonizedx/openresidency",
+  "author": "Chinonso Williams <nonso@harmonizedx.com>",
+  "contributors": [
+    "HarmonizedX Limited"
+  ],
+  "homepage": "https://github.com/Harmonizedx/open-residency",
   "repository": {
     "type": "git",
-    "url": "https://github.com/harmonizedx/openresidency.git"
+    "url": "https://github.com/Harmonizedx/open-residency.git"
   },
   "bugs": {
-    "url": "https://github.com/harmonizedx/openresidency/issues"
+    "url": "https://github.com/Harmonizedx/open-residency/issues"
   },
   "keywords": [
     "digital-public-good",
