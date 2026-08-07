@@ -6,6 +6,10 @@
  * personal data to be destroyed; a public register must be able to show that nothing was
  * quietly rewritten. Delete the rows and you satisfy the first while destroying the second.
  *
+ * Retention assertions used to live here. They were removed with the retention code they
+ * covered: nothing in production called it, so the suite was proving a library nobody could
+ * invoke was correct.
+ *
  * So the assertions below are mostly about the seam: that erasure really destroys the
  * identifying data, that the tamper-evident chain still verifies afterwards, and that the
  * erasure is itself recorded so it cannot be done invisibly.
@@ -20,13 +24,7 @@ import { StatusList } from '../src/core/credentials/status-list';
 import { InMemoryStore } from '../src/core/residency/ports';
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { AuditLog, InMemoryAuditStore, REDACTED } from '../src/core/audit/audit-log';
-import {
-  IDENTIFYING_FIELDS,
-  erasureTombstone,
-  isPastRetention,
-  residencyDueForErasure,
-  NO_AUTOMATIC_RETENTION,
-} from '../src/core/privacy/erasure';
+import { erasureTombstone } from '../src/core/privacy/erasure';
 
 let pass = 0;
 let fail = 0;
@@ -206,42 +204,6 @@ async function main() {
     'editing an event without redacting it is still detected',
     tampered.ok === false && tampered.brokenAtSeq === all[1].seq,
   );
-
-  // --- Retention ------------------------------------------------------------
-  const now = new Date('2026-08-04T00:00:00Z');
-  const old = new Date('2020-01-01T00:00:00Z').toISOString();
-  const recent = new Date('2026-08-01T00:00:00Z').toISOString();
-
-  check('a null period means no automatic expiry', !isPastRetention(old, null, now));
-  check('a record older than its period is due', isPastRetention(old, 365, now));
-  check('a record inside its period is not', !isPastRetention(recent, 365, now));
-
-  const records = [
-    { createdAt: old, erasedAt: undefined },
-    { createdAt: recent, erasedAt: undefined },
-    { createdAt: old, erasedAt: '2026-01-01T00:00:00Z' },
-  ];
-  check(
-    'the sweep selects only records past retention that are not already erased',
-    residencyDueForErasure(records, { ...NO_AUTOMATIC_RETENTION, residencyDays: 365 }, now).length === 1,
-  );
-  check(
-    'a legal hold stops the sweep entirely, rather than guessing which records an appeal touches',
-    residencyDueForErasure(records, { ...NO_AUTOMATIC_RETENTION, residencyDays: 365, legalHold: true }, now)
-      .length === 0,
-  );
-  check(
-    'the default policy expires nothing, so retention is a decision rather than an accident',
-    residencyDueForErasure(records, NO_AUTOMATIC_RETENTION, now).length === 0,
-  );
-
-  check(
-    'the identifying-field list covers every person field on the record',
-    IDENTIFYING_FIELDS.includes('subjectRef') &&
-      IDENTIFYING_FIELDS.includes('phoneEnc') &&
-      IDENTIFYING_FIELDS.includes('dateOfBirth'),
-  );
-  check('tombstones are unique per erasure', erasureTombstone() !== erasureTombstone());
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);
