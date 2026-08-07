@@ -42,10 +42,9 @@ and the "Registry submission pack" section at the end carries the project basics
 attachments list, and a pre-submission checklist. Submit at digitalpublicgoods.net with
 the public repo URL. The ownership indicator is satisfied by `NOTICE` and `GOVERNANCE.md`.
 
-Indicator 7 is recorded there as incomplete on one point: the software enforces no
-retention, so a controller must enforce it outside this software. Disclose that rather
-than answering around it. Indicator 8's earlier gap is closed — Dependabot, CodeQL and a
-CycloneDX SBOM all run in CI.
+Indicators 7 and 8 are both closed now — erasure and retention ship, as do Dependabot,
+CodeQL and a CycloneDX SBOM. Two limits are worth stating rather than omitting: the
+retention sweep covers residency records only, and nothing schedules it.
 
 ## 4. First deployment (optional, to have a live reference)
 

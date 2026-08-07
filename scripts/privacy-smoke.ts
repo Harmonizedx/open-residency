@@ -25,6 +25,11 @@ import { InMemoryStore } from '../src/core/residency/ports';
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { AuditLog, InMemoryAuditStore, REDACTED } from '../src/core/audit/audit-log';
 import { erasureTombstone } from '../src/core/privacy/erasure';
+import {
+  NO_AUTOMATIC_RETENTION,
+  isPastRetention,
+  selectResidencyDue,
+} from '../src/core/privacy/retention';
 
 let pass = 0;
 let fail = 0;
@@ -203,6 +208,53 @@ async function main() {
   check(
     'editing an event without redacting it is still detected',
     tampered.ok === false && tampered.brokenAtSeq === all[1].seq,
+  );
+
+  // --- Retention ---------------------------------------------------------
+  //
+  // Selection only. Nothing here destroys anything: an operator must be able to see exactly
+  // which records a sweep would erase before any of them are gone, because the scope of a
+  // bulk irreversible operation is not something to discover afterwards.
+  const now = new Date('2026-08-07T00:00:00Z');
+  const old = new Date('2020-01-01T00:00:00Z').toISOString();
+  const recent = new Date('2026-08-01T00:00:00Z').toISOString();
+
+  check('a null period means no automatic expiry', !isPastRetention(old, null, now));
+  check('a record older than its period is due', isPastRetention(old, 365, now));
+  check('a record inside its period is not', !isPastRetention(recent, 365, now));
+
+  const pool = [
+    { createdAt: old, erasedAt: undefined, residentId: 'OLD-1' },
+    { createdAt: recent, erasedAt: undefined, residentId: 'NEW-1' },
+    { createdAt: old, erasedAt: '2026-01-01T00:00:00Z', residentId: 'GONE-1' },
+  ];
+
+  const swept = selectResidencyDue(pool, { residencyDays: 365, legalHold: false }, now);
+  check(
+    'the sweep selects only records past retention that are not already erased',
+    swept.due.length === 1 && swept.due[0].residentId === 'OLD-1',
+  );
+
+  const held = selectResidencyDue(pool, { residencyDays: 365, legalHold: true }, now);
+  check(
+    'a legal hold stops the sweep entirely rather than guessing which records an appeal touches',
+    held.due.length === 0 && held.skipped === 'legal-hold',
+  );
+
+  const unset = selectResidencyDue(pool, NO_AUTOMATIC_RETENTION, now);
+  check(
+    'the shipped default expires nothing, so retention is a decision rather than an accident',
+    unset.due.length === 0 && unset.skipped === 'no-policy',
+  );
+
+  // The distinction that stops an operator being misled: "nothing was due" and "the policy is
+  // off" must not look the same. A held sweep reported as a clean empty success is how a
+  // controller comes to believe retention is running when it is not.
+  check(
+    'a held or unset policy is reported as skipped, never as an empty success',
+    held.skipped !== undefined &&
+      unset.skipped !== undefined &&
+      swept.skipped === undefined,
   );
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
