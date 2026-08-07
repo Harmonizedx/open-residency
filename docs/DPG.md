@@ -107,7 +107,7 @@ Against the six privacy requirements the DPGA added to the Standard in 2024:
 | User consent mechanisms | **Met.** First-class, revocable consent records with signed, portable receipts, plus per-client OIDC consent. |
 | Data usage transparency | **Met.** `docs/PRIVACY.md` states what is collected, what is deliberately not, who receives it, and the known gaps. |
 | Privacy by design (PII deletion) | **Met.** `POST /residency/{id}/erase` destroys every identifying field and redacts the subject from the audit log. The credential is revoked first, so what the citizen holds is dead before its subject becomes unidentifiable. |
-| Data retention transparency | **Met, with one caveat.** Per-class periods with a legal hold that suspends all of them; selection logic is implemented and tested. The shipped default expires nothing — retention is a controller's decision against their own law, not this repository's. No scheduler is wired; running the sweep is a deployment decision. |
+| Data retention transparency | **Not met.** There is no retention enforcement in the software: no periods, no sweep, no entry point a deployer could call. An earlier version shipped selection logic that nothing invoked, and claiming it as met on that basis was an over-claim. A controller must set and enforce retention outside this software until it lands. |
 | Data governance and access controls | **Met.** Role-scoped operator identity with per-operator API keys and rotation, replacing a shared admin key; privileged reads are audited to a named operator; the audit log is a tamper-evident hash chain. |
 
 **How erasure and a tamper-evident log were reconciled.** They pull in opposite directions:
@@ -261,10 +261,11 @@ sections above — answer the form from those sections, not from the old caveat:
 
 ## Pre-submission checklist
 
-- [ ] Repository is public.
+- [x] Repository is public.
 - [x] `CODE_OF_CONDUCT.md` exists (Contributor Covenant 2.1, with project-specific rules on
       real personal data and on exclusionary proposals).
-- [x] Data-protection statement and retention policy published (`docs/PRIVACY.md`).
+- [x] Data-protection statement published (`docs/PRIVACY.md`).
+- [ ] Retention enforcement — not implemented; see indicator 7.
 - [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
 - [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
       CodeQL). Note the audit gate sits at *critical* pending four semver-major upgrades —
