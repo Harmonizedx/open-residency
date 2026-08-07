@@ -121,8 +121,8 @@ editing an event without redacting it is still detected as tampering.
 
 **Remaining gaps, stated rather than omitted.** No Legal Basis Registry, so `purpose` is free
 text and statutory bases are not modelled (G-09). Audit events do not carry purpose or legal
-basis (G-10). Assurance values are not governed by a registry (G-02). No scheduler runs the
-retention sweep. All four are recorded in `docs/PRIVACY.md` §8.
+basis (G-10). Assurance values are not governed by a registry (G-02). Retention is not
+enforced at all. All four are recorded in `docs/PRIVACY.md` §8.
 
 A DPIA assesses a deployment processing real people's data; this repository is software and
 processes none. The adopter completes the DPIA and the records of processing against their
@@ -186,9 +186,9 @@ Stated openly rather than hidden, because a reviewer will find them:
 - SMS/USSD delivery is stubbed at the gateway boundary — the state machine and webhook are
   real, the aggregator integration is the deployer's.
 - Proof of residence is a policy input the system records and levels, but does not adjudicate.
-- Erasure is implemented (`POST /residency/{id}/erase`); retention is a per-class policy with
-  selection logic implemented and tested, but no scheduler runs the sweep — running it is a
-  deployment decision (indicator 7).
+- Erasure is implemented (`POST /residency/{id}/erase`); retention is **not** — the software
+  enforces no period and offers no sweep, so a controller must enforce it outside this
+  software (indicator 7).
 
 ## What an adopter completes before production
 
@@ -246,9 +246,10 @@ Earlier drafts flagged these two as incomplete. Both are now implemented and evi
 sections above — answer the form from those sections, not from the old caveat:
 
 - **Indicator 7.** Erasure is implemented (`POST /residency/{id}/erase`), with audit redaction
-  that keeps the tamper-evident chain verifiable. Retention is a published, per-class policy
-  with selection logic implemented and tested. The one honest residual — stated in §7 — is
-  that no scheduler runs the sweep; running it is a deployment decision.
+  that keeps the tamper-evident chain verifiable. Retention is **not implemented** — no
+  periods, no sweep, no entry point — so five of the six privacy requirements are met and the
+  sixth is stated as unmet rather than dressed up. Do not answer the retention question as
+  though the capability exists.
 - **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
   analysis all run in CI. The audit gate sits at *critical* pending four semver-major
   upgrades — see indicator 8.

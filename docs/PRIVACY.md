@@ -129,14 +129,13 @@ Stated because a privacy notice that omits them is worth less than one that does
 - **Assurance values are not governed.** `assuranceLevel` is a bare string from a fixed
   vocabulary with no registry to resolve it against. It is released over SSO, so relying
   parties should gate on the standard `acr` claim instead. Tracked as G-02.
-- **No automated retention sweep is wired to a scheduler.** The policy and the selection logic
-  exist and are tested; running them on a schedule is a deployment decision.
+- **No retention enforcement at all.** No periods, no sweep, no entry point — see §5.
 
 ## 9. What a deployer must complete
 
 - A Data Protection Impact Assessment against governing law (for Nigeria, the Nigeria Data
   Protection Act) and a record of processing activities. Templates: `docs/templates/`.
-- Retention periods for each class in §5, and who may set a legal hold.
+- Retention periods and how they will be enforced, since the software enforces none (§5).
 - The lawful basis for the foundational-identity check, agreed with the identity authority.
 - A published privacy notice for residents, which may cite this document but should not
   substitute for it — this describes software, not a controller's practice.

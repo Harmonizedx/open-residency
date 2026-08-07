@@ -42,9 +42,10 @@ and the "Registry submission pack" section at the end carries the project basics
 attachments list, and a pre-submission checklist. Submit at digitalpublicgoods.net with
 the public repo URL. The ownership indicator is satisfied by `NOTICE` and `GOVERNANCE.md`.
 
-Two indicators are recorded there as incomplete (privacy: no PII erasure or retention;
-best practices: no dependency scanning or SBOM). Resolve or disclose them before
-submitting — do not answer around them.
+Indicator 7 is recorded there as incomplete on one point: the software enforces no
+retention, so a controller must enforce it outside this software. Disclose that rather
+than answering around it. Indicator 8's earlier gap is closed — Dependabot, CodeQL and a
+CycloneDX SBOM all run in CI.
 
 ## 4. First deployment (optional, to have a live reference)
 
