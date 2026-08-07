@@ -90,22 +90,16 @@ documented operation, never a default.
 
 ## 5. Retention
 
-Retention is per record class, because an audit entry, a consent grant and a residency record
-are kept under different bases for different reasons; one global number fits none of them.
+**Not implemented.** The software enforces no retention period, provides no sweep, and exposes
+no entry point a deployer could call to run one. Nothing here expires automatically.
 
-| Class | Measured from |
-| --- | --- |
-| Residency records | Creation |
-| Consent records | Grant. Withdrawal does not shorten it — proof that consent was given and withdrawn is itself a record a controller may need. |
-| Audit events | Event timestamp |
+This section previously described per-class periods and a legal hold. That logic existed but
+nothing in the application ever called it — no endpoint, no service method, no scheduler — so
+it has been removed rather than left to imply a capability a controller could not exercise.
 
-**The shipped default expires nothing.** Retention is a decision a controller makes against
-their own law, and a default period would be this repository quietly setting policy for a
-government. `null` means no automatic expiry and must be chosen deliberately.
-
-A **legal hold** suspends every period. When set, the sweep refuses to run at all rather than
-reasoning about which records an open appeal or a regulator's request might implicate —
-deleting the evidence an appeal turns on is the failure this prevents.
+Until it lands, retention is entirely the controller's responsibility, enforced outside this
+software. `POST /residency/{residentId}/erase` is available to act on individual records once
+you have decided a record is due.
 
 ## 6. Access control and audit
 
