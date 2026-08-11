@@ -23,9 +23,9 @@ jobs:
     name: Typecheck, conformance, and end-to-end checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -162,9 +162,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/openres_e2e
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -175,8 +175,9 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # Prisma 7 dropped --skip-generate; generation is the separate step above.
       - name: Push schema to the service database
-        run: npx prisma db push --skip-generate
+        run: npx prisma db push
 
       - name: Build the application
         run: npm run build
@@ -192,9 +193,9 @@ jobs:
     # ORCS §13 also lists data portability and vendor exit, and an SBOM is part of being
     # auditable from the outside.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -208,7 +209,7 @@ jobs:
         run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cyclonedx.json
 
       - name: Publish SBOM as a build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: sbom.cyclonedx.json
@@ -240,7 +241,7 @@ jobs:
     name: Docker image builds
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The runtime image must carry contexts/, or JSON-LD issuance fails at RUN time with
       # a missing-context error rather than at build time. Building it here keeps that
       # from regressing.

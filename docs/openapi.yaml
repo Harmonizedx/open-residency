@@ -187,6 +187,56 @@ paths:
                     type: boolean
                     description: The audit chain still verifies after the redaction.
         '404': { description: Unknown residentId }
+  /residency/retention/sweep:
+    post:
+      tags: [residency]
+      summary: Erase residency records past their retention period
+      description: >-
+        DRY RUN unless `confirm: true`. Returns exactly which residents would be erased, so
+        the scope of a bulk irreversible operation is seen before it runs rather than
+        discovered afterwards.
+
+
+        Each record erased goes through the same path as a single erasure: credential revoked
+        first, identifying fields destroyed, audit entries redacted with the chain still
+        verifying. A legal hold (`residency.retention.legalHold`) stops the sweep entirely,
+        and an unset period does nothing — both reported as `skipped` rather than as an empty
+        success, because "nothing was due" and "retention is off" must not look alike.
+
+
+        Covers residency records only; consent and audit events have no automatic expiry.
+        Requires the `admin` role. See `docs/PRIVACY.md` §5.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                countryCode: { type: string, description: Limit to one jurisdiction. }
+                confirm: { type: boolean, default: false, description: Actually erase. }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Sweep report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dryRun: { type: boolean }
+                  auditChainIntact: { type: boolean }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        countryCode: { type: string }
+                        dueCount: { type: integer }
+                        due: { type: array, items: { type: string } }
+                        erased: { type: integer }
+                        skipped: { type: string, enum: [legal-hold, no-policy] }
   /residency/verify:
     post:
       tags: [residency]

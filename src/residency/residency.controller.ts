@@ -242,6 +242,93 @@ export class ResidencyController {
     };
   }
 
+  /**
+   * Run the retention sweep: erase every residency record past its retention period.
+   *
+   * **Dry run unless `confirm: true`.** This is a bulk, irreversible operation on other
+   * people's records, and the scope of it should never be something an operator discovers
+   * afterwards. A dry run returns exactly which residents would be erased, so the decision is
+   * made with the list in hand.
+   *
+   * `admin`-guarded, like single-record erasure and for the same reason: it destroys data and
+   * redacts the audit entries that name it.
+   *
+   * The sweep refuses to run under a legal hold, and does nothing when no period is set —
+   * both reported as `skipped` rather than as an empty success, because "nothing was due" and
+   * "the policy is switched off" look identical otherwise, and an operator who believes a
+   * sweep ran when it was held is badly misled.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('admin')
+  @Post('retention/sweep')
+  async retentionSweep(
+    @Req() req: RequestWithOperator,
+    @Body() body: { countryCode?: string; confirm?: boolean; reason?: string },
+  ) {
+    const operator = requireOperator(req);
+    const configs = body?.countryCode
+      ? [this.platform.getConfig(body.countryCode)].filter(Boolean)
+      : this.platform.listConfigs();
+    if (!configs.length) throw new NotFoundException('No matching country config');
+
+    const confirmed = body?.confirm === true;
+    const report: Array<Record<string, unknown>> = [];
+
+    for (const cfg of configs as NonNullable<(typeof configs)[number]>[]) {
+      const selection = await this.platform.getResidency().selectDueForRetention(cfg);
+      const due = selection.due.map((r) => r.residentId);
+
+      if (!confirmed || selection.skipped) {
+        report.push({
+          countryCode: cfg.countryCode,
+          dueCount: due.length,
+          due,
+          skipped: selection.skipped,
+          erased: 0,
+        });
+        continue;
+      }
+
+      let erased = 0;
+      for (const residentId of due) {
+        const result = await this.platform.getResidency().erase(cfg, residentId);
+        if (result.status !== 'erased') continue;
+        erased++;
+        await this.platform.getAudit().record({
+          action: 'resident.erase',
+          actor: operatorActor(operator),
+          target: residentId,
+          countryCode: cfg.countryCode,
+          outcome: 'success',
+          metadata: { via: 'retention-sweep', reason: body?.reason ?? 'retention period elapsed' },
+        });
+        await this.platform.getAudit().redactSubject(residentId, {
+          actor: operatorActor(operator),
+          reason: body?.reason ?? 'retention period elapsed',
+        });
+      }
+      await this.platform.syncStatusList(cfg);
+      report.push({ countryCode: cfg.countryCode, dueCount: due.length, due, erased });
+    }
+
+    // The sweep itself is audited whether or not it erased anything. "A sweep ran and found
+    // nothing due" is a fact a controller needs to be able to evidence.
+    await this.platform.getAudit().record({
+      action: 'admin.read',
+      actor: operatorActor(operator),
+      outcome: 'success',
+      metadata: {
+        view: 'retention-sweep',
+        dryRun: !confirmed,
+        countries: report.map((r) => r.countryCode),
+        totalErased: report.reduce((n, r) => n + (r.erased as number), 0),
+      },
+    });
+
+    const chain = await this.platform.getAudit().verifyChain();
+    return { dryRun: !confirmed, results: report, auditChainIntact: chain.ok };
+  }
+
   /** Verify a presented residency credential (server-side; verifiers can also do this offline). */
   @Post('verify')
   async verify(@Body() body: VerifyDto) {

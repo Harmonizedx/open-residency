@@ -33,3 +33,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # All action bumps in one PR, majors included -- deliberately unlike the npm majors
+      # above, which stay ungrouped. A jose or oidc-provider major changes what the issuer
+      # signs; a GitHub Action major changes how CI runs, and the same CI proves it either
+      # way. Four separate PRs for checkout/setup-node/upload-artifact/codeql was noise that
+      # made the genuinely risky npm majors harder to pick out of the list.
+      actions:
+        patterns: ['*']

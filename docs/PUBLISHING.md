@@ -13,7 +13,7 @@ git init
 git add .
 git commit -m "OpenResidency: initial public release"
 git branch -M main
-git remote add origin https://github.com/harmonizedx/openresidency.git
+git remote add origin https://github.com/Harmonizedx/open-residency.git
 git push -u origin main
 ```
 
@@ -42,9 +42,9 @@ and the "Registry submission pack" section at the end carries the project basics
 attachments list, and a pre-submission checklist. Submit at digitalpublicgoods.net with
 the public repo URL. The ownership indicator is satisfied by `NOTICE` and `GOVERNANCE.md`.
 
-Two indicators are recorded there as incomplete (privacy: no PII erasure or retention;
-best practices: no dependency scanning or SBOM). Resolve or disclose them before
-submitting — do not answer around them.
+Indicators 7 and 8 are both closed now — erasure and retention ship, as do Dependabot,
+CodeQL and a CycloneDX SBOM. Two limits are worth stating rather than omitting: the
+retention sweep covers residency records only, and nothing schedules it.
 
 ## 4. First deployment (optional, to have a live reference)
 
