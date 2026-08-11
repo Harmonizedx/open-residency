@@ -15,6 +15,11 @@ import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/
 import { ResidencyStore, ResidentRecord } from './ports';
 import { generateResidentId } from './resident-id';
 import { erasureTombstone } from '../privacy/erasure';
+import {
+  RetentionPolicy,
+  RetentionSelection,
+  selectResidencyDue,
+} from '../privacy/retention';
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
 import {
   DEFAULT_RESIDENCE_POLICY,
@@ -463,5 +468,37 @@ export class ResidencyService {
     await this.revoke(cfg, residentId);
     const erased = await this.store.erase(residentId, erasureTombstone(), at);
     return { status: 'erased', record: erased ?? undefined };
+  }
+
+  /**
+   * Find every residency record past its retention period.
+   *
+   * Selection only — nothing is destroyed here. The caller decides whether to act, which is
+   * what makes a dry run possible: an operator can see exactly which records a sweep would
+   * erase before any of them are gone, and a bulk irreversible operation should never be
+   * something you discover the scope of afterwards.
+   */
+  async selectDueForRetention(
+    cfg: CountryConfig,
+    now: Date = new Date(),
+  ): Promise<RetentionSelection<ResidentRecord>> {
+    const policy: RetentionPolicy = {
+      residencyDays: cfg.residency.retention.residencyDays,
+      legalHold: cfg.residency.retention.legalHold,
+    };
+    // Cheap exits before paging the register: a held or unset policy selects nothing, and
+    // reading every row to discover that would be wasteful on a large deployment.
+    if (policy.legalHold) return { due: [], skipped: 'legal-hold' };
+    if (policy.residencyDays === null) return { due: [], skipped: 'no-policy' };
+
+    const all: ResidentRecord[] = [];
+    let offset = 0;
+    for (;;) {
+      const page = await this.store.list({ countryCode: cfg.countryCode, limit: 500, offset });
+      all.push(...page.items);
+      offset += page.items.length;
+      if (page.items.length === 0 || offset >= page.total) break;
+    }
+    return selectResidencyDue(all, policy, now);
   }
 }

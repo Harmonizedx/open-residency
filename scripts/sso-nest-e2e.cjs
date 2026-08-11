@@ -291,7 +291,10 @@ biometric:
 
   // --- Seed a resident directly in the store -------------------------------
   const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
+  const { PrismaPg } = require('@prisma/adapter-pg');
+  // Prisma 7 takes the connection through a driver adapter; DATABASE_URL is exported by
+  // run-sso-nest-e2e.sh (and by the CI job) exactly as before.
+  const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL) });
   // Idempotent: a service-container database may persist across re-runs, so clear any
   // prior row before seeding rather than tripping the unique constraint.
   await prisma.resident.deleteMany({ where: { residentId: RESIDENT_ID } });
