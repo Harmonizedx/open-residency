@@ -107,7 +107,7 @@ Against the six privacy requirements the DPGA added to the Standard in 2024:
 | User consent mechanisms | **Met.** First-class, revocable consent records with signed, portable receipts, plus per-client OIDC consent. |
 | Data usage transparency | **Met.** `docs/PRIVACY.md` states what is collected, what is deliberately not, who receives it, and the known gaps. |
 | Privacy by design (PII deletion) | **Met.** `POST /residency/{id}/erase` destroys every identifying field and redacts the subject from the audit log. The credential is revoked first, so what the citizen holds is dead before its subject becomes unidentifiable. |
-| Data retention transparency | **Met, with one caveat.** Per-class periods with a legal hold that suspends all of them; selection logic is implemented and tested. The shipped default expires nothing — retention is a controller's decision against their own law, not this repository's. No scheduler is wired; running the sweep is a deployment decision. |
+| Data retention transparency | **Not met.** There is no retention enforcement in the software: no periods, no sweep, no entry point a deployer could call. An earlier version shipped selection logic that nothing invoked, and claiming it as met on that basis was an over-claim. A controller must set and enforce retention outside this software until it lands. |
 | Data governance and access controls | **Met.** Role-scoped operator identity with per-operator API keys and rotation, replacing a shared admin key; privileged reads are audited to a named operator; the audit log is a tamper-evident hash chain. |
 
 **How erasure and a tamper-evident log were reconciled.** They pull in opposite directions:
@@ -186,7 +186,9 @@ Stated openly rather than hidden, because a reviewer will find them:
 - SMS/USSD delivery is stubbed at the gateway boundary — the state machine and webhook are
   real, the aggregator integration is the deployer's.
 - Proof of residence is a policy input the system records and levels, but does not adjudicate.
-- PII erasure and retention are not implemented (indicator 7).
+- Erasure is implemented (`POST /residency/{id}/erase`); retention is a per-class policy with
+  selection logic implemented and tested, but no scheduler runs the sweep — running it is a
+  deployment decision (indicator 7).
 
 ## What an adopter completes before production
 
@@ -238,15 +240,18 @@ separately:
 
 Repeat the "Honest caveats" section verbatim in the submission rather than smoothing it over.
 
-## Two indicators need a decision before submitting
+## Indicators 7 and 8: previously open, now landed
 
-Indicators 7 and 8 are recorded above as incomplete. The form should not say otherwise:
+Earlier drafts flagged these two as incomplete. Both are now implemented and evidenced in the
+sections above — answer the form from those sections, not from the old caveat:
 
-- **Indicator 7.** PII erasure and retention are not implemented. Either land them first, or
-  submit with the gap stated plainly and a timeline. Do not answer the deletion and retention
-  questions as though the capability exists.
-- **Indicator 8.** No dependency scanning, SBOM, or static analysis in CI yet. Cheap to add;
-  better added than explained.
+- **Indicator 7.** Erasure is implemented (`POST /residency/{id}/erase`), with audit redaction
+  that keeps the tamper-evident chain verifiable. Retention is a published, per-class policy
+  with selection logic implemented and tested. The one honest residual — stated in §7 — is
+  that no scheduler runs the sweep; running it is a deployment decision.
+- **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
+  analysis all run in CI. The audit gate sits at *critical* pending four semver-major
+  upgrades — see indicator 8.
 
 ## Attachments to reference
 
@@ -256,10 +261,11 @@ Indicators 7 and 8 are recorded above as incomplete. The form should not say oth
 
 ## Pre-submission checklist
 
-- [ ] Repository is public.
+- [x] Repository is public.
 - [x] `CODE_OF_CONDUCT.md` exists (Contributor Covenant 2.1, with project-specific rules on
       real personal data and on exclusionary proposals).
-- [x] Data-protection statement and retention policy published (`docs/PRIVACY.md`).
+- [x] Data-protection statement published (`docs/PRIVACY.md`).
+- [ ] Retention enforcement — not implemented; see indicator 7.
 - [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
 - [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
       CodeQL). Note the audit gate sits at *critical* pending four semver-major upgrades —

@@ -1,9 +1,15 @@
 # OpenResidency
 
 OpenResidency is an open-source **subnational trust infrastructure** that lets governments
-establish, manage and exchange verified, **purpose-scoped jurisdictional relationships** between
-residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public
-services.
+establish, manage and exchange verified relationships between residents and their jurisdictions —
+giving citizens inclusive, privacy-preserving access to public services.
+
+**One deployment, one jurisdiction.** Each subnational government runs its own instance, owning
+its data, keys and policies. A person holding a family home in one state, employment in another
+and study in a third holds **three relationships across three deployments** — no instance ever
+holds another jurisdiction's records, because a state asserting authority over its neighbours is
+the thing this deliberately does not do. Those relationships reach each other as verifiable
+credentials, through the federation trust list, rather than as rows in a shared table.
 
 Packaged to be registered and reused as a **Digital Public Good (DPG)**: a jurisdiction-neutral open
 core, proven first across Nigeria's states and reusable, unchanged, by any country.
@@ -19,7 +25,9 @@ Citizen
 
 The foundational identity source is a configuration choice, the residency credential is a W3C
 Verifiable Credential, the credential verifies offline, and cross-sector access is delivered
-through standards-based OpenID Connect. No jurisdiction's rules are hard-coded in the core.
+through standards-based OpenID Connect. No jurisdiction's rules are hard-coded in the core —
+see [The rules a jurisdiction sets](#the-rules-a-jurisdiction-sets) for exactly which rules
+are config and which are invariants nobody can override.
 
 ## Where to start
 
@@ -28,6 +36,7 @@ through standards-based OpenID Connect. No jurisdiction's rules are hard-coded i
 | **Deploying** OpenResidency for a jurisdiction | [Quickstart](#quickstart) → [Onboarding a jurisdiction](#onboarding-a-jurisdiction) → [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | **Integrating** an existing service (an MDA, an education/health platform) | [Integrating a service](#integrating-a-service) → [`docs/API.md`](docs/API.md), [`docs/SDK.md`](docs/SDK.md), [`docs/INTEROP.md`](docs/INTEROP.md) |
 | **Evaluating** it as a Digital Public Good / funding it | [DPG alignment](#digital-public-good-alignment) → [`docs/DPG.md`](docs/DPG.md) |
+| **Setting a jurisdiction's issuance policy** | [The rules a jurisdiction sets](#the-rules-a-jurisdiction-sets) → `config/countries/ng.yaml` |
 | **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 
 ## Why this is different from a bespoke state ID system
@@ -115,6 +124,112 @@ endpoint/auth or dataset path, what the citizen submits, how the response maps t
 identity, the assurance policy for issuing residency, and the credential profile (issuer DID,
 validity, type).
 
+## The rules a jurisdiction sets
+
+Issuance is not "match the ID, mint a credential". `ResidencyService.issue()` runs four gates in
+order and every one of them reads from the country YAML — which is what "no jurisdiction's rules
+are hard-coded" means concretely. Gate 1 is the claimed subnational unit, which must be declared
+in `subnationalUnits`; the other three are this block:
+
+```yaml
+residency:
+  minAssurance: verified              # 2. foundational assurance floor
+  applicantBinding:                   # 3. did the applicant PROVE they own this identity?
+    required: true
+    acceptedMethods: [attended_comparison]
+  residence:                          # 4. do they actually live in the claimed unit?
+    required: true
+    targetLevel: RAL2
+    acceptedMethods: [authority_attestation, document, geospatial_match]
+    unitMatchRequired: true
+    recencyDays: 365
+    acceptFoundationalResidence: true
+    methodCeiling: { document: RAL1 } # this jurisdiction trusts utility bills less
+```
+
+Same code, different YAML:
+
+| Config | Outcome |
+|---|---|
+| `applicantBinding.required: false` | `ISSUED` |
+| `required: true`, enrolment desk attested nothing | `REJECTED APPLICANT_BINDING_REQUIRED_NONE` |
+| `required: true`, operator attested in person | `ISSUED` |
+| `minAssurance: high`, provider yields `verified` | `REJECTED ASSURANCE_TOO_LOW_verified` |
+| `residence.targetLevel: RAL2`, no evidence supplied | `REJECTED PROOF_OF_RESIDENCE_BELOW_RAL2_GOT_RAL0` |
+| the same, plus a ward attestation | `ISSUED` |
+| a unit absent from `subnationalUnits` | `REJECTED UNKNOWN_SUBNATIONAL_UNIT` |
+
+### Two ladders a jurisdiction picks its position on
+
+**Applicant → identity binding** (`src/core/proofing/binding.ts`). A foundational match proves the
+identity *record* is genuine. It does not prove the applicant *owns* it — anyone who knows the
+number passes a lookup — so owner proof is a separate, configurable act:
+
+| Method | Strength | What actually happened |
+|---|---|---|
+| `authoritative_authentication` | 3 | The owner authenticated at the source: eID redirect, or an OTP to the device registered against that identity |
+| `face_match` / `fingerprint_match` | 2 | A live capture matched against the template held by the **authoritative** source |
+| `attended_comparison` | 1 | An enrolment agent compared the applicant to the evidence in person |
+| `none` | 0 | Lookup only — recorded on the credential as such, never silently upgraded |
+
+The strongest of what the provider attested and what the enrolment channel performed wins, and the
+achieved method is asserted in the credential, so a verifier can see *how* the holder was bound
+rather than taking issuance on trust.
+
+**Residence assurance** (`src/core/proofing/residence.ts`). RAL0 self-declared → RAL3 authoritative
+register of record. Each evidence method has a ceiling a jurisdiction may lower but not raise:
+
+| Method | Default ceiling |
+|---|---|
+| `self_declared` | RAL0 — the floor, and never counts toward a required level above it |
+| `register_declared_residence` — the residence locality the foundational source returned | RAL1 |
+| `document`, `authority_attestation`, `geospatial_match` | RAL2 |
+
+With `recencyDays` set, evidence that is older than that — or carries no date at all — is capped at
+RAL1 and cannot reach the higher levels. Origin/indigeneity is deliberately absent from this table:
+it is not an evidence method and cannot be configured into one.
+
+### The Resident ID format
+
+The human-facing ID is a configurable ruleset, set per country and overridable per unit, so a
+federation can run one state on the default scheme and another on a statutory numbering scheme:
+
+```yaml
+subnationalUnits:
+  - { code: KN, name: Kano, level: state }   # inherits the country default: KN-04G6-2W3R-5
+  - code: KT
+    name: Katsina
+    level: state
+    residentId:                              # a flat 10-digit statutory scheme
+      alphabet: numeric                      # crockford32 | numeric | alphanumeric | hex
+      groups: [10]
+      separator: ''
+      prefix: { mode: none }                 # unit | country | static | none
+      checkDigit: { enabled: true, algorithm: luhn }   # crockford-sha256 | luhn | mod97-10
+```
+
+Config is rejected at load time if the random body carries under 32 bits of entropy, or if a
+numeric checksum is asked to run over a non-numeric prefix. There is deliberately **no** free-form
+template that could interpolate a submitted value, so the foundational number can never end up
+embedded in a public, shareable identifier.
+
+### What a jurisdiction cannot change
+
+Configurability stops where it would let a deployment configure away the guarantees a relying party
+depends on:
+
+| Invariant | Where |
+|---|---|
+| The raw national ID is never stored — only an HMAC-tokenized `subjectRef` | `src/core/residency/ports.ts` |
+| Origin/ancestry is never accepted as proof of residence | no such value exists in `ResidenceEvidenceMethod` |
+| A repeat enrolment returns the existing record, never a second ID | `ResidencyService.issue()` |
+| Every credential issued to a resident shares one revocation bit, so revoking revokes all of them | `ResidencyService.mintForHolder()` |
+| Gate order, and that every gate fails closed | `ResidencyService.issue()` |
+
+Adding a *new* binding or residence method is a code change, not config. Both are closed
+vocabularies on purpose: a deployment that could invent its own evidence type would be emitting
+credentials no verifier elsewhere has any way to interpret.
+
 ## Integrating a service
 
 An existing platform — a ministry service, an education or health portal — taps into ID + auth
@@ -125,7 +240,8 @@ first authentication. Three integration paths, usable together:
   YAML (`oidc.relyingParties`: `clientId`, `sector`, `scopes`, `redirectUris`; secret via env). It
   then uses any standard OIDC library to run Authorization Code + PKCE, requesting `openid profile
   <sector>`. It receives residency claims (`subnational_unit`, `assurance_level`, …) and **never**
-  the national ID. On first login it maps the `sub` ⇄ its local account.
+  the national ID. On first login it maps the `sub` ⇄ its local account. Gate sensitive actions on
+  the standard `acr` claim rather than `assurance_level` — see the caveat below.
 
   The `sub` is **pairwise**: each service sees a different, stable identifier for the same citizen,
   so two MDAs cannot join their records on it. The `resident_id` claim — which *is* the same
@@ -258,14 +374,41 @@ This repository is the generic public infrastructure, not a single-country app:
   it. The correlatable `resident_id` claim is granted per relying party via `scopes`, not to
   everyone by default — both halves are needed, since a universally readable `resident_id` would
   defeat pairwise subjects entirely.
+- **`assurance_level` is not a governed value yet.** The claim released over SSO is a bare string
+  from a small fixed vocabulary (`none` / `basic` / `verified` / `high`). A provider config must now
+  state its level explicitly — `foundational.assuranceOnSuccess` is required, and a config omitting
+  it is refused at load rather than silently defaulting to a high rung — but stating it is not the
+  same as governing it. There is
+  no registry a relying party can resolve the value against, no published statement of what a given
+  authority's verification actually establishes, and no separation of identity assurance from
+  authentication assurance. **Do not write access policy against it.** The authenticator strength of
+  the sign-in itself *is* real and is reported separately as the standard OIDC `acr` claim
+  (`urn:openresidency:aal1`–`aal3`, with `amr` naming the factors used); it is derived from the
+  factors actually presented, always released with the `openid` scope, and is what a relying party
+  should step up on. An assurance registry — canonical profiles plus per-authority mappings with
+  version, issuer, method and limitations — is the planned replacement.
 - **Proof of residence.** Establishing that a verified person actually resides in a given ward is a
-  policy problem this system records but does not solve on its own. Configure
-  `residency.residence` and wire it to your attestation or register source.
+  policy problem this system evaluates but does not settle on its own: `residency.residence`
+  configures which evidence methods are accepted, the level each can reach, whether the evidence
+  must match the claimed unit, and how fast it goes stale. What it does *not* yet do is version or
+  sign that policy, so a decision cannot be reliably reproduced after the policy changes — record
+  the ruleset alongside any decision you need to defend later. Wire it to your attestation or
+  register source.
+- **Enrolment capture is out of scope.** This issues a credential, not a card. There is no
+  portrait capture or storage (a photo returned by a foundational source is dropped, never
+  persisted), no printed ID-slip renderer, and no schema for local demographic fields — ward,
+  polling unit, occupation, address. The `Resident` model holds the minimized attributes carried
+  into the credential and nothing else. A jurisdiction replacing an existing enrolment-desk system
+  keeps that system, or builds the capture layer on top; the citizen-facing artifact here is the
+  credential and its QR, which is what verifies offline.
 - **Source contracts vary.** The provided `ng.yaml`, `in.yaml`, `ke.yaml`, `xm-xml.yaml`, and
   `xf-import.yaml` mappings are illustrative shapes. Confirm the exact request/response contract
   (or extract schema) and legal basis (consent, data protection) with the identity authority.
-- **USSD/SMS delivery** is stubbed at the gateway boundary. Wire your aggregator (for example an MNO
-  or Africa's Talking) in `OfflineController`.
+- **USSD as an inclusion channel.** The USSD webhook is wired to real delivery, not stubbed: a
+  status lookup or a login code goes out as SMS to the number registered against the record —
+  through the same `messaging` path as web sign-in, never back down the USSD session, so the
+  endpoint cannot be used to enumerate residents. What a deployment still supplies is the
+  aggregator contract itself.
 
 ## Digital Public Good alignment
 
