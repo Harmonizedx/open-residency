@@ -148,7 +148,29 @@ const residencePolicySchema = z.object({
 
 export type ResidencePolicyConfig = z.infer<typeof residencePolicySchema>;
 
+/**
+ * Retention policy for this jurisdiction.
+ *
+ * Every period defaults to null -- no automatic expiry -- because a retention period is a
+ * controller's decision against their own law. A default number here would be this software
+ * quietly setting policy for a government, and the wrong direction to be wrong in: too short
+ * destroys records a citizen may need for an appeal, too long is itself a breach.
+ */
+const retentionSchema = z.object({
+  /** Days to keep a residency record, measured from creation. Null = keep indefinitely. */
+  residencyDays: z.number().int().positive().nullable().default(null),
+  /**
+   * Suspend all retention deletion. Set during litigation, an open appeal, or a regulator's
+   * request; the sweep refuses to run at all rather than guess which records are implicated.
+   */
+  legalHold: z.boolean().default(false),
+});
+
+export type RetentionConfig = z.infer<typeof retentionSchema>;
+
 const residencySchema = z.object({
+  /** Retention periods. Defaults to no automatic expiry — see retentionSchema. */
+  retention: retentionSchema.default({}),
   /** Minimum foundational assurance required to issue residency. */
   minAssurance: z.enum(['basic', 'verified', 'high']).default('verified'),
   /**

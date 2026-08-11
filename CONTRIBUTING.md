@@ -108,7 +108,7 @@ To run the server you also need Postgres:
 ```bash
 cp .env.example .env
 docker compose up -d db
-npm run prisma:migrate
+npx prisma db push
 npm run start:dev
 ```
 
