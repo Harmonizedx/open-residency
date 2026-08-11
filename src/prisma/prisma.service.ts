@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
 import { BindingMethod } from '../core/proofing/binding';
@@ -21,6 +22,24 @@ import { OperatorKeyRecord, OperatorRecord, OperatorStore } from '../core/operat
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  constructor() {
+    // Prisma 7 takes the connection through a driver adapter rather than reading the
+    // datasource url out of the schema. DATABASE_URL is unchanged for deployments; what
+    // changed is that the client is handed it explicitly here.
+    //
+    // Checked rather than asserted: an unset DATABASE_URL used to surface as a Prisma
+    // validation error naming the variable, and a bare non-null assertion would instead
+    // fail somewhere inside pg with a message that does not say which variable is missing.
+    const url = process.env.DATABASE_URL;
+    if (!url) {
+      throw new Error(
+        'DATABASE_URL is not set. The residency register needs a PostgreSQL connection ' +
+          'string, e.g. postgresql://user:password@host:5432/openres?schema=public',
+      );
+    }
+    super({ adapter: new PrismaPg(url) });
+  }
+
   async onModuleInit() {
     await this.$connect();
   }

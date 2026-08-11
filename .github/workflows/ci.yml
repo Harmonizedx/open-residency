@@ -175,8 +175,9 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # Prisma 7 dropped --skip-generate; generation is the separate step above.
       - name: Push schema to the service database
-        run: npx prisma db push --skip-generate
+        run: npx prisma db push
 
       - name: Build the application
         run: npm run build
