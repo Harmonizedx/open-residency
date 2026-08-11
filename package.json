@@ -70,7 +70,7 @@
     "class-validator": "^0.15.1",
     "express": "^5.2.1",
     "jose": "^5.10.0",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^5.2.3",
     "jsonld": "^8.3.3",
     "oidc-provider": "^9.11.1",
     "pg": "^8.23.0",
