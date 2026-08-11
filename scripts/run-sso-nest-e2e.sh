@@ -46,7 +46,9 @@ psql -h 127.0.0.1 -p "$PGPORT" -U postgres -c "CREATE DATABASE $DBNAME;" >/dev/n
 export DATABASE_URL="postgresql://postgres@127.0.0.1:$PGPORT/$DBNAME"
 
 echo "== pushing Prisma schema and generating client =="
-npx prisma db push --skip-generate >/dev/null 2>&1
+# Prisma 7 dropped --skip-generate from `db push`; generation is a separate step, which is
+# what the next line has always done anyway.
+npx prisma db push >/dev/null 2>&1
 npx prisma generate >/dev/null 2>&1
 
 echo "== building the application =="
