@@ -4,7 +4,11 @@ import {
   createVerify,
   verify as edVerify,
   KeyObject,
-  type JsonWebKey,
+  // Taken off JsonWebKeyInput rather than imported by name: @types/node 26 moved JsonWebKey
+  // into the webcrypto namespace, and this project compiles with lib ES2022 (no DOM), so
+  // neither the old top-level export nor the DOM global is available. The indexed access
+  // resolves to whichever declaration the installed @types/node uses.
+  type JsonWebKeyInput,
 } from 'node:crypto';
 import { JWK } from 'jose';
 
@@ -293,7 +297,10 @@ export function verifyAssertion(
 }
 
 function verifySignature(credential: RegisteredCredential, signed: Buffer, signature: Buffer): boolean {
-  const key: KeyObject = createPublicKey({ key: credential.publicJwk as JsonWebKey, format: 'jwk' });
+  const key: KeyObject = createPublicKey({
+    key: credential.publicJwk as JsonWebKeyInput['key'],
+    format: 'jwk',
+  });
   if (credential.alg === 'EdDSA') {
     return edVerify(null, signed, key, signature);
   }
