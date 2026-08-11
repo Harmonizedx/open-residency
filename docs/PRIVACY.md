@@ -90,22 +90,35 @@ documented operation, never a default.
 
 ## 5. Retention
 
-Retention is per record class, because an audit entry, a consent grant and a residency record
-are kept under different bases for different reasons; one global number fits none of them.
+Configured per jurisdiction under `residency.retention`, and enforced by a sweep an operator
+runs: `POST /residency/retention/sweep` (`admin` role).
 
-| Class | Measured from |
+| Setting | Meaning |
 | --- | --- |
-| Residency records | Creation |
-| Consent records | Grant. Withdrawal does not shorten it — proof that consent was given and withdrawn is itself a record a controller may need. |
-| Audit events | Event timestamp |
+| `residencyDays` | Days to keep a residency record, from creation. `null` = keep indefinitely. |
+| `legalHold` | Suspends retention deletion entirely. |
 
-**The shipped default expires nothing.** Retention is a decision a controller makes against
-their own law, and a default period would be this repository quietly setting policy for a
-government. `null` means no automatic expiry and must be chosen deliberately.
+**The shipped default expires nothing.** A retention period is a controller's decision against
+their own law, and a default number here would be this software quietly setting policy for a
+government — wrong in both directions, since too short destroys records a citizen needs for an
+appeal and too long is itself a breach.
 
-A **legal hold** suspends every period. When set, the sweep refuses to run at all rather than
-reasoning about which records an open appeal or a regulator's request might implicate —
-deleting the evidence an appeal turns on is the failure this prevents.
+**The sweep is a dry run unless you pass `confirm: true`.** It returns exactly which residents
+would be erased, so a bulk irreversible operation on other people's records is decided with the
+list in hand rather than discovered afterwards. Each record it does erase goes through the same
+path as a single erasure: credential revoked first, identifying fields destroyed, audit entries
+redacted with the chain still verifying.
+
+**A legal hold stops the sweep entirely** rather than reasoning about which records an open
+appeal or a regulator's request might implicate — deleting the evidence an appeal turns on is
+the failure this prevents, and a partial sweep is worse than none.
+
+A held or unset policy is reported as `skipped`, never as an empty success. "Nothing was due"
+and "retention is switched off" look identical otherwise, and a controller who believes a sweep
+ran when it was held is badly misled.
+
+**Not covered:** consent records and audit events have no automatic expiry. Only residency
+records are swept.
 
 ## 6. Access control and audit
 
@@ -135,14 +148,14 @@ Stated because a privacy notice that omits them is worth less than one that does
 - **Assurance values are not governed.** `assuranceLevel` is a bare string from a fixed
   vocabulary with no registry to resolve it against. It is released over SSO, so relying
   parties should gate on the standard `acr` claim instead. Tracked as G-02.
-- **No automated retention sweep is wired to a scheduler.** The policy and the selection logic
-  exist and are tested; running them on a schedule is a deployment decision.
+- **Retention covers residency records only.** Consent records and audit events have no
+  automatic expiry, and no scheduler runs the sweep — an operator triggers it.
 
 ## 9. What a deployer must complete
 
 - A Data Protection Impact Assessment against governing law (for Nigeria, the Nigeria Data
   Protection Act) and a record of processing activities. Templates: `docs/templates/`.
-- Retention periods for each class in §5, and who may set a legal hold.
+- Retention periods for §5, who may set a legal hold, and who runs the sweep and how often.
 - The lawful basis for the foundational-identity check, agreed with the identity authority.
 - A published privacy notice for residents, which may cite this document but should not
   substitute for it — this describes software, not a controller's practice.

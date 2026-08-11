@@ -4,6 +4,6 @@ description: Open-source subnational trust infrastructure for verified, purpose-
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
-home: https://github.com/your-org/openresidency
+home: https://github.com/Harmonizedx/open-residency
 sources:
-  - https://github.com/your-org/openresidency
+  - https://github.com/Harmonizedx/open-residency
