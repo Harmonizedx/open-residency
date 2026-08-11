@@ -207,7 +207,15 @@ async function main() {
     // Tampered signature
     const c3 = b64url(randomBytes(32));
     const a3 = assertLogin(sim, cred, c3);
-    a3.signature = b64url(Buffer.concat([Buffer.from(a3.signature, 'base64url').subarray(0, -1), Buffer.from([0x00])]));
+    // Flip the final byte rather than assigning it. Assigning 0x00 was a no-op whenever the
+    // signature already ended in 0x00, which left the "tampered" bytes identical to the genuine
+    // ones -- verification then rightly succeeded and this check failed. That is rare for ES256
+    // (a uniform final byte, so 1 in 256) but common for EdDSA: an Ed25519 signature is R || S
+    // with S a little-endian scalar below 2^252, so its final byte never exceeds 0x0f and the
+    // collision hit 1 run in 16. XOR always changes the byte, so the tampering is unconditional.
+    const forged = Buffer.from(a3.signature, 'base64url');
+    forged[forged.length - 1] ^= 0xff;
+    a3.signature = b64url(forged);
     check(`${sim.alg}: a tampered signature is rejected`, !verifyAssertion(a3, cred, { ...exp, challenge: c3 }).ok);
 
     // Missing user verification when required

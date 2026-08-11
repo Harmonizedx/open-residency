@@ -7,9 +7,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Prisma 7 no longer accepts `url` here. The connection string reaches Migrate through
+// prisma.config.ts and the client through a driver adapter (see src/prisma/prisma.service.ts),
+// so DATABASE_URL remains the single environment variable a deployment sets.
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // One person's residency in this deployment.
