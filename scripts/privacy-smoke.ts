@@ -257,6 +257,100 @@ async function main() {
       swept.skipped === undefined,
   );
 
+  // --- The WIRED path: config -> store paging -> selection -> erasure ------
+  //
+  // The block above tests the pure selector over a hand-built array. That is not the same as
+  // testing the capability. `selectDueForRetention` reads the policy off a PARSED config and
+  // PAGES the register, and neither was exercised. A selector proved correct while nothing
+  // calls it is the exact failure this suite exists to catch -- it is how criterion 1 came to
+  // report green twice while no code path could produce the behaviour.
+  const retentionCfg: CountryConfig = parseCountryConfig({
+    countryCode: 'NG',
+    countryName: 'Nigeria',
+    defaultSubnationalUnit: 'KT',
+    foundational: {
+      provider: 'MOCK',
+      inputs: [{ key: 'nin', label: 'NIN', pattern: '^\\d{11}$' }],
+      assuranceOnSuccess: 'verified',
+    },
+    residency: {
+      minAssurance: 'verified',
+      proofOfResidence: 'attestation',
+      retention: { residencyDays: 30 },
+    },
+    credential: {
+      issuerDid,
+      issuerName: 'Katsina State Residency Authority',
+      type: 'StateResidencyCredential',
+      validityDays: 1095,
+      context: ['https://www.w3.org/ns/credentials/v2'],
+    },
+    subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
+  });
+  check(
+    'a retention period declared in config reaches the parsed config',
+    retentionCfg.residency.retention.residencyDays === 30,
+  );
+
+  const rStore = new InMemoryStore();
+  const rSvc = new ResidencyService(
+    new ProviderRegistry('retention-pepper'),
+    new VcIssuer(key),
+    rStore,
+    () => statusUrl,
+  );
+  const rA = await rSvc.issue(retentionCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    // Names supplied so the dry-run check below has something it could destroy. Asserting
+    // "nothing was lost" against a record that never held anything proves nothing.
+    identifiers: { nin: '12345678902', givenName: 'Halima', familyName: 'Sani' },
+  });
+  const rB = await rSvc.issue(retentionCfg, {
+    countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin: '12345678904' },
+  });
+  if (rA.status !== 'issued' || rB.status !== 'issued') throw new Error('retention fixture failed');
+
+  const todaySel = await rSvc.selectDueForRetention(retentionCfg, new Date());
+  check('freshly issued records are not due', todaySel.due.length === 0 && !todaySel.skipped);
+
+  const later = new Date(Date.now() + 31 * 86_400_000);
+  const dueSel = await rSvc.selectDueForRetention(retentionCfg, later);
+  check(
+    'records past the configured period are selected through the wired path',
+    dueSel.due.length === 2,
+  );
+
+  // A dry run must be safe: selecting is not erasing.
+  const untouched = await rStore.findByResidentId(rA.residentId);
+  check(
+    'selecting is not erasing — a dry run leaves identifying data intact',
+    !!untouched &&
+      untouched.erasedAt === undefined &&
+      untouched.person.givenName === 'Halima' &&
+      !untouched.subjectRef.startsWith('erased:'),
+  );
+
+  for (const r of dueSel.due) await rSvc.erase(retentionCfg, r.residentId, later);
+  const sweptRec = await rStore.findByResidentId(rA.residentId);
+  check(
+    'acting on the selection erases through the normal erasure path',
+    !!sweptRec?.erasedAt && Object.keys(sweptRec.person).length === 0,
+  );
+  const reRun = await rSvc.selectDueForRetention(retentionCfg, later);
+  check('a second sweep finds nothing — erased records are not re-swept', reRun.due.length === 0);
+
+  // A hold declared in config must stop the WIRED path, not merely the pure selector.
+  const heldCfg: CountryConfig = parseCountryConfig({
+    ...JSON.parse(JSON.stringify(retentionCfg)),
+    residency: { ...retentionCfg.residency, retention: { residencyDays: 30, legalHold: true } },
+  });
+  const heldSel = await rSvc.selectDueForRetention(heldCfg, later);
+  check(
+    'a legal hold declared in config stops the wired sweep',
+    heldSel.due.length === 0 && heldSel.skipped === 'legal-hold',
+  );
+
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);
 }
