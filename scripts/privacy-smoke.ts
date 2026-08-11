@@ -24,7 +24,6 @@ import { StatusList } from '../src/core/credentials/status-list';
 import { InMemoryStore } from '../src/core/residency/ports';
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { AuditLog, InMemoryAuditStore, REDACTED } from '../src/core/audit/audit-log';
-import { erasureTombstone } from '../src/core/privacy/erasure';
 import {
   NO_AUTOMATIC_RETENTION,
   isPastRetention,
