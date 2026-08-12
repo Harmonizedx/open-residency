@@ -9,6 +9,7 @@ import { GcpKmsSigner } from '../core/credentials/signers/gcp-kms-signer';
 import { AwsKmsSigner } from '../core/credentials/signers/aws-kms-signer';
 import { VcIssuer } from '../core/credentials/vc-issuer';
 import { LdpIssuer } from '../core/credentials/ldp-issuer';
+import { StatusListPublisher } from '../core/credentials/status-list-publisher';
 import { residencyContextDocument } from '../core/credentials/jsonld/document-loader';
 import { VcVerifier, TrustedIssuer } from '../core/credentials/vc-verifier';
 import {
@@ -85,6 +86,7 @@ export class PlatformService implements OnModuleDestroy {
   private registry!: ProviderRegistry;
   private issuer!: VcIssuer;
   private ldpIssuer!: LdpIssuer;
+  private statusListPublisher!: StatusListPublisher;
   private verifier!: VcVerifier;
   private residency!: ResidencyService;
   private oid4vci!: Oid4vciService;
@@ -141,6 +143,7 @@ export class PlatformService implements OnModuleDestroy {
     this.registry = new ProviderRegistry(pepper);
     this.issuer = new VcIssuer(this.key);
     this.ldpIssuer = new LdpIssuer(this.key);
+    this.statusListPublisher = new StatusListPublisher(this.ldpIssuer);
     this.residency = new ResidencyService(
       this.registry,
       this.issuer,
@@ -510,6 +513,9 @@ export class PlatformService implements OnModuleDestroy {
   }
   getLdpIssuer(): LdpIssuer {
     return this.ldpIssuer;
+  }
+  getStatusListPublisher(): StatusListPublisher {
+    return this.statusListPublisher;
   }
   getVerifier(): VcVerifier {
     return this.verifier;
