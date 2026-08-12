@@ -75,7 +75,7 @@
     "oidc-provider": "^9.11.1",
     "pg": "^8.23.0",
     "qrcode": "^1.5.4",
-    "rdf-canonize": "^4.0.1",
+    "rdf-canonize": "^5.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^4.4.3"
