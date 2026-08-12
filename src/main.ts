@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { urlencoded, json } from 'express';
 import { join } from 'node:path';
-import type Provider from 'oidc-provider';
+import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { AppModule } from './app.module';
 import { OIDC_PROVIDER } from './sso/oidc.module';
 

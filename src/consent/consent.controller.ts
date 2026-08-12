@@ -8,7 +8,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import type Provider from 'oidc-provider';
+import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
 import { GrantConsentDto } from './dto/grant-consent.dto';
