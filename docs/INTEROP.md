@@ -226,6 +226,17 @@ a flag" means a revoked credential is accepted by every relying party that does 
 the flag — and nobody reads the flag. So a presentation with an uncheckable revocation
 status is **refused** (`REVOCATION_UNCHECKABLE`).
 
+### The published status list is signed
+
+The status list a verifier syncs (`GET /.well-known/status/<cc>.json`) is a
+`BitstringStatusListCredential` carrying a Data Integrity proof (`eddsa-rdfc-2022`), not
+bare JSON. A verifier caches this snapshot and then checks revocation offline against it,
+so the cached artifact itself has to be self-authenticating: TLS protects it in flight, not
+at rest in the verifier's cache. The proof's `verificationMethod` resolves to the same
+Multikey the issuer DID document publishes, so no new trust anchor is introduced — a
+verifier that already trusts the issuer key can verify the list with the key it already
+has.
+
 ### Only the claims that were asked for are released
 
 The residency credential carries `foundationalAssurance.subjectRef` — the tokenized

@@ -74,3 +74,28 @@ export class StatusList {
     };
   }
 }
+
+/**
+ * Assemble the UNSIGNED BitstringStatusListCredential envelope for a status list.
+ *
+ * The delivery layer and the conformance suite both used to build this object inline, byte
+ * for byte; centralizing it here keeps the two in lockstep and gives the signer (#27) a
+ * single shape to sign. The result carries no `proof` -- callers attach a DataIntegrity
+ * proof via `LdpIssuer.sign` before publishing, so a verifier caching the list offline
+ * trusts the issuer key rather than TLS at fetch time.
+ */
+export function unsignedStatusListCredential(params: {
+  id: string;
+  issuerDid: string;
+  list: StatusList;
+  purpose?: 'revocation' | 'suspension';
+}): Record<string, unknown> {
+  return {
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    id: params.id,
+    type: ['VerifiableCredential', 'BitstringStatusListCredential'],
+    issuer: params.issuerDid,
+    validFrom: new Date().toISOString(),
+    credentialSubject: params.list.toCredentialSubject(params.id, params.purpose),
+  };
+}

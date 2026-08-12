@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
+import { Controller, Get, Header, NotFoundException, Param } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
 
 /**
@@ -28,20 +28,29 @@ export class WellKnownController {
     return doc;
   }
 
-  /** Published revocation list as a signed-list-ready JSON, e.g. /.well-known/status/ng.json */
+  /**
+   * Published revocation list as a SIGNED BitstringStatusListCredential,
+   * e.g. /.well-known/status/ng.json (#27).
+   *
+   * The list is signed with the issuer key, not served as bare JSON. A verifier syncs this
+   * snapshot and checks revocation offline against it, so the cached artifact itself must be
+   * self-authenticating -- TLS only protects it in flight, not at rest in the verifier's
+   * cache. The DID document already publishes the Multikey this proof's verificationMethod
+   * names, so no new trust material is introduced.
+   *
+   * Signing is cached by the publisher and only re-run when the list content changes, so
+   * this public, unauthenticated endpoint never re-invokes the issuer key (HSM/KMS) on a
+   * plain poll. The Cache-Control header lets verifiers and any CDN cache the snapshot too.
+   */
   @Get('status/:file')
+  @Header('Cache-Control', 'public, max-age=300')
   async status(@Param('file') file: string) {
     const countryCode = file.replace(/\.json$/i, '');
     const cfg = this.platform.getConfig(countryCode);
     if (!cfg) throw new NotFoundException('Unknown country');
     const list = await this.platform.getStore().loadStatusList(cfg.countryCode);
-    return {
-      '@context': ['https://www.w3.org/ns/credentials/v2'],
-      id: this.platform.statusListUrl(cfg),
-      type: ['VerifiableCredential', 'BitstringStatusListCredential'],
-      issuer: cfg.credential.issuerDid,
-      validFrom: new Date().toISOString(),
-      credentialSubject: list.toCredentialSubject(this.platform.statusListUrl(cfg)),
-    };
+    return this.platform
+      .getStatusListPublisher()
+      .publish(this.platform.statusListUrl(cfg), cfg.credential.issuerDid, list);
   }
 }
