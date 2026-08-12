@@ -12,7 +12,11 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "incremental": true,
+    // No "incremental" here, deliberately. nest-cli.json sets deleteOutDir, so every build
+    // removes dist/ before compiling; an incremental build then consults .tsbuildinfo, finds
+    // no sources changed, and emits nothing -- leaving dist/ EMPTY while tsc exits 0. The
+    // failure is silent, and surfaces much later as "Cannot find module '../dist/app.module'"
+    // from the e2e harness. The cache buys nothing once the output is deleted anyway.
     "skipLibCheck": true,
     "strict": true,
     "strictNullChecks": true,
