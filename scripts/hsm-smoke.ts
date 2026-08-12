@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
-import { jwtVerify, importJWK, KeyLike } from 'jose';
+import { jwtVerify, importJWK, CryptoKey } from 'jose';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { Pkcs11Signer, isSessionError } from '../src/core/credentials/signers/pkcs11-signer';
 import { buildDidWebDocument, didKeyFromJwk } from '../src/core/credentials/did';
@@ -191,7 +191,7 @@ async function main() {
     .credential as string;
   check('a VC-JWT is issued with the key in the HSM', typeof jwt === 'string');
 
-  const verifyKey = (await importJWK(key.publicJwk, 'EdDSA')) as KeyLike;
+  const verifyKey = (await importJWK(key.publicJwk, 'EdDSA')) as CryptoKey;
   let jwtVerified = false;
   try {
     await jwtVerify(jwt, verifyKey, { issuer: ISSUER_DID });

@@ -15,7 +15,7 @@
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { generateKeyPairSync, sign as cryptoSign, createPublicKey, verify as cryptoVerify, KeyObject } from 'node:crypto';
-import { jwtVerify, importJWK, KeyLike } from 'jose';
+import { jwtVerify, importJWK, CryptoKey } from 'jose';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { AwsKmsSigner, ed25519JwkFromDer, MAX_RAW_MESSAGE_BYTES } from '../src/core/credentials/signers/aws-kms-signer';
 import { signRequest, sigv4Timestamps } from '../src/core/credentials/signers/aws-sigv4';
@@ -326,7 +326,7 @@ async function main() {
     Buffer.byteLength(signingInput) < MAX_RAW_MESSAGE_BYTES,
   );
 
-  const verifyKey = (await importJWK(key.publicJwk, 'EdDSA')) as KeyLike;
+  const verifyKey = (await importJWK(key.publicJwk, 'EdDSA')) as CryptoKey;
   let verified = false;
   try {
     await jwtVerify(jwt, verifyKey, { issuer: ISSUER_DID });

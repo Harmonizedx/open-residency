@@ -1,4 +1,4 @@
-import { jwtVerify, type KeyLike } from 'jose';
+import { jwtVerify, type CryptoKey } from 'jose';
 import { Operator, OperatorRole, isOperatorRole } from './operator';
 import { signJwt, type Signer } from '../credentials/signer';
 
@@ -19,7 +19,7 @@ const AUDIENCE = 'openresidency-operator';
 export class OperatorSessions {
   constructor(
     private signer: Signer,
-    private publicKey: KeyLike,
+    private publicKey: CryptoKey,
     private issuer: string,
     private ttlSeconds = 8 * 3600,
   ) {}

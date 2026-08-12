@@ -19,7 +19,7 @@
  * source shows, only a live-device test would catch it; this pins everything up to that
  * line.
  */
-import { SignJWT, generateKeyPair, exportJWK, decodeJwt, KeyLike, JWK } from 'jose';
+import { SignJWT, generateKeyPair, exportJWK, decodeJwt, CryptoKey, JWK } from 'jose';
 import { createPublicKey } from 'node:crypto';
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { ProviderRegistry } from '../src/core/foundational/registry';
@@ -93,7 +93,7 @@ function makeIssuer(cfg: CountryConfig) {
  * JWK header (Inji sends did:jwk-resolvable inline keys, not a kid), and -- per Inji's
  * client -- a non-standard `exp`.
  */
-async function injiProof(opts: { privateKey: KeyLike; publicJwk: JWK; nonce: string }): Promise<string> {
+async function injiProof(opts: { privateKey: CryptoKey; publicJwk: JWK; nonce: string }): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ nonce: opts.nonce })
     .setProtectedHeader({ alg: 'RS256', typ: 'openid4vci-proof+jwt', jwk: opts.publicJwk as any })

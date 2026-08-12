@@ -197,7 +197,11 @@ async function main() {
   process.env.HEALTH_CLIENT_SECRET = CLIENT_SECRET;
   process.env.OIDC_COOKIE_SECRET = 'oidc-cookie-secret-for-tests-0123456789';
 
-  const kp = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+  // extractable: true because the private key is exported to a JWK on the next line and
+  // handed to the provider as its signing key. jose 6 generates non-extractable keys by
+  // default -- under jose 5 this call happened to yield an exportable one, so the omission
+  // was latent rather than correct. Every other call site in the suite already says so.
+  const kp = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
   const oidcJwk: JWK = { ...(await exportJWK(kp.privateKey)), kid: 'oidc-key-1', alg: 'EdDSA', use: 'sig' };
 
   const config = await buildOidcConfiguration(stubPlatform(oidcJwk));

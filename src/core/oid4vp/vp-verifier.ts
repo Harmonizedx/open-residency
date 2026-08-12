@@ -1,4 +1,4 @@
-import { JWK, KeyLike, decodeProtectedHeader, errors, importJWK, jwtVerify } from 'jose';
+import { JWK, CryptoKey, decodeProtectedHeader, errors, importJWK, jwtVerify } from 'jose';
 import { createPublicKey, KeyObject } from 'node:crypto';
 import { resolveHolderDid } from '../credentials/did';
 import { LdpIssuer, LdpCredential } from '../credentials/ldp-issuer';
@@ -80,9 +80,9 @@ export class VpVerifier {
       return { valid: false, reason: 'MALFORMED_VP', checkedRevocation: false };
     }
 
-    let holderKey: KeyLike;
+    let holderKey: CryptoKey;
     try {
-      holderKey = (await importJWK(resolveHolderDid(holderDid), alg)) as KeyLike;
+      holderKey = (await importJWK(resolveHolderDid(holderDid), alg)) as CryptoKey;
     } catch {
       return { valid: false, reason: 'UNRESOLVABLE_HOLDER_DID', checkedRevocation: false, holderDid };
     }

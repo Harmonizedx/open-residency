@@ -1,4 +1,4 @@
-import { jwtVerify, importJWK, errors, JWK, KeyLike } from 'jose';
+import { jwtVerify, importJWK, errors, JWK, CryptoKey } from 'jose';
 import { StatusList } from './status-list';
 
 /**
@@ -43,7 +43,7 @@ export interface VerificationOutcome {
 }
 
 export class VcVerifier {
-  private keyCache = new Map<string, KeyLike>();
+  private keyCache = new Map<string, CryptoKey>();
   constructor(private trust: Map<string, TrustedIssuer>) {}
 
   /**
@@ -66,19 +66,19 @@ export class VcVerifier {
    * into a slower genuine mismatch. When there is no `kid` -- older credentials, and
    * other issuers' -- we fall back to trying every key we hold for that issuer.
    */
-  private async keysFor(did: string, kid?: string): Promise<KeyLike[]> {
+  private async keysFor(did: string, kid?: string): Promise<CryptoKey[]> {
     const issuer = this.trust.get(did);
     if (!issuer) return [];
     const named = kid ? issuer.publicJwks.filter((j) => j.kid === kid) : [];
     const candidates = named.length ? named : issuer.publicJwks;
 
-    const keys: KeyLike[] = [];
+    const keys: CryptoKey[] = [];
     for (const jwk of candidates) {
       const cacheKey = `${did}#${jwk.kid ?? ''}`;
       let key = this.keyCache.get(cacheKey);
       if (!key) {
         try {
-          key = (await importJWK(jwk, 'EdDSA')) as KeyLike;
+          key = (await importJWK(jwk, 'EdDSA')) as CryptoKey;
         } catch {
           continue; // a malformed entry in the trust list must not sink the good ones
         }

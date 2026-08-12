@@ -15,7 +15,7 @@
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import { generateKeyPairSync, sign as cryptoSign, createPublicKey, KeyObject } from 'node:crypto';
-import { jwtVerify, importJWK, KeyLike } from 'jose';
+import { jwtVerify, importJWK, CryptoKey } from 'jose';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { GcpKmsSigner, crc32c, ed25519JwkFromPem } from '../src/core/credentials/signers/gcp-kms-signer';
 import { VcIssuer } from '../src/core/credentials/vc-issuer';
@@ -278,7 +278,7 @@ async function main() {
 
   const jwt = (await residency.mintForHolder(CONFIG, record, holderDid, 'jwt_vc_json'))
     .credential as string;
-  const verifyKey = (await importJWK(key.publicJwk, 'EdDSA')) as KeyLike;
+  const verifyKey = (await importJWK(key.publicJwk, 'EdDSA')) as CryptoKey;
   let verified = false;
   try {
     await jwtVerify(jwt, verifyKey, { issuer: ISSUER_DID });
