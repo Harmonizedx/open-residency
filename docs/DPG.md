@@ -27,12 +27,15 @@ disqualify it as a DPG.
 
 ### 1. Relevance to Sustainable Development Goals
 
-Primary: **SDG 16.9** (legal identity for all). Secondary: **SDGs 1, 3 and 10** through
-inclusive access to health, tax, permits and subsidy services. Residency credentials unlock
-service access for subnational populations who hold a national ID but have no verifiable
-relationship with the jurisdiction that actually serves them.
+Primary: **SDG 16.9** (legal identity for all). Supporting: **SDGs 1, 5, 8, 10 and 16** —
+inclusive service access, a consent-gated gender attribute, formal-economy participation,
+reduced inequalities via offline/USSD reach and non-discrimination, and accountable
+institutions through a tamper-evident audit trail. Residency credentials unlock service
+access for subnational populations who hold a national ID but have no verifiable relationship
+with the jurisdiction that actually serves them.
 
-Evidence: `README.md`, `docs/ARCHITECTURE.md`.
+Each SDG is anchored to a concrete capability in **`docs/SDG.md`** (the authoritative list).
+Evidence: `docs/SDG.md`, `README.md`, `docs/ARCHITECTURE.md`.
 
 ### 2. Use of an approved open licence
 
