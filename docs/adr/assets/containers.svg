@@ -1,0 +1,26 @@
+<svg viewBox="0 0 960 440" role="img" aria-label="C4 Level 2 — containers" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
+  <defs><marker id="ah2" markerWidth="9" markerHeight="9" refX="6.4" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="#96a0ae"/></marker></defs>
+  <g fill="none" stroke="#b7c0cc" stroke-width="1.6" marker-end="url(#ah2)">
+    <path d="M184,126 C222,130 252,140 280,150"/>
+    <path d="M184,286 C222,270 250,236 280,222"/>
+    <path d="M420,264 L420,314"/>
+    <path d="M558,178 C632,184 682,188 736,192"/>
+  </g>
+  <g font-size="12.5" fill="#12233f" text-anchor="middle">
+    <g><rect x="205" y="112" width="60" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="235" y="127">HTTPS</text></g>
+    <g><rect x="186" y="228" width="94" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="233" y="243">HTTPS / OIDC</text></g>
+    <g><rect x="368" y="279" width="104" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="420" y="294">SQL (Prisma)</text></g>
+    <g><rect x="598" y="150" width="138" height="21" rx="5" fill="#fff" stroke="#e2e7ee"/><text x="667" y="165">verify · REST / SOAP</text></g>
+  </g>
+  <g><rect x="24" y="90" width="160" height="72" rx="10" fill="#e8edfd" stroke="#2f54c9"/><text x="104" y="131" text-anchor="middle" fill="#1a2b6b" font-size="14" font-weight="680">Operator</text></g>
+  <g><rect x="24" y="250" width="160" height="72" rx="10" fill="#e8edfd" stroke="#2f54c9"/><text x="104" y="291" text-anchor="middle" fill="#1a2b6b" font-size="14" font-weight="680">Citizen / Wallet</text></g>
+  <rect x="250" y="70" width="340" height="210" rx="14" fill="none" stroke="#9aa4b2" stroke-dasharray="6 4"/>
+  <text x="270" y="94" fill="#5b6674" font-size="11.5" font-weight="680" font-family="ui-monospace,SFMono-Regular,Menlo,monospace">OpenResidency — one deployable</text>
+  <g><rect x="282" y="112" width="276" height="150" rx="11" fill="#dcf4ef" stroke="#0f8f7e" stroke-width="2"/><text x="420" y="150" text-anchor="middle" fill="#094f45" font-size="14.5"><tspan x="420" font-weight="700">Residency Platform</tspan><tspan x="420" dy="20" font-size="11.5" fill="#12665b">NestJS · single process / container</tspan><tspan x="420" dy="16" font-size="11.5" fill="#12665b">modular monolith —</tspan><tspan x="420" dy="16" font-size="11.5" fill="#12665b">bounded-context modules inside</tspan></text></g>
+  <g>
+    <path d="M325,330 a95,15 0 0 1 190,0 v52 a95,15 0 0 1 -190,0 z" fill="#eceff3" stroke="#5b6674"/>
+    <ellipse cx="420" cy="330" rx="95" ry="15" fill="#eceff3" stroke="#5b6674"/>
+    <text x="420" y="354" text-anchor="middle" fill="#2b3340" font-size="12.5"><tspan x="420" font-weight="660">PostgreSQL</tspan><tspan x="420" dy="15" font-size="10.5" fill="#4a5563">registry · status list · consent · audit</tspan></text>
+  </g>
+  <g><rect x="738" y="152" width="190" height="80" rx="10" fill="#eef1f5" stroke="#8b96a6" stroke-dasharray="5 3"/><text x="833" y="187" text-anchor="middle" fill="#3a424e" font-size="13.5"><tspan x="833" font-weight="680">Foundational ID source</tspan><tspan x="833" dy="17" font-size="11" fill="#5b6470">(external)</tspan></text></g>
+</svg>
