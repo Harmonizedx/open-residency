@@ -215,20 +215,24 @@ jobs:
           path: sbom.cyclonedx.json
           if-no-files-found: error
 
-      # Blocking gate, deliberately set at CRITICAL on runtime dependencies only.
+      # Blocking gate on runtime dependencies, set at MODERATE.
       #
-      # This is lower than it should be, and the honest reason is that the tree does not pass
-      # at `high` today: undici (via jsonld), lodash (via @nestjs/config), and multer plus
-      # @nestjs/platform-express all carry high-severity advisories, and every fix is a
-      # semver-major bump. Setting the gate at `high` would fail the first build and be
-      # switched off within a week, which is worse than a gate set where it holds.
+      # It sat at `critical` while the tree could not pass at `high`: undici (via jsonld),
+      # lodash (via @nestjs/config), and multer with @nestjs/platform-express all carried
+      # high-severity advisories whose only fixes were semver-major bumps. Those majors have
+      # since landed -- jsonld@9, the NestJS 11 family, js-yaml and jose -- and the tree now
+      # reports zero advisories at every severity, dev included.
       #
-      # `--omit=dev` because this gate is about what a deployed government instance runs. The
-      # dev-only advisories are reported in the step below rather than hidden.
+      # Set at `moderate` rather than `high` deliberately. With the tree clean, the useful
+      # question is no longer "does it hold today" but "what may pass unnoticed tomorrow", and
+      # a moderate-severity advisory reaching a government deployment is worth stopping a build
+      # for. If this proves too tight in practice, loosen it in a commit that says why --
+      # do not disable the step.
       #
-      # Raise this to `high` once the four majors land -- see the implementation backlog.
-      - name: Audit runtime dependencies (critical fails the build)
-        run: npm audit --omit=dev --audit-level=critical
+      # `--omit=dev` because this gate is about what a deployed instance runs. Dev-only
+      # advisories are reported in the step below rather than hidden.
+      - name: Audit runtime dependencies (moderate fails the build)
+        run: npm audit --omit=dev --audit-level=moderate
 
       # Full picture, non-blocking: every severity including dev-only. Dependabot opens the
       # PRs; this makes the standing debt visible on every run so it cannot quietly grow.

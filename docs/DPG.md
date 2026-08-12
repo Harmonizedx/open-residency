@@ -155,14 +155,17 @@ Secure development: Dependabot covers the application, the SDK and the GitHub Ac
 themselves; CodeQL runs `security-and-quality` on every pull request and weekly; a CycloneDX
 SBOM is generated from the installed tree and published as a build artifact.
 
-**Stated plainly:** the dependency audit gate is set at *critical* on runtime dependencies,
-not *high*. The tree does not pass at `high` today — `undici` (via `jsonld`), `lodash` (via
-`@nestjs/config`), and `multer` with `@nestjs/platform-express` carry high-severity
-advisories, and every available fix is a semver-major upgrade. Those upgrades are tracked and
-must land before a production deployment; `jsonld` in particular affects JSON-LD context
-processing, so it cannot be bumped without re-running the full credential conformance suite. A
-gate set where it currently holds, with the debt reported on every run, is more honest than
-one set where it would fail on the first build and be disabled by the following week.
+**Stated plainly:** the dependency audit gate fails the build at *moderate* severity on
+runtime dependencies, and the tree currently reports **zero advisories at every severity,
+development dependencies included**.
+
+That was not true until recently, and the history is worth stating. The gate sat at *critical*
+because `undici` (via `jsonld`), `lodash` (via `@nestjs/config`) and `multer` with
+`@nestjs/platform-express` carried high-severity advisories whose only fixes were semver-major
+upgrades — `jsonld` in particular affects JSON-LD context processing and could not be bumped
+without re-running the full credential conformance suite. Those upgrades have landed
+(`jsonld@9`, the NestJS 11 family, `js-yaml`, `jose`), each verified against that suite, and
+the gate was raised once the tree could hold it rather than before.
 
 Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
 `.github/workflows/codeql.yml`, `.github/dependabot.yml`, `SECURITY.md`, `docs/INTEROP.md`.
@@ -255,8 +258,8 @@ sections above — answer the form from those sections, not from the old caveat:
   privacy requirements are met. State the two real limits rather than omitting them: the sweep
   covers residency records only, and nothing schedules it.
 - **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
-  analysis all run in CI. The audit gate sits at *critical* pending four semver-major
-  upgrades — see indicator 8.
+  analysis all run in CI. The audit gate fails the build at *moderate* on runtime
+  dependencies, and the tree reports zero advisories at every severity.
 
 ## Attachments to reference
 
@@ -273,8 +276,8 @@ sections above — answer the form from those sections, not from the old caveat:
 - [x] Retention enforcement (`POST /residency/retention/sweep`, dry-run by default).
 - [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
 - [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
-      CodeQL). Note the audit gate sits at *critical* pending four semver-major upgrades —
-      see indicator 8.
+      CodeQL). The audit gate fails the build at *moderate* on runtime dependencies, with
+      zero advisories outstanding at any severity.
 - [x] No dead documentation links. Indicator 5 is a documentation indicator, and a broken link
       in the README's front-door table is the first thing a reviewer clicks. Every `docs/` link
       in the repository now resolves.
