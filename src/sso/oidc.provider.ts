@@ -1,4 +1,4 @@
-import type { Configuration, ClientMetadata } from 'oidc-provider';
+import type { Configuration, ClientMetadata } from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { PlatformService } from '../platform/platform.service';
 import { RelyingPartyConfig } from '../core/config/country-config';
 import { pairwiseSubject } from '../core/sso/pairwise';

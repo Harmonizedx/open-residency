@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Inject, Post, Query, Req, Res } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
-import type Provider from 'oidc-provider';
+import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
 import QRCode from 'qrcode';
 import { PlatformService } from '../platform/platform.service';
 import { AuthStartDto, OtpVerifyDto } from './dto/interaction.dto';
