@@ -1,5 +1,5 @@
 import { sign as cryptoSign, KeyObject } from 'node:crypto';
-import { base64url, JWK, KeyLike } from 'jose';
+import { base64url, JWK, CryptoKey } from 'jose';
 
 /**
  * The signing port.
@@ -8,7 +8,7 @@ import { base64url, JWK, KeyLike } from 'jose';
  * consent receipts, operator sessions -- goes through `sign()`. The point of the
  * indirection is custody: a production issuer key belongs in an HSM or a cloud KMS and
  * must never be exported into this process. A remote signer cannot satisfy `jose`'s
- * `.sign(KeyLike)` API, because that API assumes local key material, so the codebase
+ * `.sign(CryptoKey)` API, because that API assumes local key material, so the codebase
  * signs bytes through this interface instead and assembles the JWS itself (below).
  *
  * The contract is deliberately the smallest thing every backend can honour:
@@ -53,7 +53,7 @@ export class LocalSigner implements Signer {
   constructor(
     readonly kid: string,
     readonly publicJwk: JWK,
-    private readonly privateKey: KeyLike,
+    private readonly privateKey: CryptoKey,
   ) {}
 
   async sign(data: Uint8Array): Promise<Uint8Array> {

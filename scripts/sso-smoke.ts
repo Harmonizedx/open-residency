@@ -20,7 +20,7 @@
  *   - the challenge locks after too many wrong guesses;
  *   - requesting a code for a non-existent resident is a silent no-op (no enumeration).
  */
-import { SignJWT, generateKeyPair, exportJWK, KeyLike, JWK } from 'jose';
+import { SignJWT, generateKeyPair, exportJWK, CryptoKey, JWK } from 'jose';
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { ProviderRegistry } from '../src/core/foundational/registry';
 import { KeyStore } from '../src/core/credentials/keystore';
@@ -77,7 +77,7 @@ class CapturingSender implements OtpSender {
 }
 
 async function buildVp(opts: {
-  privateKey: KeyLike;
+  privateKey: CryptoKey;
   holderDid: string;
   credential: string | LdpCredential;
   nonce: string;

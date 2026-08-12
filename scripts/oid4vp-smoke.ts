@@ -17,7 +17,7 @@
  *   - a presentation carrying a stale nonce
  *   - a REVOKED credential
  */
-import { SignJWT, generateKeyPair, exportJWK, jwtVerify, KeyLike, JWK } from 'jose';
+import { SignJWT, generateKeyPair, exportJWK, jwtVerify, CryptoKey, JWK } from 'jose';
 import { createPublicKey } from 'node:crypto';
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { ProviderRegistry } from '../src/core/foundational/registry';
@@ -67,7 +67,7 @@ const CONFIG: CountryConfig = parseCountryConfig({
 
 /** A wallet builds a Verifiable Presentation over the credential it holds. */
 async function buildVp(opts: {
-  privateKey: KeyLike;
+  privateKey: CryptoKey;
   holderDid: string;
   credential: string | LdpCredential;
   nonce: string;
@@ -137,7 +137,7 @@ async function main() {
 
   /** Obtain a wallet-bound credential over OpenID4VCI. */
   async function issueTo(
-    walletKey: { privateKey: KeyLike; publicJwk: JWK },
+    walletKey: { privateKey: CryptoKey; publicJwk: JWK },
     residentId: string,
     format: 'ldp_vc' | 'jwt_vc_json',
   ): Promise<string | LdpCredential> {

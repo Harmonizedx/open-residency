@@ -13,7 +13,7 @@
  * pre-authorized code, a brute-forced PIN, an unbound credential request, and a proof
  * minted for a different audience.
  */
-import { SignJWT, generateKeyPair, exportJWK, importJWK, KeyLike, JWK } from 'jose';
+import { SignJWT, generateKeyPair, exportJWK, importJWK, CryptoKey, JWK } from 'jose';
 import { createPublicKey } from 'node:crypto';
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { ProviderRegistry } from '../src/core/foundational/registry';
@@ -73,7 +73,7 @@ const CONFIG: CountryConfig = parseCountryConfig({
 
 /** Build the key proof a wallet signs. */
 async function makeProof(opts: {
-  privateKey: KeyLike;
+  privateKey: CryptoKey;
   publicJwk: JWK;
   alg: string;
   aud: string;
