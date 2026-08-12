@@ -3,8 +3,15 @@
  * ORCS §15 acceptance criteria — the conformance gate.
  *
  * ORCS-001 §15 lists nine acceptance criteria. This suite asserts them directly, so
- * "ORCS-conformant" becomes something the build decides rather than something a document
- * claims. It is the definition of done for the ORRA §14 migration.
+ * satisfying §15 becomes something the build decides rather than something a document claims.
+ *
+ * What this suite is NOT is a conformance certificate. ORCS §15 is a sample: nine acceptance
+ * criteria over a specification of sixteen sections covering entities, registries, state
+ * machines, closed vocabularies and interoperability obligations. Passing all nine means the
+ * sampled behaviours hold, not that the implementation conforms -- several tracked findings map
+ * to no criterion and are therefore invisible to this build. Say "all nine §15 criteria pass",
+ * never "ORCS-conformant", and keep the unmeasured findings in the tracker where a person has
+ * to look at them.
  *
  * IT IS EXPECTED TO FAIL TODAY. Five criteria fail outright and two partially, all traced to
  * findings in the gap analysis. A red suite that names exactly what is missing is worth more
@@ -376,8 +383,12 @@ async function main() {
   console.log(`\n== ORCS §15: ${pass} pass, ${partial} partial, ${fail} fail (of ${results.length}) ==`);
   console.log(
     fail === 0 && partial === 0
-      ? '\nORCS-conformant.\n'
-      : `\nNot ORCS-conformant. Open findings: ${[...new Set(results.filter((r) => r.finding).map((r) => r.finding))].join(', ')}\n`,
+      ? '\nAll nine ORCS §15 acceptance criteria pass.\n\n' +
+        'This is NOT a statement of ORCS conformance. §15 is a sample of the specification --\n' +
+        'nine acceptance criteria over sixteen sections of entities, registries, state machines,\n' +
+        'closed vocabularies and interoperability obligations. Findings that map to no criterion\n' +
+        'are not measured here at all; see the implementation tracker for those.\n'
+      : `\nORCS §15 not satisfied. Open findings: ${[...new Set(results.filter((r) => r.finding).map((r) => r.finding))].join(', ')}\n`,
   );
 
   // Exit 0 regardless: this suite reports conformance, it does not gate the build yet. It
