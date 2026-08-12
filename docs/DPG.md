@@ -177,7 +177,10 @@ Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
   `src/offline/offline.controller.ts`.
 - **Over-collection.** Mitigated by minimisation and tokenisation; see indicator 7.
 - **Issuer-key compromise.** Mitigated by HSM/KMS custody and revocation via the status list.
-- **Audit tampering.** Detectable via the hash chain; `GET /audit/verify` confirms integrity.
+- **Audit tampering.** Detectable via the hash chain; `GET /audit/verify` confirms integrity
+  and reports how many events have been redacted under an erasure request, so removal of
+  material is visible to an auditor rather than silent. Editing an event without redacting it
+  is still detected as tampering.
 - **Re-identification from published statistics.** Mitigated by the suppression described in
   indicator 6.
 - **Privileged insider access.** Mitigated by per-operator identity, roles, and audited reads.
@@ -281,4 +284,10 @@ sections above — answer the form from those sections, not from the old caveat:
 - [x] No dead documentation links. Indicator 5 is a documentation indicator, and a broken link
       in the README's front-door table is the first thing a reviewer clicks. Every `docs/` link
       in the repository now resolves.
-- [ ] This document re-read end to end, so every claim still matches the code.
+- [x] This document re-read end to end, so every claim still matches the code. Verified
+      2026-08-13 against `main`: every cited path resolves, every claimed endpoint is a real
+      route, indicator 6's suppression numbers match `aggregate.ts`, indicator 8's CI list
+      matches the workflows, and indicator 9's mechanisms all exist. One drift found and
+      fixed (the audit-verify response gained a `redacted` field the spec did not document).
+      Re-run this pass before any later submission — five claim-level drifts were found this
+      cycle, and none of them was catchable by a test.
