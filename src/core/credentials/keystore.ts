@@ -1,4 +1,4 @@
-import { generateKeyPair, exportJWK, importJWK, JWK, KeyLike } from 'jose';
+import { generateKeyPair, exportJWK, importJWK, JWK, CryptoKey } from 'jose';
 import { LocalSigner, Signer } from './signer';
 
 /**
@@ -22,21 +22,21 @@ export interface IssuerKey {
    * Present only when key material is in-process: dev keys, or a JWK supplied via env.
    * Absent for HSM/KMS-backed signers. Prefer `signer` for anything that signs.
    */
-  privateKey?: KeyLike;
-  publicKey: KeyLike;
+  privateKey?: CryptoKey;
+  publicKey: CryptoKey;
   publicJwk: JWK;
   signer: Signer;
 }
 
 export class KeyStore {
   static async fromJwk(privateJwk: JWK, kid: string): Promise<IssuerKey> {
-    const privateKey = (await importJWK(privateJwk, 'EdDSA')) as KeyLike;
+    const privateKey = (await importJWK(privateJwk, 'EdDSA')) as CryptoKey;
     const publicJwk: JWK = {
       kty: privateJwk.kty,
       crv: privateJwk.crv,
       x: privateJwk.x,
     };
-    const publicKey = (await importJWK(publicJwk, 'EdDSA')) as KeyLike;
+    const publicKey = (await importJWK(publicJwk, 'EdDSA')) as CryptoKey;
     const withKid = { ...publicJwk, kid };
     return {
       kid,
@@ -52,7 +52,7 @@ export class KeyStore {
    * enters this process, so only the public material is materialised here.
    */
   static async fromSigner(signer: Signer): Promise<IssuerKey> {
-    const publicKey = (await importJWK(signer.publicJwk, 'EdDSA')) as KeyLike;
+    const publicKey = (await importJWK(signer.publicJwk, 'EdDSA')) as CryptoKey;
     return {
       kid: signer.kid,
       publicKey,

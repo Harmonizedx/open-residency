@@ -1,4 +1,4 @@
-import { JWK, KeyLike, decodeProtectedHeader, importJWK, jwtVerify } from 'jose';
+import { JWK, CryptoKey, decodeProtectedHeader, importJWK, jwtVerify } from 'jose';
 import { holderDidFromJwk, publicPartOf, resolveHolderDid } from '../credentials/did';
 
 /**
@@ -143,9 +143,9 @@ export async function verifyHolderProof(
 
   const holderJwk = keyFromHeader(header);
 
-  let key: KeyLike;
+  let key: CryptoKey;
   try {
-    key = (await importJWK(holderJwk, alg)) as KeyLike;
+    key = (await importJWK(holderJwk, alg)) as CryptoKey;
   } catch {
     throw new HolderProofError('proof key is not a usable public key');
   }
