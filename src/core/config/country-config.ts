@@ -270,6 +270,16 @@ const federatedIssuerSchema = z.object({
    * closed, exactly as it does for our own credentials).
    */
   statusListUrl: z.string().url().optional(),
+  /**
+   * Accept this peer's status list unsigned. Off by default, and it should stay off.
+   *
+   * A revocation list cached without a verifiable proof is authenticated only by TLS to
+   * whatever host answered, so anyone able to spoof that host can serve a list that silently
+   * UN-REVOKES the peer's credentials. This exists for a peer still publishing bare JSON, and
+   * turning it on is a deliberate, per-peer, visible decision to trust transport instead of a
+   * signature.
+   */
+  allowUnsignedStatusList: z.boolean().default(false),
 });
 
 /**

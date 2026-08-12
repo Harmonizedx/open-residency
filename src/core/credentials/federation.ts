@@ -2,6 +2,7 @@
 import { JWK } from 'jose';
 import { TrustedIssuer } from './vc-verifier';
 import { StatusList } from './status-list';
+import { LdpCredential, LdpIssuer } from './ldp-issuer';
 import { VpTrustedIssuer, keyObjectFromJwk } from '../oid4vp/vp-verifier';
 
 /**
@@ -23,6 +24,19 @@ export interface FederatedIssuer {
   /** Public signing keys, current first then retired. Rotation-safe by construction. */
   publicJwks: JWK[];
   statusListUrl?: string;
+  /**
+   * Accept this peer's status list even though it carries no verifiable proof.
+   *
+   * Off by default, and it should stay off. A status list is the artifact that says which of
+   * a peer's credentials have been revoked; cached unsigned, it is authenticated only by TLS
+   * to whatever host answered, so anyone able to spoof that host can serve a list that
+   * silently UN-REVOKES credentials this deployment would otherwise refuse.
+   *
+   * The escape hatch exists for one situation: a peer still running a build that publishes
+   * bare JSON. Turning it on is a deliberate, per-peer, visible-in-config decision to trust
+   * transport instead of a signature — never a default, and never global.
+   */
+  allowUnsignedStatusList?: boolean;
 }
 
 /** Trust-map entry (VC-JWT verifier) for a federated peer. */
@@ -88,7 +102,7 @@ export interface PeerStatusSyncResult {
   did: string;
   name?: string;
   url?: string;
-  status: 'synced' | 'not-configured' | 'unreachable' | 'unparseable';
+  status: 'synced' | 'not-configured' | 'unreachable' | 'unparseable' | 'unsigned' | 'untrusted';
   detail?: string;
 }
 
@@ -128,6 +142,17 @@ export async function syncFederatedStatusLists(
       results.push({ ...base, status: 'unreachable', detail: (e as Error).message });
       continue;
     }
+    // Authenticate the document BEFORE parsing anything out of it.
+    //
+    // A revocation list is the one artifact where believing a forgery fails in the dangerous
+    // direction: a forged list does not grant access it should not, it RESTORES access that
+    // was deliberately taken away. Signature first, bitstring second.
+    const authenticity = await verifyPublishedStatusList(doc, peer);
+    if (authenticity !== 'ok') {
+      results.push({ ...base, status: authenticity, detail: statusListRejectionDetail(authenticity) });
+      continue;
+    }
+
     const list = statusListFromPublished(doc);
     if (!list) {
       results.push({ ...base, status: 'unparseable' });
@@ -144,4 +169,49 @@ export async function syncFederatedStatusLists(
     results.push({ ...base, status: 'synced' });
   }
   return results;
+}
+
+/**
+ * Is this published status list genuinely the peer's?
+ *
+ * Three checks, in the order that fails cheapest first:
+ *
+ *   1. A proof must be present. Absent one, the artifact is authenticated only by TLS to
+ *      whatever host answered -- and an attacker who can serve the URL simply omits the
+ *      proof. Rejecting unsigned lists is what makes the signature meaningful; accepting
+ *      them makes it decorative.
+ *   2. The credential must name the peer as issuer. Otherwise a peer could relay a list
+ *      signed by some other party.
+ *   3. The proof must verify against the keys WE hold for that peer, not against a key the
+ *      document supplies. A document that carries its own trust anchor proves nothing.
+ *
+ * Verification uses the same `LdpIssuer.verify` that checks a peer's Data Integrity
+ * credentials, against the same rotation-tolerant key list, so a peer rotating keys does not
+ * silently stop syncing.
+ */
+async function verifyPublishedStatusList(
+  doc: unknown,
+  peer: FederatedIssuer,
+): Promise<'ok' | 'unsigned' | 'untrusted'> {
+  const credential = doc as LdpCredential & { issuer?: unknown };
+  const hasProof = !!(credential && typeof credential === 'object' && credential.proof);
+
+  if (!hasProof) return peer.allowUnsignedStatusList ? 'ok' : 'unsigned';
+
+  const issuer = typeof credential.issuer === 'string' ? credential.issuer : undefined;
+  if (issuer && issuer !== peer.did) return 'untrusted';
+
+  const keys = peer.publicJwks.map(keyObjectFromJwk);
+  try {
+    return (await LdpIssuer.verify(credential, keys)) ? 'ok' : 'untrusted';
+  } catch {
+    return 'untrusted';
+  }
+}
+
+function statusListRejectionDetail(status: 'unsigned' | 'untrusted'): string {
+  return status === 'unsigned'
+    ? 'the published list carries no proof; set allowUnsignedStatusList on this peer only if ' +
+        'you accept transport-only authentication for its revocations'
+    : 'the proof did not verify against the keys held for this peer';
 }

@@ -148,6 +148,9 @@ Stated because a privacy notice that omits them is worth less than one that does
 - **Assurance values are not governed.** `assuranceLevel` is a bare string from a fixed
   vocabulary with no registry to resolve it against. It is released over SSO, so relying
   parties should gate on the standard `acr` claim instead. Tracked as G-02.
+- **A federated peer publishing an unsigned status list will not sync**, so presentations of
+  its credentials fail closed until it publishes a signed one or the deployment explicitly
+  opts in per peer. This is deliberate — see `docs/INTEROP.md`.
 - **Retention covers residency records only.** Consent records and audit events have no
   automatic expiry, and no scheduler runs the sweep — an operator triggers it.
 
