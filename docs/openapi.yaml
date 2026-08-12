@@ -521,6 +521,13 @@ paths:
                 properties:
                   ok: { type: boolean }
                   length: { type: integer }
+                  redacted:
+                    type: integer
+                    description: >-
+                      How many events have had personal data redacted under an erasure
+                      request. Reported rather than hidden: a redacted event's hash is not
+                      recomputable, so the chain verifies its LINK but not its content, and
+                      an auditor is entitled to know how much of the log that applies to.
                   brokenAtSeq: { type: integer, nullable: true }
   /admin/residents:
     get:
