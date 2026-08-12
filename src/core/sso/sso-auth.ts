@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Oid4vpService } from '../oid4vp/oid4vp-service';
 import { ResidencyStore } from '../residency/ports';
 import { OtpService } from './otp';

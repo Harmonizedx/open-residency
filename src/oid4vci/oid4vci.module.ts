@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Module } from '@nestjs/common';
 import { Oid4vciController, Oid4vciMetadataController } from './oid4vci.controller';
 

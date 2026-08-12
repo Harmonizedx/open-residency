@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { JWK, CryptoKey, decodeProtectedHeader, errors, importJWK, jwtVerify } from 'jose';
 import { createPublicKey, KeyObject } from 'node:crypto';
 import { resolveHolderDid } from '../credentials/did';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { generateKeyPair, exportJWK, importJWK, JWK, CryptoKey } from 'jose';
 import { LocalSigner, Signer } from './signer';
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Allow, IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { IsStringRecord } from '../../common/dto/is-string-record.validator';
 import { ApplicantBinding } from '../../core/proofing/binding';

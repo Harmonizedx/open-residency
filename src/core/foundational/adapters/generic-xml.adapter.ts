@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import axios, { AxiosInstance } from 'axios';
 import {
   FoundationalProvider,

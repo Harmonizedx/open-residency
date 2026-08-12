@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { Configuration, ClientMetadata } from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { PlatformService } from '../platform/platform.service';
 import { RelyingPartyConfig } from '../core/config/country-config';

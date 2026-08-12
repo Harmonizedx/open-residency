@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Persistence for the short-lived state an OpenID4VCI issuance needs: the credential
  * offer, the one-time pre-authorized code, and the nonces a wallet must sign over.

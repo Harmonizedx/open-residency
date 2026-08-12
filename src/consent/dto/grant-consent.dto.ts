@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 /** Request body for `POST /consent/grant`. */

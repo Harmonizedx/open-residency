@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createHash, verify as cryptoVerify, KeyObject } from 'node:crypto';
 import * as jsonld from 'jsonld';
 import { JWK } from 'jose';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Message delivery: getting a one-time code or a status notice to a citizen's phone.
  *

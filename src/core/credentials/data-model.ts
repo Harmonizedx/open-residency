@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * The normative requirements of the W3C Verifiable Credentials Data Model 2.0.
  *

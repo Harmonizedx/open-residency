@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { sign as cryptoSign, KeyObject } from 'node:crypto';
 import { base64url, JWK, CryptoKey } from 'jose';
 

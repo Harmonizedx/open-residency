@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 

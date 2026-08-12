@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { JWK } from 'jose';
 import { base58btc, base58btcDecode } from './base58';
 

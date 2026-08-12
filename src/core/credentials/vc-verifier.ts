@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { jwtVerify, importJWK, errors, JWK, CryptoKey } from 'jose';
 import { StatusList } from './status-list';
 

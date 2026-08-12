@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Server-rendered HTML for the sign-in and consent steps of the OIDC flow.
  *

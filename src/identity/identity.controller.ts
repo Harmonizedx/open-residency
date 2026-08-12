@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Body, Controller, NotFoundException, Post } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
 import { NormalizedIdentity } from '../core/foundational/types';

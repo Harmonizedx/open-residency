@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import axios from 'axios';
 import { ContactDirectory } from './types';

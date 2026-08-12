@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Body, Controller, HttpCode, HttpException, Post, UseGuards } from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';

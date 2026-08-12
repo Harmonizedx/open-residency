@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /**
  * Framework-agnostic contracts for foundational identity verification.
  *

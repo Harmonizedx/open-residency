@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';

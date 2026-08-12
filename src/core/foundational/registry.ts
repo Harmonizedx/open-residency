@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { FoundationalProvider, ProviderConfig } from './types';
 import { GenericRestAdapter } from './adapters/generic-rest.adapter';
 import { GenericXmlAdapter } from './adapters/generic-xml.adapter';

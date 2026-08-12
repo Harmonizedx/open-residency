@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'node:crypto';
 

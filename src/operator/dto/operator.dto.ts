@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 // Fields are kept optional (not required) so the controller's own presence checks and their
