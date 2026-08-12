@@ -62,15 +62,15 @@ const foundationalSchema = z.object({
     .object({
       method: z.enum(['GET', 'POST']).default('POST'),
       path: z.string().default(''),
-      bodyTemplate: z.record(z.string()).optional(),
+      bodyTemplate: z.record(z.string(), z.string()).optional(),
       /** Raw request body (e.g. a SOAP envelope) with {identifiers.x} placeholders. */
       bodyRaw: z.string().optional(),
       /** Content-Type for a raw body; defaults to text/xml for XML providers. */
       contentType: z.string().optional(),
-      headers: z.record(z.string()).optional(),
+      headers: z.record(z.string(), z.string()).optional(),
     })
     .optional(),
-  responseMapping: z.record(z.string()).optional(),
+  responseMapping: z.record(z.string(), z.string()).optional(),
   verifiedFlag: z
     .object({ path: z.string(), equals: z.unknown().optional() })
     .optional(),
@@ -89,10 +89,14 @@ const foundationalSchema = z.object({
    * already declares it.
    */
   assuranceOnSuccess: z.enum(['none', 'basic', 'verified', 'high'], {
-    required_error:
-      'foundational.assuranceOnSuccess is required: state what a successful verification by ' +
-      'this provider proves (none | basic | verified | high). It is released to relying ' +
-      'parties as assurance_level, so it must not be inferred.',
+    // zod 4 collapsed required_error and invalid_type_error into one `error`, which is used
+    // for a MISSING value and an INVALID one alike. The wording has to hold for both: the
+    // old text said only "is required", which would now misreport a supplied-but-bogus value
+    // as an absent one, sending the deployer looking for a key that is already there.
+    error:
+      'foundational.assuranceOnSuccess must state what a successful verification by this ' +
+      'provider proves (none | basic | verified | high). It is released to relying parties ' +
+      'as assurance_level, so it is neither optional nor inferred.',
   }),
   /**
    * True only for providers whose verification authenticates the APPLICANT as the owner
@@ -102,7 +106,7 @@ const foundationalSchema = z.object({
    * proof the applicant owns the identity.
    */
   authenticatesApplicant: z.boolean().default(false),
-  extra: z.record(z.unknown()).optional(),
+  extra: z.record(z.string(), z.unknown()).optional(),
 });
 
 const bindingMethodEnum = z.enum([
@@ -148,7 +152,29 @@ const residencePolicySchema = z.object({
 
 export type ResidencePolicyConfig = z.infer<typeof residencePolicySchema>;
 
+/**
+ * Retention policy for this jurisdiction.
+ *
+ * Every period defaults to null -- no automatic expiry -- because a retention period is a
+ * controller's decision against their own law. A default number here would be this software
+ * quietly setting policy for a government, and the wrong direction to be wrong in: too short
+ * destroys records a citizen may need for an appeal, too long is itself a breach.
+ */
+const retentionSchema = z.object({
+  /** Days to keep a residency record, measured from creation. Null = keep indefinitely. */
+  residencyDays: z.number().int().positive().nullable().default(null),
+  /**
+   * Suspend all retention deletion. Set during litigation, an open appeal, or a regulator's
+   * request; the sweep refuses to run at all rather than guess which records are implicated.
+   */
+  legalHold: z.boolean().default(false),
+});
+
+export type RetentionConfig = z.infer<typeof retentionSchema>;
+
 const residencySchema = z.object({
+  /** Retention periods. Defaults to no automatic expiry — see retentionSchema. */
+  retention: retentionSchema.prefault({}),
   /** Minimum foundational assurance required to issue residency. */
   minAssurance: z.enum(['basic', 'verified', 'high']).default('verified'),
   /**
@@ -184,12 +210,12 @@ const residencySchema = z.object({
           'attended_comparison',
         ]),
     })
-    .default({}),
+    .prefault({}),
   /**
    * Proof-of-residence policy. Omit it entirely and residence is recorded as self-declared
    * (RAL0) and never gated -- exactly today's behaviour. Opt in to enforce it.
    */
-  residence: residencePolicySchema.default({}),
+  residence: residencePolicySchema.prefault({}),
 });
 
 const credentialSchema = z.object({
@@ -219,7 +245,7 @@ const federatedJwkSchema = z
     crv: z.literal('Ed25519'),
     x: z.string().min(1),
     kid: z.string().min(1),
-    d: z.undefined({ invalid_type_error: 'a federated issuer key must be PUBLIC (no "d")' }).optional(),
+    d: z.undefined({ error: 'a federated issuer key must be PUBLIC (no "d")' }).optional(),
   })
   .strict();
 
@@ -318,7 +344,7 @@ const walletSchema = z.object({
        */
       cNonceInAccessToken: z.boolean().default(true),
     })
-    .default({}),
+    .prefault({}),
 
   offer: z
     .object({
@@ -332,7 +358,7 @@ const walletSchema = z.object({
        */
       maxTxCodeAttempts: z.number().int().min(1).max(20).default(5),
     })
-    .default({}),
+    .prefault({}),
 
   /** Access token lifetime. It only has to survive one credential request. */
   accessTokenTtlSeconds: z.number().int().positive().default(600),
@@ -427,7 +453,7 @@ const operatorAuthSchema = z.object({
       roleClaim: z.string().default('roles'),
       nameClaim: z.string().default('preferred_username'),
       /** Maps the directory's own group names onto OpenResidency roles. */
-      roleMap: z.record(z.string()).default({}),
+      roleMap: z.record(z.string(), z.string()).default({}),
       jwksUri: z.string().optional(),
     })
     .optional(),
@@ -437,7 +463,7 @@ const operatorAuthSchema = z.object({
       requireMfa: z.boolean().default(true),
       sessionTtlSeconds: z.number().int().positive().default(8 * 3600),
     })
-    .default({}),
+    .prefault({}),
 });
 
 export type OperatorAuthConfig = z.infer<typeof operatorAuthSchema>;
@@ -470,9 +496,9 @@ const messagingSchema = z.object({
     .object({
       method: z.enum(['GET', 'POST']).default('POST'),
       path: z.string().default(''),
-      bodyTemplate: z.record(z.string()).optional(),
+      bodyTemplate: z.record(z.string(), z.string()).optional(),
       form: z.boolean().default(false),
-      headers: z.record(z.string()).optional(),
+      headers: z.record(z.string(), z.string()).optional(),
       messageIdPath: z.string().optional(),
       successFlag: z.object({ path: z.string(), equals: z.unknown().optional() }).optional(),
     })
@@ -540,8 +566,8 @@ const biometricSchema = z.object({
     .object({
       method: z.enum(['POST', 'GET']).default('POST'),
       path: z.string().default(''),
-      bodyTemplate: z.record(z.string()).optional(),
-      headers: z.record(z.string()).optional(),
+      bodyTemplate: z.record(z.string(), z.string()).optional(),
+      headers: z.record(z.string(), z.string()).optional(),
       /** Where the verdict lives in the response, and the value that means "matched". */
       matchedFlag: z.object({ path: z.string(), equals: z.unknown().optional() }),
       scorePath: z.string().optional(),
@@ -599,13 +625,13 @@ const residentIdSchema = z
         mode: z.enum(['unit', 'static', 'country', 'none']).default('unit'),
         value: z.string().optional(),
       })
-      .default({}),
+      .prefault({}),
     checkDigit: z
       .object({
         enabled: z.boolean().default(true),
         algorithm: checksumEnum.default('crockford-sha256'),
       })
-      .default({}),
+      .prefault({}),
   })
   .superRefine((v, ctx) => {
     // Collision safety: too short a random body risks duplicate IDs.
@@ -678,28 +704,28 @@ export const countryConfigSchema = z
   countryName: z.string(),
   defaultSubnationalUnit: z.string().optional(),
   foundational: foundationalSchema,
-  residency: residencySchema.default({}),
+  residency: residencySchema.prefault({}),
   credential: credentialSchema,
   // Country-default Resident ID format; a subnationalUnit may override it. Omit it for the
   // default KT-XXXX-XXXX-C scheme.
-  residentId: residentIdSchema.default({}),
+  residentId: residentIdSchema.prefault({}),
   // Both default to today's behaviour, so a config that omits them is unchanged.
-  wallet: walletSchema.default({}),
-  presentation: presentationSchema.default({}),
+  wallet: walletSchema.prefault({}),
+  presentation: presentationSchema.prefault({}),
   // Sign-in relying parties. Empty by default: a deployment that does not use SSO simply
   // omits this, and no RPs are registered.
-  oidc: oidcSchema.default({}),
+  oidc: oidcSchema.prefault({}),
   // Deployment-wide profiles. Read from the default (first) country config, the same way
   // the presentation profile is. Omit them and you get: shared-key operator auth with a
   // boot warning, no messaging, and no contact directory.
-  operatorAuth: operatorAuthSchema.default({}),
+  operatorAuth: operatorAuthSchema.prefault({}),
   messaging: messagingSchema.optional(),
-  contactDirectory: contactDirectorySchema.default({}),
+  contactDirectory: contactDirectorySchema.prefault({}),
   // Biometric authority for the AAL3 step-up. Deployment-wide; default NONE (no step-up).
-  biometric: biometricSchema.default({}),
+  biometric: biometricSchema.prefault({}),
   // Cross-issuer trust. Deployment-wide, read from the default config. Empty by default:
   // a deployment trusts only its own issuer until it names peers here.
-  federation: federationSchema.default({}),
+  federation: federationSchema.prefault({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),
   })
   .superRefine((v, ctx) => {

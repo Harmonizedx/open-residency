@@ -1,13 +1,18 @@
 import { randomBytes } from 'node:crypto';
-import { ResidentRecord } from '../residency/ports';
 
 /**
  * Erasure and retention.
  *
- * DPG Standard indicator 7 requires a mechanism for deleting personal data and a documented
- * retention position; ORCS §14 requires retention enforcement and a resident-visible audit
- * history. Those two obligations disagree with each other, and this module is where the
+ * DPG Standard indicator 7 requires a mechanism for deleting personal data. That obligation
+ * and a tamper-evident register disagree with each other, and this module is where the
  * disagreement is resolved rather than dodged.
+ *
+ * Retention lived here too -- period-per-record-class, a legal hold, and the selection logic
+ * for a sweep. It was removed because nothing in `src/` ever called it: no endpoint, no
+ * service method, no scheduler. Tests exercised it, which made it look alive. Shipping a
+ * retention policy a deployer has no way to run, while the DPG submission claimed running it
+ * was "a deployment decision", was the same over-claim this repository has been correcting
+ * elsewhere. It returns when there is something to run it.
  *
  * A tamper-evident register cannot simply delete rows, because "the log cannot be quietly
  * altered" is precisely what deleting rows breaks. But a citizen's right to erasure is not
@@ -36,18 +41,6 @@ import { ResidentRecord } from '../residency/ports';
  * list has been rotated -- that is a deliberate, documented operation, not a default.
  */
 
-/** Every field on a resident record that identifies a person, in one place. */
-export const IDENTIFYING_FIELDS = [
-  'subjectRef',
-  'fullName',
-  'givenName',
-  'familyName',
-  'dateOfBirth',
-  'gender',
-  'phoneHash',
-  'phoneEnc',
-] as const;
-
 /**
  * The tombstone written over `subjectRef`.
  *
@@ -58,81 +51,4 @@ export const IDENTIFYING_FIELDS = [
  */
 export function erasureTombstone(): string {
   return `erased:${randomBytes(16).toString('hex')}`;
-}
-
-/** A resident record with every identifying field removed. */
-export type ErasedResident = Omit<ResidentRecord, 'person'> & {
-  person: Record<string, never>;
-  erasedAt: string;
-};
-
-export function eraseRecord(record: ResidentRecord, at: Date = new Date()): ErasedResident {
-  return {
-    ...record,
-    subjectRef: erasureTombstone(),
-    person: {},
-    erasedAt: at.toISOString(),
-  };
-}
-
-/**
- * Retention policy for a deployment.
- *
- * Periods are stated in days and are deliberately per record class: an audit entry, a
- * consent grant and a residency record are kept under different legal bases and for
- * different reasons, so one global number would be a policy that fits none of them.
- *
- * `null` means "no automatic expiry" and must be a deliberate choice, not a default that
- * arose because nobody set a number.
- */
-export interface RetentionPolicy {
-  /** Residency records, measured from `createdAt`. */
-  residencyDays: number | null;
-  /** Consent records, measured from grant. Withdrawal does not shorten this: proof that
-   *  consent was given and withdrawn is itself a record the deployer may need to keep. */
-  consentDays: number | null;
-  /** Audit events, measured from the event timestamp. */
-  auditDays: number | null;
-  /**
-   * A hold that suspends every period above.
-   *
-   * Litigation, an open appeal, or a regulator's request. Retention deletion that ignores an
-   * appeal in progress destroys the evidence the appeal turns on, so the sweep refuses to
-   * run at all while this is set rather than trying to reason about which records are
-   * implicated.
-   */
-  legalHold?: boolean;
-}
-
-export const NO_AUTOMATIC_RETENTION: RetentionPolicy = {
-  residencyDays: null,
-  consentDays: null,
-  auditDays: null,
-};
-
-/** Has `createdAt` passed the retention period, as of `now`? */
-export function isPastRetention(
-  createdAt: string,
-  days: number | null,
-  now: Date = new Date(),
-): boolean {
-  if (days === null) return false;
-  const created = Date.parse(createdAt);
-  if (!Number.isFinite(created)) return false;
-  return now.getTime() - created >= days * 86_400_000;
-}
-
-/**
- * Which residency records are due for erasure under this policy.
- *
- * Already-erased records are excluded, so a sweep is idempotent and does not churn rows it
- * has already dealt with.
- */
-export function residencyDueForErasure<T extends { createdAt: string; erasedAt?: string }>(
-  records: T[],
-  policy: RetentionPolicy,
-  now: Date = new Date(),
-): T[] {
-  if (policy.legalHold) return [];
-  return records.filter((r) => !r.erasedAt && isPastRetention(r.createdAt, policy.residencyDays, now));
 }
