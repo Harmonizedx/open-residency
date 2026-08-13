@@ -503,6 +503,66 @@ export type RelyingPartyConfig = z.infer<typeof relyingPartySchema>;
 export type OidcProfile = z.infer<typeof oidcSchema>;
 
 /**
+ * An EXTERNAL OpenID Provider residents may sign in with (deployment-wide). OPTIONAL.
+ *
+ * Where `oidc` above describes this deployment acting AS a provider, this describes it
+ * acting as a relying party at somebody else's -- a MOSIP eSignet instance, a national eID,
+ * any conformant OP. A jurisdiction whose residents already have a national identity
+ * provider should not make them prove themselves twice, and an upstream sign-in binds the
+ * applicant to the identity far more strongly than any registry lookup can.
+ *
+ * Absent means no external provider, which is the default: nothing here is required to run.
+ */
+const upstreamOidcSchema = z.object({
+  issuer: z.string().min(1),
+  authorizationEndpoint: z.string().url(),
+  tokenEndpoint: z.string().url(),
+  userinfoEndpoint: z.string().url().optional(),
+  /**
+   * The provider's signing keys, PINNED rather than fetched from its `jwks_uri`.
+   *
+   * Whoever answers for that URL at verification time decides which id_tokens we believe.
+   * A deployment tracking a rotating provider refreshes these out of band and restarts --
+   * slower than a live fetch, and a far smaller trust surface.
+   */
+  jwks: z.array(z.record(z.string(), z.unknown())).nonempty(),
+  clientId: z.string().min(1),
+  redirectUri: z.string().url(),
+  scopes: z.array(z.string()).default([]),
+  /** Requested acr values, in preference order. */
+  acrValues: z.array(z.string()).default([]),
+  /**
+   * What each acr the provider may return is worth here.
+   *
+   * Required and non-empty, with no inferred ordering. Only the deployer knows what their
+   * provider's "password" or "generated-code" actually establishes about the person, and
+   * the value reaches every relying party as `assurance_level`. An acr the provider returns
+   * that is not listed here fails the sign-in rather than being credited with something.
+   */
+  acrMapping: z
+    .array(
+      z.object({
+        acr: z.string().min(1),
+        assurance: z.enum(['none', 'basic', 'verified', 'high']),
+      }),
+    )
+    .nonempty(),
+  /**
+   * Env var names holding the RP's private keys -- never the keys themselves. Config is
+   * reviewed, printed and committed; a private key must not be any of those things.
+   */
+  clientAssertionKeyEnv: z.string().min(1),
+  clientAssertionAlg: z.string().default('RS256'),
+  /** Needed only if the provider encrypts its userinfo response (eSignet does). */
+  userinfoDecryptionKeyEnv: z.string().optional(),
+  claimMapping: z.record(z.string(), z.string()).optional(),
+  clockToleranceSeconds: z.number().int().nonnegative().default(60),
+  timeoutMs: z.number().int().positive().default(8000),
+});
+
+export type UpstreamOidcProfile = z.infer<typeof upstreamOidcSchema>;
+
+/**
  * How members of staff authenticate to the privileged endpoints.
  *
  * `oidc` is the mode a real deployment runs: staff identity, password policy, MFA and
@@ -789,6 +849,9 @@ export const countryConfigSchema = z
   // Sign-in relying parties. Empty by default: a deployment that does not use SSO simply
   // omits this, and no RPs are registered.
   oidc: oidcSchema.prefault({}),
+  // An external provider residents may sign in with (this deployment as the RELYING party).
+  // Absent by default: nothing here is required to run.
+  upstreamOidc: upstreamOidcSchema.optional(),
   // Deployment-wide profiles. Read from the default (first) country config, the same way
   // the presentation profile is. Omit them and you get: shared-key operator auth with a
   // boot warning, no messaging, and no contact directory.

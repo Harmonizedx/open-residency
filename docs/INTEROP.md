@@ -412,6 +412,45 @@ deployment MUST replace it.
 > `scripts/sso-smoke.ts` asserts the door is shut: a stolen credential, a revoked
 > credential, and a bare residency ID all fail to sign in.
 
+## Signing in at an external provider
+
+Everything above has this deployment as the provider. It can also be the relying party.
+
+A jurisdiction whose residents already have a national identity provider — a MOSIP eSignet
+instance, a national eID, any conformant OP — should not make them prove themselves twice.
+`upstreamOidc` in the deployment config points at that provider, and a resident signs in
+there before a residency record is created for them.
+
+The result is worth more than a registry lookup, and that is the reason to do it. A lookup
+establishes that an identity record exists; anyone holding the number passes it. An upstream
+sign-in establishes that the source itself just confirmed the owner was present, which is
+`authoritative_authentication` — the strongest binding in `src/core/proofing/binding.ts`.
+
+There is no provider-specific code, the same way there is no `if (wallet === 'inji')` in the
+issuance path. eSignet is simply the strictest OP likely to be on the other end, so
+supporting it means supporting the strict end of the standard:
+
+| eSignet is strict about | What that requires |
+| --- | --- |
+| `private_key_jwt` is its only client auth method | A signed RS256 assertion per token request, audienced at the **token endpoint** (RFC 7523 §3), with a unique `jti` |
+| userinfo is a **nested JWT** | Decrypt to the RP's key, then verify the OP's signature on what is inside. Decrypting alone proves someone encrypted to us, not that the OP asserted anything |
+| `sub` is pairwise per RP | It is already scoped to us; we HMAC it under the deployment pepper anyway, so the residency store never holds the provider's identifier |
+| `acr` names the method used | Each acr is mapped in config to what this deployment credits it with. An unmapped acr **fails the sign-in** — it is a method the deployer has said nothing about, and grading it at runtime would be inventing policy |
+
+Two deliberate choices beyond what eSignet requires. PKCE is used unconditionally, even
+though the client assertion already makes a stolen code hard to redeem: "not redeemable
+without a verifier we never transmitted" is a stronger statement than "not redeemable by
+anyone who cannot sign as us". And the provider's signing keys are **pinned** in config
+rather than fetched from `jwks_uri`, for the reason contexts are pinned — whoever answers
+for that URL at sign-in time would otherwise decide which `id_token`s we believe.
+
+`npm run smoke:upstream-oidc` runs the whole flow against a provider that behaves as
+eSignet's published configuration documents, and asserts the failure modes individually: a
+replayed callback, a nonce from another session, an unmapped acr, an `id_token` signed by an
+unpinned key, a provider that switches subject between `id_token` and userinfo. The same
+boundary applies as everywhere else here — this is eSignet's **documented** behavior, not a
+live MOSIP deployment, which needs a registered client this repo's CI cannot have.
+
 ## Adding a wallet
 
 If a wallet cannot complete issuance against this deployment, the fastest way to find out
