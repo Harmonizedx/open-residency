@@ -10,6 +10,11 @@ This document records what we implement, what we deliberately do not, and the
 compromises we made to interoperate with wallets as they actually exist rather than as
 the specifications describe them.
 
+MOSIP is the ecosystem most of this meets in practice, and it touches four separate
+surfaces here — wallet issuance, inbound credential verification, eSignet sign-in, and
+foundational authentication. [`docs/MOSIP.md`](MOSIP.md) collects them in one place with
+the prerequisites each needs and how far each has actually been verified.
+
 ## What we implement
 
 | Standard | Version | Where |
@@ -450,6 +455,45 @@ replayed callback, a nonce from another session, an unmapped acr, an `id_token` 
 unpinned key, a provider that switches subject between `id_token` and userinfo. The same
 boundary applies as everywhere else here — this is eSignet's **documented** behavior, not a
 live MOSIP deployment, which needs a registered client this repo's CI cannot have.
+
+## Verifying against a foundational ID registry
+
+Step 1 of the enrollment flow above — the operator checking an applicant against the
+national ID — is also an integration with somebody else's published interface, and it is
+the surface with the widest variation between countries.
+
+Most registries are one REST call. The request shape and the response mapping are
+described in `config/countries/*.yaml` and need no code at all. MOSIP's ID Authentication
+is the exception, because its request body is an encrypted envelope, so it has a real
+adapter (`provider: MOSIP_IDA`). Nothing about the envelope is configurable — it is fixed
+by MOSIP — and the six things that must be right about it, three of which are the opposite
+of what a careful reader would assume, are in
+[`docs/MOSIP.md`](MOSIP.md#the-envelope) rather than repeated here.
+
+What matters at this level is what a success is worth. IDA **authenticates** — by an OTP to
+the device on the authoritative record, or by a demographic match the authority performs —
+so it attests `authoritative_authentication`, the same binding an eSignet sign-in earns and
+the strongest in `src/core/proofing/binding.ts`. A registry that merely confirms a record
+exists earns `none`, because anyone holding the number passes it.
+
+Two defaults follow from that, and both are deliberate:
+
+- **eKYC is off.** With `kyc` disabled the registry answers yes or no and releases nothing
+  about the person; the attributes on a success are the ones the applicant supplied and the
+  authority **confirmed**, which is a stronger statement than a lookup returning them.
+  Turning it on asks the authority to hand over demographic data, so it is opt-in and scoped
+  to the claims you can justify.
+- **A partial success is a failure.** If attributes were requested and cannot be obtained,
+  the verification fails rather than returning success with an empty identity — which would
+  read to the residency engine as an authority holding no data about this person, a
+  different and much worse claim than "we could not reach it".
+
+As with wallets and providers, the integration stays an option rather than becoming a
+dependency, and that is checked rather than asserted: `npm run conformance:mosip` fails if
+any control flow in `src/core` branches on a vendor identifier outside the IDA adapter
+itself. Beyond that adapter and its one row in the provider registry, MOSIP is named in the
+core only in comments explaining why an accommodation exists — so a deployment in a country
+that does not run MOSIP cannot tell this work happened.
 
 ## Adding a wallet
 
