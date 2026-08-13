@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { IssuerKey } from '../credentials/keystore';
 import { signJwt } from '../credentials/signer';
 
@@ -228,11 +228,10 @@ function sameScopes(a: string[], b: string[]): boolean {
 }
 
 function randomId(prefix: string): string {
-  const h = createHash('sha256')
-    .update(`${Date.now()}:${Math.random()}:${process.hrtime.bigint()}`)
-    .digest('hex')
-    .slice(0, 20);
-  return `${prefix}_${h}`;
+  // CSPRNG rather than a hash over Date.now()/Math.random(): see the same change in
+  // core/audit/audit-log.ts. 10 bytes keeps the identifier the same 20 hex characters
+  // it has always been, so stored ids and their format are unaffected.
+  return `${prefix}_${randomBytes(10).toString('hex')}`;
 }
 
 /** In-memory consent store for tests and pilots. */
