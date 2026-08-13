@@ -51,14 +51,17 @@ let fail = 0;
  * forge a passing line, and the result is truncated.
  */
 function redact(detail: string): string {
-  return detail
-    .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[key redacted]')
-    // Newlines explicitly and first: they are the character that lets a value forge a
-    // whole extra log line, and spelling them out separately says so louder than a
-    // control-character range that happens to contain them.
-    .replace(/[\r\n]/g, ' ')
-    .replace(/[\x00-\x1f\x7f]/g, ' ')
-    .slice(0, 300);
+  return (
+    detail
+      .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[key redacted]')
+      // An ALLOWLIST, not a list of things to strip. Every reason, error code and identifier
+      // this suite prints is drawn from this set; anything else -- a newline that would forge
+      // a second log line, a control character, a stray byte from a decrypt that went wrong --
+      // is dropped because it was never permitted, rather than because someone remembered to
+      // enumerate it. Denylists in this position are wrong by default and right by accident.
+      .replace(/[^A-Za-z0-9 _.:,/@+=()[\]{}"'-]/g, '')
+      .slice(0, 300)
+  );
 }
 
 function check(name: string, cond: boolean, detail?: string) {
@@ -129,13 +132,20 @@ function observeSignature(signature: string, body: string): boolean {
     verifier.update(Buffer.concat([Buffer.from(`${header}.`, 'utf8'), Buffer.from(body, 'utf8')]));
     verifier.end();
 
-    return (
-      payload === '' &&
-      decodedHeader.b64 === false &&
-      Array.isArray(decodedHeader.crit) &&
-      decodedHeader.crit.includes('b64') &&
-      verifier.verify(new X509Certificate(certPem).publicKey, Buffer.from(sig, 'base64url'))
+    // The cryptographic check runs FIRST and unconditionally. Every other condition is
+    // reduced to a boolean beside it, and they are combined only at the end, so no
+    // request-derived value decides whether the signature gets verified -- it always does.
+    // Short-circuiting the header checks ahead of verify() would make this read as a guard
+    // that input can steer around; it is a recorded observation, and the ordering says so.
+    const cryptographicallyValid = verifier.verify(
+      new X509Certificate(certPem).publicKey,
+      Buffer.from(sig, 'base64url'),
     );
+    const detachedPayload = payload === '';
+    const b64False = decodedHeader.b64 === false;
+    const b64Critical = Array.isArray(decodedHeader.crit) && decodedHeader.crit.includes('b64');
+
+    return cryptographicallyValid && detachedPayload && b64False && b64Critical;
   } catch {
     // A missing, truncated, or unparseable header is simply not a valid signature.
     return false;
