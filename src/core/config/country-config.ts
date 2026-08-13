@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import { z } from 'zod';
+import { LEGACY_SUITES } from '../credentials/ld-suites';
 
 /**
  * A country configuration is the single source of truth for onboarding a new
@@ -240,15 +241,47 @@ const credentialSchema = z.object({
  * `kid` is required because the trust list selects a key by the `kid` in a credential's
  * header when one is present.
  */
-const federatedJwkSchema = z
+const NO_PRIVATE_KEY = { error: 'a federated issuer key must be PUBLIC (no "d")' } as const;
+
+const federatedEd25519JwkSchema = z
   .object({
     kty: z.literal('OKP'),
     crv: z.literal('Ed25519'),
     x: z.string().min(1),
     kid: z.string().min(1),
-    d: z.undefined({ error: 'a federated issuer key must be PUBLIC (no "d")' }).optional(),
+    d: z.undefined(NO_PRIVATE_KEY).optional(),
   })
   .strict();
+
+/**
+ * An RSA public key belonging to a peer issuer.
+ *
+ * We sign with Ed25519 and will not do otherwise. But an issuer we do not control may sign
+ * with RSA -- `RsaSignature2018` is what a good deal of the deployed MOSIP/Inji-era
+ * credential estate carries -- and a trust list that cannot express the peer's key cannot
+ * verify the peer's credentials. Accepting an RSA key for VERIFICATION says nothing about
+ * what this deployment issues.
+ *
+ * `d` is refused here for the same reason as above, and so are the other private
+ * components: an RSA private key is `d` plus `p`/`q`/`dp`/`dq`/`qi`, and a schema that
+ * rejected only `d` would still let most of a private key sit in a config file.
+ */
+const federatedRsaJwkSchema = z
+  .object({
+    kty: z.literal('RSA'),
+    n: z.string().min(1),
+    e: z.string().min(1),
+    kid: z.string().min(1),
+    d: z.undefined(NO_PRIVATE_KEY).optional(),
+    p: z.undefined(NO_PRIVATE_KEY).optional(),
+    q: z.undefined(NO_PRIVATE_KEY).optional(),
+    dp: z.undefined(NO_PRIVATE_KEY).optional(),
+    dq: z.undefined(NO_PRIVATE_KEY).optional(),
+    qi: z.undefined(NO_PRIVATE_KEY).optional(),
+  })
+  .strict();
+
+const federatedJwkSchema = z.union([federatedEd25519JwkSchema, federatedRsaJwkSchema]);
 
 /**
  * A peer issuer this deployment trusts. The basis of federation: a residency credential
@@ -280,6 +313,36 @@ const federatedIssuerSchema = z.object({
    * signature.
    */
   allowUnsignedStatusList: z.boolean().default(false),
+  /**
+   * Linked-data proof suites accepted from THIS peer, beyond the one we issue.
+   *
+   * Empty by default, which means a peer's JSON-LD credentials must carry the current
+   * suite (`DataIntegrityProof` / `eddsa-rdfc-2022`). The legacy suites are listed per
+   * peer rather than switched on globally because each one is an accommodation to a
+   * specific issuer's stack: a deployment federating with one MOSIP-era issuer should not
+   * thereby start accepting 2018-era proofs from every other peer in its trust list.
+   *
+   * Verification only. Nothing here changes what this deployment issues.
+   */
+  acceptedProofSuites: z.array(z.enum(LEGACY_SUITES)).default([]),
+  /**
+   * The peer's own JSON-LD context documents, pinned.
+   *
+   * An outside issuer defines its credential terms in a context it hosts. Canonicalizing
+   * its credentials requires that document, and the loader refuses to fetch anything at
+   * verification time -- for determinism, for offline verifiers, and because whoever
+   * serves a context can change what the signature is understood to cover. So the peer's
+   * context is pinned here, next to the peer's keys, and reviewed with them.
+   */
+  contexts: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        /** The context document itself, inline: `{ "@context": { ... } }`. */
+        document: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .default([]),
 });
 
 /**
@@ -438,6 +501,66 @@ const oidcSchema = z.object({
 
 export type RelyingPartyConfig = z.infer<typeof relyingPartySchema>;
 export type OidcProfile = z.infer<typeof oidcSchema>;
+
+/**
+ * An EXTERNAL OpenID Provider residents may sign in with (deployment-wide). OPTIONAL.
+ *
+ * Where `oidc` above describes this deployment acting AS a provider, this describes it
+ * acting as a relying party at somebody else's -- a MOSIP eSignet instance, a national eID,
+ * any conformant OP. A jurisdiction whose residents already have a national identity
+ * provider should not make them prove themselves twice, and an upstream sign-in binds the
+ * applicant to the identity far more strongly than any registry lookup can.
+ *
+ * Absent means no external provider, which is the default: nothing here is required to run.
+ */
+const upstreamOidcSchema = z.object({
+  issuer: z.string().min(1),
+  authorizationEndpoint: z.string().url(),
+  tokenEndpoint: z.string().url(),
+  userinfoEndpoint: z.string().url().optional(),
+  /**
+   * The provider's signing keys, PINNED rather than fetched from its `jwks_uri`.
+   *
+   * Whoever answers for that URL at verification time decides which id_tokens we believe.
+   * A deployment tracking a rotating provider refreshes these out of band and restarts --
+   * slower than a live fetch, and a far smaller trust surface.
+   */
+  jwks: z.array(z.record(z.string(), z.unknown())).nonempty(),
+  clientId: z.string().min(1),
+  redirectUri: z.string().url(),
+  scopes: z.array(z.string()).default([]),
+  /** Requested acr values, in preference order. */
+  acrValues: z.array(z.string()).default([]),
+  /**
+   * What each acr the provider may return is worth here.
+   *
+   * Required and non-empty, with no inferred ordering. Only the deployer knows what their
+   * provider's "password" or "generated-code" actually establishes about the person, and
+   * the value reaches every relying party as `assurance_level`. An acr the provider returns
+   * that is not listed here fails the sign-in rather than being credited with something.
+   */
+  acrMapping: z
+    .array(
+      z.object({
+        acr: z.string().min(1),
+        assurance: z.enum(['none', 'basic', 'verified', 'high']),
+      }),
+    )
+    .nonempty(),
+  /**
+   * Env var names holding the RP's private keys -- never the keys themselves. Config is
+   * reviewed, printed and committed; a private key must not be any of those things.
+   */
+  clientAssertionKeyEnv: z.string().min(1),
+  clientAssertionAlg: z.string().default('RS256'),
+  /** Needed only if the provider encrypts its userinfo response (eSignet does). */
+  userinfoDecryptionKeyEnv: z.string().optional(),
+  claimMapping: z.record(z.string(), z.string()).optional(),
+  clockToleranceSeconds: z.number().int().nonnegative().default(60),
+  timeoutMs: z.number().int().positive().default(8000),
+});
+
+export type UpstreamOidcProfile = z.infer<typeof upstreamOidcSchema>;
 
 /**
  * How members of staff authenticate to the privileged endpoints.
@@ -726,6 +849,9 @@ export const countryConfigSchema = z
   // Sign-in relying parties. Empty by default: a deployment that does not use SSO simply
   // omits this, and no RPs are registered.
   oidc: oidcSchema.prefault({}),
+  // An external provider residents may sign in with (this deployment as the RELYING party).
+  // Absent by default: nothing here is required to run.
+  upstreamOidc: upstreamOidcSchema.optional(),
   // Deployment-wide profiles. Read from the default (first) country config, the same way
   // the presentation profile is. Omit them and you get: shared-key operator auth with a
   // boot warning, no messaging, and no contact directory.

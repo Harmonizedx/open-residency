@@ -2,8 +2,9 @@
 import { JWK, CryptoKey, decodeProtectedHeader, errors, importJWK, jwtVerify } from 'jose';
 import { createPublicKey, KeyObject } from 'node:crypto';
 import { resolveHolderDid } from '../credentials/did';
-import { LdpIssuer, LdpCredential } from '../credentials/ldp-issuer';
+import { LdpCredential } from '../credentials/ldp-issuer';
 import { VcVerifier } from '../credentials/vc-verifier';
+import { verifyLdProof, AcceptedLdSuite, MODERN_SUITE } from '../credentials/ld-suites';
 
 /**
  * Verification of a Verifiable Presentation.
@@ -56,6 +57,11 @@ export interface VpTrustedIssuer {
   did: string;
   /** Current key first, then retired ones, so credentials survive a rotation. */
   publicKeyObjects: KeyObject[];
+  /**
+   * Linked-data proof suites accepted from this issuer. Defaults to the suite we issue,
+   * so an entry that says nothing accepts nothing extra.
+   */
+  acceptedSuites?: AcceptedLdSuite[];
 }
 
 export class VpVerifier {
@@ -205,12 +211,29 @@ export class VpVerifier {
       return { valid: false, reason: 'UNTRUSTED_ISSUER', checkedRevocation: false, issuerDid };
     }
 
-    if (!(await LdpIssuer.verify(credential, trusted.publicKeyObjects))) {
-      return { valid: false, reason: 'BAD_SIGNATURE', checkedRevocation: false, issuerDid };
+    const proofResult = await verifyLdProof(
+      credential,
+      trusted.publicKeyObjects,
+      trusted.acceptedSuites ?? [MODERN_SUITE],
+    );
+    if (!proofResult.valid) {
+      // The suite dispatcher's reason distinguishes a forged signature from a suite this
+      // deployment never accepted and from a context nobody pinned. Those have different
+      // fixes, and collapsing them all to BAD_SIGNATURE sends every one of them to the
+      // wrong place.
+      return {
+        valid: false,
+        reason: proofResult.reason ?? 'BAD_SIGNATURE',
+        checkedRevocation: false,
+        issuerDid,
+      };
     }
 
-    const validUntil = credential.validUntil;
-    if (typeof validUntil === 'string' && new Date(validUntil).getTime() < Date.now()) {
+    // `validUntil` is VC 2.0; `expirationDate` is the VC 1.1 spelling, and a credential
+    // from an outside issuer is very often 1.1. Reading only the former silently ignored
+    // the expiry of exactly the credentials this deployment has least reason to trust.
+    const expiry = credential.validUntil ?? credential.expirationDate;
+    if (typeof expiry === 'string' && new Date(expiry).getTime() < Date.now()) {
       return { valid: false, reason: 'EXPIRED', checkedRevocation: false, issuerDid };
     }
 

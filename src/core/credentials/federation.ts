@@ -4,6 +4,8 @@ import { TrustedIssuer } from './vc-verifier';
 import { StatusList } from './status-list';
 import { LdpCredential, LdpIssuer } from './ldp-issuer';
 import { VpTrustedIssuer, keyObjectFromJwk } from '../oid4vp/vp-verifier';
+import { LegacyLdSuite, MODERN_SUITE } from './ld-suites';
+import { registerPeerContext } from './jsonld/document-loader';
 
 /**
  * Cross-issuer federation: turning a list of trusted peer issuers into the trust-map
@@ -37,6 +39,19 @@ export interface FederatedIssuer {
    * transport instead of a signature — never a default, and never global.
    */
   allowUnsignedStatusList?: boolean;
+  /**
+   * Legacy linked-data proof suites accepted from THIS peer, on top of the current one.
+   *
+   * Per peer, not deployment-wide: each entry is an accommodation to one issuer's stack,
+   * and federating with a MOSIP-era issuer is not a reason to start accepting 2018-era
+   * proofs from every other peer in the list. Empty means the current suite only.
+   */
+  acceptedProofSuites?: LegacyLdSuite[];
+  /**
+   * The peer's own JSON-LD context documents, pinned so its credentials can be
+   * canonicalized without a network fetch at verification time.
+   */
+  contexts?: { url: string; document: unknown }[];
 }
 
 /** Trust-map entry (VC-JWT verifier) for a federated peer. */
@@ -46,7 +61,11 @@ export function federatedTrustedIssuer(peer: FederatedIssuer): TrustedIssuer {
 
 /** Trust-map entry (OpenID4VP / Data Integrity verifier) for a federated peer. */
 export function federatedVpTrustedIssuer(peer: FederatedIssuer): VpTrustedIssuer {
-  return { did: peer.did, publicKeyObjects: peer.publicJwks.map(keyObjectFromJwk) };
+  return {
+    did: peer.did,
+    publicKeyObjects: peer.publicJwks.map(keyObjectFromJwk),
+    acceptedSuites: [MODERN_SUITE, ...(peer.acceptedProofSuites ?? [])],
+  };
 }
 
 /**
@@ -69,6 +88,12 @@ export function applyFederation(
           'trusted (it is this deployment\'s own issuer, or a duplicate peer). A federated ' +
           'peer must have a distinct DID.',
       );
+    }
+    // Pin the peer's contexts before its keys go into the trust map. registerPeerContext
+    // refuses to shadow a built-in context or to redefine one another peer already claimed,
+    // so a bad entry aborts federation with that peer unlisted rather than half-listed.
+    for (const context of peer.contexts ?? []) {
+      registerPeerContext(context.url, context.document);
     }
     trust.set(peer.did, federatedTrustedIssuer(peer));
     ldpTrust.set(peer.did, federatedVpTrustedIssuer(peer));
