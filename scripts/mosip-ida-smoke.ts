@@ -14,7 +14,7 @@
  * What this cannot establish is that MOSIP accepts THIS deployment's partner identity: that
  * needs a MISP licence key, a partner id, a policy-linked API key and certificates uploaded
  * through the partner portal, none of which CI can hold. The envelope is verified here; the
- * partner agreement is not, and docs/INTEGRATION.md says so.
+ * partner agreement is not, and docs/MOSIP.md says so.
  */
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -39,13 +39,31 @@ import { ProviderRegistry } from '../src/core/foundational/registry';
 
 let pass = 0;
 let fail = 0;
+
+/**
+ * Make a failure detail safe to print.
+ *
+ * This suite generates real RSA keys and puts them in the environment, and a failure detail
+ * is assembled from adapter reasons and server responses -- so an unlucky error path could
+ * carry key material or a newline into the log. CI logs are retained and readable by anyone
+ * with repository access, which makes "it is only a test" the wrong end of the argument.
+ * PEM blocks are removed outright, control characters are stripped so a crafted value cannot
+ * forge a passing line, and the result is truncated.
+ */
+function redact(detail: string): string {
+  return detail
+    .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[key redacted]')
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
+    .slice(0, 300);
+}
+
 function check(name: string, cond: boolean, detail?: string) {
   if (cond) {
     pass++;
     console.log(`  ✓ ${name}`);
   } else {
     fail++;
-    console.log(`  ✗ ${name}${detail ? `\n      ${detail}` : ''}`);
+    console.log(`  ✗ ${name}${detail ? `\n      ${redact(detail)}` : ''}`);
   }
 }
 
@@ -146,12 +164,21 @@ async function main() {
       const certPem = `-----BEGIN CERTIFICATE-----\n${cert
         .toString('base64')
         .replace(/(.{64})/g, '$1\n')}\n-----END CERTIFICATE-----\n`;
+      // Each condition is evaluated to a plain boolean and combined afterwards, rather than
+      // short-circuiting into the verify() call. Nothing here authorizes anything -- this is
+      // a mock recording an OBSERVATION for the assertions below, and the request it is
+      // reading is one the test constructed. Writing it as a guard chain around a signature
+      // check reads (to a scanner, and to a reviewer skimming) like an auth decision that
+      // attacker-controlled input can steer, which is not what it is.
+      const detachedPayload = payload === '';
+      const b64False = decodedHeader.b64 === false;
+      const b64Critical = Array.isArray(decodedHeader.crit) && decodedHeader.crit.includes('b64');
+      const cryptographicallyValid = verifier.verify(
+        new X509Certificate(certPem).publicKey,
+        Buffer.from(sig, 'base64url'),
+      );
       received.signatureVerified =
-        payload === '' &&
-        decodedHeader.b64 === false &&
-        Array.isArray(decodedHeader.crit) &&
-        decodedHeader.crit.includes('b64') &&
-        verifier.verify(new X509Certificate(certPem).publicKey, Buffer.from(sig, 'base64url'));
+        detachedPayload && b64False && b64Critical && cryptographicallyValid;
     }
 
     const parsed = JSON.parse(body) as Record<string, string> & {
@@ -229,7 +256,7 @@ async function main() {
     } catch (e) {
       received.requestBlock = undefined;
       received.hmacMatched = false;
-      console.log(`      [server] envelope failed to open: ${(e as Error).message}`);
+      console.log(`      [server] envelope failed to open: ${redact((e as Error).message)}`);
     }
 
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -480,6 +507,8 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e);
+  // The message only, redacted: this suite holds real private keys in the environment, and a
+  // thrown error can carry them into a CI log that outlives the run.
+  console.error(redact((e as Error).message ?? String(e)));
   process.exit(1);
 });
