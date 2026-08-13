@@ -72,6 +72,28 @@ jobs:
       - name: Federation (cross-issuer trust)
         run: npm run smoke:federation
 
+      # The three suites below cover verifying and authenticating against systems we do not
+      # control. They are gated for the same reason the custody adapters are: each one is a
+      # place where being subtly wrong means accepting something we should have refused, and
+      # none of them can be checked against a live deployment from CI.
+
+      # Linked-data proof suites we accept but never emit. The credentials driven here were
+      # produced by the reference implementations, not by this codebase, so the suite
+      # measures interoperability rather than agreement with ourselves.
+      - name: Inbound proof suites (Ed25519Signature2020/2018, RsaSignature2018)
+        run: npm run smoke:ld-suites
+
+      # This deployment as a RELYING party at an external provider: private_key_jwt, PKCE,
+      # pinned provider keys, nested-JWT userinfo, and each failure mode failing closed.
+      - name: Upstream OIDC sign-in (external identity provider)
+        run: npm run smoke:upstream-oidc
+
+      # MOSIP IDA's encrypted envelope, driven against a server that actually opens it. A
+      # client that got the GCM IV placement, the digest case, or the base64 padding wrong
+      # fails here exactly as it would against a real deployment.
+      - name: MOSIP ID Authentication envelope
+        run: npm run smoke:mosip-ida
+
       # WebAuthn passkey factor (registration + assertion verification against a simulated
       # authenticator, both ES256 and EdDSA) and the assurance model (acr/amr, biometric
       # step-up). Security-critical crypto, so it is gated.
