@@ -40,6 +40,71 @@ subnationalUnits:
   - { code: DX, name: Demo District, parent: ZZ, level: state }
 
 # ---------------------------------------------------------------------------
+# MOSIP ID Authentication (IDA) as the foundational provider. OPTIONAL.
+#
+# Most national ID APIs are one REST call and need no code -- describe the request and the
+# response mapping above and you are done. IDA is the exception: its request body is an
+# encrypted envelope, so it has a real adapter (provider: MOSIP_IDA) rather than a request
+# template. Nothing about the envelope is configurable; it is fixed by MOSIP.
+#
+# WHAT IT ESTABLISHES. IDA authenticates -- by an OTP to the device registered on the
+# AUTHORITATIVE record, or by demographic match -- so a success attests
+# `authoritative_authentication`, the strongest applicant binding there is. It is not a
+# lookup, and it is not treated as one. Note that /auth returns a yes or a no: the
+# attributes on a successful result are the ones the applicant submitted and MOSIP
+# CONFIRMED. To RETRIEVE the attributes MOSIP holds, turn on eKYC below -- deliberately a
+# separate decision, because it asks the authority to release data rather than confirm it.
+#
+# WHAT YOU MUST OBTAIN FIRST. None of this can be defaulted, and the adapter refuses to
+# start without it. All of it comes from partner onboarding, not from this repository:
+#
+#   - registration as an auth partner under a MISP, and the MISP licence key
+#   - your partner id, and the policy-linked partner API key
+#   - your signing and encryption certificates, uploaded via the partner portal
+#   - MOSIP's own partner certificate, which the session key is encrypted to
+#
+# Secrets are named as ENV VARS, never inlined. The two certificates are public material
+# and belong here; the keys they correspond to do not.
+#
+# foundational:
+#   provider: MOSIP_IDA
+#   baseUrl: https://api.sandbox.mosip.net
+#   assuranceOnSuccess: high        # what an IDA authentication is worth in YOUR policy
+#   inputs:
+#     - { key: individualId, label: UIN or VID }
+#     - { key: otp, label: One-time code, required: false, secret: true }
+#   extra:
+#     mispLicenseKeyEnv: IDA_MISP_LICENSE_KEY
+#     partnerId: your-partner-id
+#     partnerApiKeyEnv: IDA_PARTNER_API_KEY
+#     signingKeyEnv: IDA_SIGNING_KEY          # PKCS#8 PEM, for the `signature` header
+#     signingCertificatePem: |
+#       -----BEGIN CERTIFICATE-----
+#       ...your partner signing certificate...
+#       -----END CERTIFICATE-----
+#     idaCertificatePem: |
+#       -----BEGIN CERTIFICATE-----
+#       ...MOSIP's partner certificate...
+#       -----END CERTIFICATE-----
+#     domainUri: https://api.sandbox.mosip.net
+#     environment: Developer
+#     individualIdType: UIN
+#     otpChannels: [PHONE]
+#     # eKYC: retrieve the attributes MOSIP holds, instead of only authenticating. OFF by
+#     # default, and the default is the private one -- /auth releases nothing about the
+#     # person. Turning this on asks the authority to hand over demographic data, so request
+#     # only the claims you can justify. Needs your ENCRYPTION key (the response is encrypted
+#     # to it) and IDA's signing certificate (to verify the signature inside it -- decrypting
+#     # alone proves only that it was encrypted to you, not that MOSIP asserted it).
+#     kyc: true
+#     kycDecryptionKeyEnv: IDA_KYC_DECRYPTION_KEY
+#     kycClaims: [sub, name, birthdate, gender, phone_number]
+#     idaSigningCertificatePem: |
+#       -----BEGIN CERTIFICATE-----
+#       ...IDA's signing certificate...
+#       -----END CERTIFICATE-----
+
+# ---------------------------------------------------------------------------
 # Wallet interoperability profile (OpenID4VCI). OPTIONAL.
 #
 # Every value below is the default, spelled out here so the trade-offs are visible. Omit

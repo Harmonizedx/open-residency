@@ -36,6 +36,7 @@ are config and which are invariants nobody can override.
 | **Deploying** OpenResidency for a jurisdiction | [Quickstart](#quickstart) → [Onboarding a jurisdiction](#onboarding-a-jurisdiction) → [`docs/DEPLOY.md`](docs/DEPLOY.md) |
 | **Integrating** an existing service (an MDA, an education/health platform) | [Integrating a service](#integrating-a-service) → [`docs/API.md`](docs/API.md), [`docs/SDK.md`](docs/SDK.md), [`docs/INTEROP.md`](docs/INTEROP.md) |
 | **Evaluating** it as a Digital Public Good / funding it | [DPG alignment](#digital-public-good-alignment) → [`docs/DPG.md`](docs/DPG.md) |
+| **Running this in a country that already uses MOSIP** | [`docs/MOSIP.md`](docs/MOSIP.md) — eSignet sign-in, IDA authentication, verifying Inji Certify credentials, and how far each is actually verified |
 | **Setting a jurisdiction's issuance policy** | [The rules a jurisdiction sets](#the-rules-a-jurisdiction-sets) → `config/countries/ng.yaml` |
 | **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 
@@ -52,8 +53,10 @@ are config and which are invariants nobody can override.
    verifier confirms authenticity cryptographically, without phoning home. Credentials are issued
    over **OpenID4VCI** and presented over **OpenID4VP**, so a citizen can hold their credential in
    [Inji](https://github.com/mosip/inji-wallet) or any OpenWallet-compatible wallet, and any
-   relying party can verify it without integrating anything OpenResidency-specific. See
-   [`docs/INTEROP.md`](docs/INTEROP.md).
+   relying party can verify it without integrating anything OpenResidency-specific. Verification
+   runs the other way too: credentials signed by an outside issuer with an older proof suite
+   (`Ed25519Signature2020/2018`, `RsaSignature2018`) verify here, per federated peer and
+   verify-only. See [`docs/INTEROP.md`](docs/INTEROP.md).
 3. **Offline-first inclusion.** Credentials fit in a single QR code, verify against a cached
    issuer key with zero connectivity, and revocation is checked against a synced status list.
    Feature phones are served over USSD and SMS.
@@ -434,6 +437,37 @@ of [VC Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/),
 issue, in both formats, and including that credentials *violating* those requirements are rejected.
 CI also drives the full OpenID4VCI and OpenID4VP flows from a wallet's side, and runs the attacks
 each is meant to stop.
+
+**Interoperating with systems we do not control** (`npm run smoke:ld-suites`,
+`smoke:upstream-oidc`, `smoke:mosip-ida` — all gated on every pull request). Three suites cover
+the directions where being subtly wrong means accepting something we should have refused:
+
+- **Credentials signed by other issuers.** We issue one proof type (`eddsa-rdfc-2022`) and always
+  will, but we *verify* `Ed25519Signature2020`, `Ed25519Signature2018` and `RsaSignature2018` —
+  the suites a MOSIP/Inji Certify-era issuer actually signs with — accepted per peer, never
+  globally, and verify-only: no code path here can emit one. The credentials in that suite were
+  produced by the **reference implementations**, not by this codebase, so it measures
+  interoperability rather than agreement with ourselves.
+- **Signing in at an external identity provider.** `private_key_jwt` with the assertion audienced
+  at the token endpoint, unconditional PKCE, provider keys pinned rather than fetched, and
+  nested-JWT userinfo decrypted *and then* signature-verified. An `acr` a deployment has not
+  explicitly mapped fails the sign-in rather than being graded at runtime.
+- **MOSIP ID Authentication's encrypted envelope**, driven against a test server that decrypts the
+  session key, decrypts the request block, recomputes the digest, checks the certificate
+  thumbprint and verifies the detached JWS — so a client that got the GCM IV placement, the
+  digest case or the base64 padding wrong fails exactly as it would in production. eKYC
+  attribute retrieval is covered too: the response is a JWE wrapping a JWS, and a payload that
+  decrypts perfectly but was signed by somebody else is refused.
+
+`npm run conformance:mosip` is the authoritative statement of that state — it re-runs each suite,
+adds a check that no control flow in `src/core` branches on a vendor identifier, and **gates the
+build**, exiting non-zero on any non-PASS. Quote the suite, not a document.
+
+**What none of it establishes:** nothing here has run against a live MOSIP deployment. These
+verify against reference implementations and published behaviour; a credential from a real Inji
+Certify instance, a registered eSignet client, and a MISP partner agreement are all things CI
+cannot hold. [`docs/MOSIP.md`](docs/MOSIP.md) draws that line explicitly, surface by surface. No
+MOSIP certification, compliance or partnership is claimed.
 
 **Not run in CI, and not claimed:** the official
 [`w3c/vc-data-model-2.0-test-suite`](https://github.com/w3c/vc-data-model-2.0-test-suite). It needs

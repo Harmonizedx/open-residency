@@ -5,6 +5,7 @@ import { GenericXmlAdapter } from './adapters/generic-xml.adapter';
 import { DatasetFileAdapter } from './adapters/dataset-file.adapter';
 import { NinAdapter } from './adapters/nin.adapter';
 import { AadhaarAdapter } from './adapters/aadhaar.adapter';
+import { MosipIdaAdapter } from './adapters/mosip-ida.adapter';
 import { MockAdapter } from './adapters/mock.adapter';
 import { shortHash } from './util';
 
@@ -39,6 +40,9 @@ const FACTORIES: Record<string, ProviderFactory> = {
   IMPORT: (p) => new DatasetFileAdapter('IMPORT', p), // alias for DATASET_FILE
   NG_NIN: (p) => new NinAdapter(p),
   IN_AADHAAR: (p) => new AadhaarAdapter(p),
+  // MOSIP ID Authentication. Not config-driven like the generic adapters: its request body
+  // is an encrypted envelope, so it needs real code rather than a request template.
+  MOSIP_IDA: (p) => new MosipIdaAdapter(p),
   MOCK: (p) => new MockAdapter(p),
 };
 

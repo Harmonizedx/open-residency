@@ -147,9 +147,13 @@ and ingress rate limiting, a tamper-evident audit log, and fail-closed biometric
 CI gates every merge on a typecheck, W3C conformance (VC Data Model 2.0, Bitstring Status List,
 Data Integrity), an Inji Draft-13 profile conformance suite, OpenID4VCI and OpenID4VP flows
 including the attacks they must reject, SSO login factors, WebAuthn, cross-issuer federation,
-operator identity and roles, issuer-key custody against PKCS#11 HSM and AWS/Google Cloud KMS,
-the non-PII statistics export, a full-stack run of the real application against PostgreSQL, and
-a container build.
+inbound linked-data proof suites verified against the reference implementations' own output,
+an external-identity-provider sign-in flow and each of its failure modes, the MOSIP ID
+Authentication request envelope checked by a server that decrypts it and an eKYC response whose
+inner signature is verified, a MOSIP integration conformance gate that fails the build on any
+regression, operator identity and
+roles, issuer-key custody against PKCS#11 HSM and AWS/Google Cloud KMS, the non-PII statistics
+export, a full-stack run of the real application against PostgreSQL, and a container build.
 
 Secure development: Dependabot covers the application, the SDK and the GitHub Actions
 themselves; CodeQL runs `security-and-quality` on every pull request and weekly; a CycloneDX
