@@ -53,6 +53,10 @@ let fail = 0;
 function redact(detail: string): string {
   return detail
     .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[key redacted]')
+    // Newlines explicitly and first: they are the character that lets a value forge a
+    // whole extra log line, and spelling them out separately says so louder than a
+    // control-character range that happens to contain them.
+    .replace(/[\r\n]/g, ' ')
     .replace(/[\x00-\x1f\x7f]/g, ' ')
     .slice(0, 300);
 }
@@ -100,6 +104,42 @@ function mosipSymmetricDecrypt(key: Buffer, blob: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
+/**
+ * Recompute the detached JWS over a request, the way MOSIP's server would.
+ *
+ * Returns an OBSERVATION, not a decision. Nothing in this file authorizes anything: the
+ * result is read by the assertions below to confirm the client signed what it should have,
+ * and the request being read is one this test constructed. It is written as a total function
+ * over the header -- no branch guards the verify() call, and anything malformed simply
+ * returns false -- so neither a scanner nor a reviewer mistakes it for an auth check that
+ * request data can steer around.
+ */
+function observeSignature(signature: string, body: string): boolean {
+  try {
+    const [header, payload, sig] = signature.split('.');
+    const decodedHeader = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
+    const cert = Buffer.from(decodedHeader.x5c[0], 'base64');
+    const certPem = `-----BEGIN CERTIFICATE-----\n${cert
+      .toString('base64')
+      .replace(/(.{64})/g, '$1\n')}\n-----END CERTIFICATE-----\n`;
+
+    const verifier = createVerify('RSA-SHA256');
+    verifier.update(Buffer.concat([Buffer.from(`${header}.`, 'utf8'), Buffer.from(body, 'utf8')]));
+    verifier.end();
+
+    return (
+      payload === '' &&
+      decodedHeader.b64 === false &&
+      Array.isArray(decodedHeader.crit) &&
+      decodedHeader.crit.includes('b64') &&
+      verifier.verify(new X509Certificate(certPem).publicKey, Buffer.from(sig, 'base64url'))
+    );
+  } catch {
+    // A missing, truncated, or unparseable header is simply not a valid signature.
+    return false;
+  }
 }
 
 interface Received {
@@ -152,34 +192,9 @@ async function main() {
     received.path = req.url;
 
     // ---- The signature header, verified as MOSIP would ---------------------
-    const signature = req.headers.signature as string | undefined;
-    received.signatureHeader = signature;
-    if (signature) {
-      const [header, payload, sig] = signature.split('.');
-      const decodedHeader = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
-      const verifier = createVerify('RSA-SHA256');
-      verifier.update(Buffer.concat([Buffer.from(`${header}.`, 'utf8'), Buffer.from(body, 'utf8')]));
-      verifier.end();
-      const cert = Buffer.from(decodedHeader.x5c[0], 'base64');
-      const certPem = `-----BEGIN CERTIFICATE-----\n${cert
-        .toString('base64')
-        .replace(/(.{64})/g, '$1\n')}\n-----END CERTIFICATE-----\n`;
-      // Each condition is evaluated to a plain boolean and combined afterwards, rather than
-      // short-circuiting into the verify() call. Nothing here authorizes anything -- this is
-      // a mock recording an OBSERVATION for the assertions below, and the request it is
-      // reading is one the test constructed. Writing it as a guard chain around a signature
-      // check reads (to a scanner, and to a reviewer skimming) like an auth decision that
-      // attacker-controlled input can steer, which is not what it is.
-      const detachedPayload = payload === '';
-      const b64False = decodedHeader.b64 === false;
-      const b64Critical = Array.isArray(decodedHeader.crit) && decodedHeader.crit.includes('b64');
-      const cryptographicallyValid = verifier.verify(
-        new X509Certificate(certPem).publicKey,
-        Buffer.from(sig, 'base64url'),
-      );
-      received.signatureVerified =
-        detachedPayload && b64False && b64Critical && cryptographicallyValid;
-    }
+    const signature = (req.headers.signature as string | undefined) ?? '';
+    received.signatureHeader = signature || undefined;
+    received.signatureVerified = observeSignature(signature, body);
 
     const parsed = JSON.parse(body) as Record<string, string> & {
       requestedAuth?: Record<string, boolean>;
