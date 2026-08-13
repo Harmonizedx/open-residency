@@ -1,0 +1,124 @@
+{
+  "_comment": "Cross-implementation test vectors for the linked-data proof suites this deployment ACCEPTS but never emits. Generated with the reference implementations, not with the code under test: Ed25519Signature2020 and Ed25519Signature2018 by @digitalbazaar/ed25519-signature-{2020,2018} over jsonld-signatures 11.6.0, and RsaSignature2018 by jsonld-signatures 5.2.0 (the last release that bundled the RSA suite). A verifier that only round-trips its own signatures proves self-consistency and nothing about interoperability; these prove the latter.",
+  "peerContext": {
+    "url": "https://peer.example.gov/contexts/residency/v1",
+    "document": {
+      "@context": {
+        "@version": 1.1,
+        "@protected": true,
+        "PeerResidencyCredential": "https://peer.example.gov/vocab#PeerResidencyCredential",
+        "residencyId": "https://peer.example.gov/vocab#residencyId",
+        "subnationalUnit": "https://peer.example.gov/vocab#subnationalUnit"
+      }
+    }
+  },
+  "vectors": [
+    {
+      "suite": "Ed25519Signature2020",
+      "generatedBy": "@digitalbazaar/ed25519-signature-2020 over jsonld-signatures 11.6.0",
+      "issuerDid": "did:web:id.peer.example.gov",
+      "publicJwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "j4O0ALP7wtjNIyhRUc0i3UFxz7dbu--sm_cjtD7aFbk"
+      },
+      "credential": {
+        "@context": [
+          "https://www.w3.org/2018/credentials/v1",
+          "https://w3id.org/security/suites/ed25519-2020/v1",
+          "https://peer.example.gov/contexts/residency/v1"
+        ],
+        "id": "urn:uuid:5f9d1a2c-2b1e-4d3a-9c77-8e1f0b6a4c11",
+        "type": [
+          "VerifiableCredential",
+          "PeerResidencyCredential"
+        ],
+        "issuer": "did:web:id.peer.example.gov",
+        "issuanceDate": "2026-01-15T09:30:00Z",
+        "credentialSubject": {
+          "id": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+          "residencyId": "PX-0001-2026",
+          "subnationalUnit": "PX"
+        },
+        "proof": {
+          "type": "Ed25519Signature2020",
+          "created": "2026-08-13T02:20:10Z",
+          "verificationMethod": "did:web:id.peer.example.gov#z6Mkp7UppADrF326Yd65TgZc7SWZ3Qovp7cV7EU9ck95PZnQ",
+          "proofPurpose": "assertionMethod",
+          "proofValue": "z5X2Z4JXGDYc2zBCRMBY9JyqoLM9DCNyxQQRcNiq23gZEwdUEwCRSfz9now5MkQthqEikXV6mUkUCpAtEGVLrfPRV"
+        }
+      }
+    },
+    {
+      "suite": "Ed25519Signature2018",
+      "generatedBy": "@digitalbazaar/ed25519-signature-2018 over jsonld-signatures 11.6.0",
+      "issuerDid": "did:web:id.peer.example.gov",
+      "publicJwk": {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": "-OnXgkLyzAy2JbvVJs0hrQyJgiGXv4G4tnZVPz1dHNw"
+      },
+      "credential": {
+        "@context": [
+          "https://www.w3.org/2018/credentials/v1",
+          "https://peer.example.gov/contexts/residency/v1"
+        ],
+        "id": "urn:uuid:5f9d1a2c-2b1e-4d3a-9c77-8e1f0b6a4c11",
+        "type": [
+          "VerifiableCredential",
+          "PeerResidencyCredential"
+        ],
+        "issuer": "did:web:id.peer.example.gov",
+        "issuanceDate": "2026-01-15T09:30:00Z",
+        "credentialSubject": {
+          "id": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+          "residencyId": "PX-0001-2026",
+          "subnationalUnit": "PX"
+        },
+        "proof": {
+          "type": "Ed25519Signature2018",
+          "created": "2026-08-13T02:20:10Z",
+          "verificationMethod": "did:web:id.peer.example.gov#HkevMhV5CWAkPn25rzf1zQfp8jL3yoUoyJNarPiGzi8B",
+          "proofPurpose": "assertionMethod",
+          "jws": "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19..dTvnXSYMMhNO2uyDmTfmqbrKN_3yYxk4Vg2ykGbvYKtynIhzXvEe4hFGhkUofm2r0Ku9M-YcFIAITMyBicn7Bg"
+        }
+      }
+    },
+    {
+      "suite": "RsaSignature2018",
+      "generatedBy": "jsonld-signatures 5.2.0",
+      "note": "The reference implementation emits alg=PS256 (RSASSA-PSS), not RS256.",
+      "issuerDid": "did:web:id.peer.example.gov",
+      "publicJwk": {
+        "kty": "RSA",
+        "n": "wDG30iRsbYv9NQO_f9nz3ulwJNjelsv4uWqWSSdEuNaFWwMivW7YTZWIhapFeLghNhVYyaCfWB2XaPfltvIjQDHiVqaylg-q2kEKLIsyjYZFok0yKiONnljryhm_Y9g2D6aMUD0oNLW7wuslVj3jfBFydN57HRAn4hw3eSjZE_o3t8ZlB6oJNvP11oLZAtb-Ycv6FjrUYT8tSl8p_RPh7VmgijKSoJ4w940duyNCtRzOMCfV1zaZzihnFEfWV1s0exgtVY52-FWOhynL9kgsbfvzW3NaQM7zqJSDS0pX8bzzAO_BEcRO8owKinc8FQ4E8IleoLhJYkWsQw4wijfZJw",
+        "e": "AQAB"
+      },
+      "credential": {
+        "@context": [
+          "https://www.w3.org/2018/credentials/v1",
+          "https://peer.example.gov/contexts/residency/v1"
+        ],
+        "id": "urn:uuid:5f9d1a2c-2b1e-4d3a-9c77-8e1f0b6a4c11",
+        "type": [
+          "VerifiableCredential",
+          "PeerResidencyCredential"
+        ],
+        "issuer": "did:web:id.peer.example.gov",
+        "issuanceDate": "2026-01-15T09:30:00Z",
+        "credentialSubject": {
+          "id": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+          "residencyId": "PX-0001-2026",
+          "subnationalUnit": "PX"
+        },
+        "proof": {
+          "type": "RsaSignature2018",
+          "created": "2026-08-13T02:21:16Z",
+          "verificationMethod": "did:web:id.peer.example.gov#rsa-1",
+          "proofPurpose": "assertionMethod",
+          "jws": "eyJhbGciOiJQUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19..tRh1HA8Ns2nrs_Vq_9At-aE2B9c8fC_F-nSbaCeNrK7wJpu-LGp_wqbMrbb4fiIZxxa_asXixlK-jGrTZiRJCyESYeXS_J6wQ1ss-2842QW1H84YIQj-YE7bD-SfDJUs9ZXITJRrXyi_w2U75dFEWeGCrOY7RZ-iJOpuZvlVnoT9PWDdrkphnTmi3rSoJV5kmrFHCNCFNh_xDRVFGmn5mefTEueFv-WZ_BN8fnK0PFMBm5M42GUaJtd78QwKcxKUb4QByrpgJtRzUEsxvTGERVw6rxq9bNCvEtpd0bSjs6SxeL9Vj-Nmo8G0pSXrYL9pei5ctHolaQ_KHmhCBww8EA"
+        }
+      }
+    }
+  ]
+}

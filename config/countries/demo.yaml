@@ -225,6 +225,22 @@ contactDirectory:
 # credentials its citizens already hold. statusListUrl is where the peer publishes its
 # revocation list, if it does.
 #
+# A peer that does NOT run this software -- a MOSIP/Inji Certify issuer, say -- needs two
+# more things, both per-peer and both off by default:
+#
+#   acceptedProofSuites  the older linked-data proof suites its credentials carry. We issue
+#                        DataIntegrityProof/eddsa-rdfc-2022 and always will; these are
+#                        VERIFY-ONLY, and listing one here does not change what you issue.
+#                        Scope them to the peer that needs them -- federating with one
+#                        legacy issuer is no reason to accept 2018-era proofs from everyone.
+#   contexts             the peer's own JSON-LD context document, inline. Its credentials
+#                        cannot be canonicalized without it, and the loader will not fetch
+#                        it at verification time (see "JSON-LD contexts are pinned" in
+#                        docs/INTEROP.md). Pin it here, review it with the keys.
+#
+# An RSA public key is accepted in publicJwks for the same reason: the peer signs with what
+# it signs with. Private components are refused at load, as they are for Ed25519 keys.
+#
 # federation:
 #   trustedIssuers:
 #     - did: did:web:id.kano.gov.ng
@@ -232,6 +248,18 @@ contactDirectory:
 #       publicJwks:
 #         - { kty: OKP, crv: Ed25519, x: "<base64url>", kid: kano-key-1 }
 #       statusListUrl: https://id.kano.gov.ng/.well-known/status/ng.json
+#     - did: did:web:id.partner.example.gov
+#       name: A MOSIP-era partner issuer
+#       publicJwks:
+#         - { kty: RSA, n: "<base64url>", e: AQAB, kid: partner-rsa-1 }
+#       acceptedProofSuites: [RsaSignature2018]
+#       contexts:
+#         - url: https://partner.example.gov/contexts/residency/v1
+#           document:
+#             "@context":
+#               "@version": 1.1
+#               "@protected": true
+#               PartnerResidencyCredential: https://partner.example.gov/vocab#PartnerResidencyCredential
 
 # ---------------------------------------------------------------------------
 # Biometric authority for the AAL3 sign-in step-up (deployment-wide). OPTIONAL.
