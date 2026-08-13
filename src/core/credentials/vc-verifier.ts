@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { jwtVerify, importJWK, errors, JWK, CryptoKey } from 'jose';
+import { jwtVerify, importJWK, errors, calculateJwkThumbprint, JWK, CryptoKey } from 'jose';
 import { StatusList } from './status-list';
 
 /**
@@ -75,15 +75,26 @@ export class VcVerifier {
 
     const keys: CryptoKey[] = [];
     for (const jwk of candidates) {
-      const cacheKey = `${did}#${jwk.kid ?? ''}`;
-      let key = this.keyCache.get(cacheKey);
-      if (!key) {
-        try {
+      let key: CryptoKey | undefined;
+      try {
+        // Cache on the RFC 7638 thumbprint of the key material, NOT on `kid`.
+        //
+        // `kid` is a label an issuer chooses, and it is optional. Keying the cache on
+        // `kid ?? ''` collapsed every kid-less key for an issuer onto one entry, so the
+        // first such key was returned in place of all the others and credentials signed
+        // by the rest silently failed to verify -- precisely the rotation breakage the
+        // publicJwks array exists to prevent. Config requires a `kid` today, which is
+        // what kept that unreachable; the cache should not depend on a rule enforced
+        // three layers away. The thumbprint is derived from the key material itself, so
+        // two distinct keys can never share an entry however they are labelled.
+        const cacheKey = `${did}#${await calculateJwkThumbprint(jwk)}`;
+        key = this.keyCache.get(cacheKey);
+        if (!key) {
           key = (await importJWK(jwk, 'EdDSA')) as CryptoKey;
-        } catch {
-          continue; // a malformed entry in the trust list must not sink the good ones
+          this.keyCache.set(cacheKey, key);
         }
-        this.keyCache.set(cacheKey, key);
+      } catch {
+        continue; // a malformed entry in the trust list must not sink the good ones
       }
       keys.push(key);
     }

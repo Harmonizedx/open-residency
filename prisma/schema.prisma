@@ -148,7 +148,10 @@ model OtpChallenge {
   failedAttempts Int      @default(0)
   createdAt      DateTime @default(now())
 
-  @@index([residentId])
+  // Composite rather than residentId alone: the per-resident rate limit reads every
+  // challenge for a resident within a rolling window, so the window bound belongs in the
+  // index. Serves the old residentId-only lookups too, as its leftmost prefix.
+  @@index([residentId, createdAt])
 }
 
 // Tamper-evident audit log. Each row is hash-chained to the previous (prevHash),

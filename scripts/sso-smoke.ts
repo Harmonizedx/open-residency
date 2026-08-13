@@ -32,7 +32,13 @@ import { ResidencyService } from '../src/core/residency/residency-service';
 import { InMemoryOid4vpStore } from '../src/core/oid4vp/ports';
 import { Oid4vpService } from '../src/core/oid4vp/oid4vp-service';
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../src/core/oid4vp/vp-verifier';
-import { OtpService, InMemoryOtpStore, OtpSender } from '../src/core/sso/otp';
+import {
+  OtpService,
+  InMemoryOtpStore,
+  OtpSender,
+  OtpThrottledError,
+  DEFAULT_OTP_LIMITS,
+} from '../src/core/sso/otp';
 import { SsoAuthService } from '../src/core/sso/sso-auth';
 import { didKeyFromJwk } from '../src/core/credentials/did';
 
@@ -226,6 +232,49 @@ async function main() {
   for (let i = 0; i < 5; i++) await sso.verifyOtpLogin(residentId, bad);
   const afterLock = await sso.verifyOtpLogin(residentId, code2); // even the RIGHT code
   check('the challenge locks after too many wrong guesses', !afterLock.authenticated && afterLock.reason === 'LOCKED');
+
+  // ---- The lockout must not be resettable by asking for another code ------
+  //
+  // Locking only the challenge is no bound at all: an attacker alternates "send me a
+  // code" with five guesses and gets unlimited attempts at a 10^-6 secret, while the
+  // resident's phone absorbs one message per round. Both the guesses and the sends are
+  // counted per RESIDENT over a rolling window, so a fresh challenge buys no fresh
+  // allowance. Drive the attack and confirm both ceilings hold.
+  let scoredAfterLock = 0;
+  let refusedIssues = 0;
+  let sentDuringAttack = 0;
+  for (let round = 0; round < 20; round++) {
+    try {
+      await sso.beginOtpLogin(residentId);
+      sentDuringAttack++;
+    } catch (e) {
+      if (e instanceof OtpThrottledError) refusedIssues++;
+      else throw e;
+    }
+    const fresh = sender.last!.code;
+    const wrongFresh = fresh === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) {
+      if ((await sso.verifyOtpLogin(residentId, wrongFresh)).reason === 'WRONG_CODE') {
+        scoredAfterLock++;
+      }
+    }
+  }
+  check(
+    'a new code does not restore a fresh guess allowance',
+    scoredAfterLock <= DEFAULT_OTP_LIMITS.maxAttemptsPerWindow,
+    `${scoredAfterLock} further guesses were scored across 20 rounds`,
+  );
+  check(
+    'issuance itself is capped, so the attack cannot be fed indefinitely',
+    refusedIssues > 0,
+    `${refusedIssues} of 20 issue attempts refused, ${sentDuringAttack} sent`,
+  );
+  const stillLocked = await sso.verifyOtpLogin(residentId, sender.last!.code);
+  check(
+    'once the window budget is spent, even the right code is refused',
+    !stillLocked.authenticated && stillLocked.reason === 'LOCKED',
+    JSON.stringify(stillLocked),
+  );
 
   // No enumeration: requesting a code for an unknown resident is a silent no-op.
   sender.last = undefined;

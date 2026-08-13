@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 /**
  * Tamper-evident audit log.
@@ -214,10 +214,14 @@ export class AuditLog {
 }
 
 function cryptoRandomId(): string {
-  return createHash('sha256')
-    .update(`${Date.now()}:${Math.random()}:${process.hrtime.bigint()}`)
-    .digest('hex')
-    .slice(0, 24);
+  // 12 bytes from the CSPRNG, hex-encoded to the same 24 characters this has always
+  // produced. The previous construction hashed Date.now(), Math.random() and hrtime:
+  // the output looked random, but Math.random() is not a cryptographic generator, so
+  // the entropy was whatever the clock and a predictable PRNG supplied. Nothing here
+  // depends on these ids being unguessable -- chain integrity rests on the SHA-256
+  // hash, not the id -- but a function named cryptoRandomId must not be the one place
+  // a reader has to check that claim.
+  return randomBytes(12).toString('hex');
 }
 
 /** In-memory store for tests, pilots, and CI. */

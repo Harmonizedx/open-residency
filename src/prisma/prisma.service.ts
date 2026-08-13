@@ -511,6 +511,17 @@ export class PrismaOtpStore implements OtpStore {
     return r ? this.toRecord(r) : null;
   }
 
+  async recentFor(residentId: string, since: string): Promise<OtpChallengeRecord[]> {
+    // Consumed challenges are included deliberately: a successful sign-in does not erase
+    // the failures that preceded it, and excluding them would let an attacker clear the
+    // window by completing one login.
+    const rows = await this.prisma.otpChallenge.findMany({
+      where: { residentId, createdAt: { gte: new Date(since) } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((r) => this.toRecord(r));
+  }
+
   async update(challenge: OtpChallengeRecord): Promise<void> {
     await this.prisma.otpChallenge.update({
       where: { id: challenge.id },
