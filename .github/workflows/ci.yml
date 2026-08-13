@@ -94,6 +94,15 @@ jobs:
       - name: MOSIP ID Authentication envelope
         run: npm run smoke:mosip-ida
 
+      # The authoritative statement of MOSIP integration state, and a real gate: it exits
+      # non-zero on any non-PASS. It re-runs the four suites above rather than trusting that
+      # they ran, and adds the check none of them can make individually -- that no control
+      # flow in src/core branches on a vendor identifier, which is what keeps the whole
+      # integration optional rather than architectural. The individual steps above are kept
+      # so a failure says which capability broke without reading the summary.
+      - name: MOSIP integration conformance (gate)
+        run: npm run conformance:mosip
+
       # WebAuthn passkey factor (registration + assertion verification against a simulated
       # authenticator, both ES256 and EdDSA) and the assurance model (acr/amr, biometric
       # step-up). Security-critical crypto, so it is gated.

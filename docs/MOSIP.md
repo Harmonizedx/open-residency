@@ -10,9 +10,9 @@ may need any subset of them. This document covers what each one does, what it es
 what it deliberately does not, what you must obtain before it will run, and how far it has
 actually been verified.
 
-**Read the last section before quoting any of this.** Three of the four surfaces are verified
-against reference implementations and documented behaviour, not against a live MOSIP stack.
-That distinction is load-bearing and this project does not blur it.
+**Read the last section before quoting any of this.** Every surface here is verified against
+reference implementations and published behaviour — **none of them has run against a live
+MOSIP deployment.** That distinction is load-bearing and this project does not blur it.
 
 ---
 
@@ -23,9 +23,14 @@ That distinction is load-bearing and this project does not blur it.
 | **Inji / OpenWallet issuance** | We issue → their wallet holds | Complete | `npm run smoke:inji` |
 | **Inbound credential verification** | Their issuer signs → we verify | Complete | `npm run smoke:ld-suites` |
 | **eSignet sign-in** | Their IdP authenticates → we accept | Complete | `npm run smoke:upstream-oidc` |
-| **IDA foundational auth** | We authenticate against their registry | Auth complete; eKYC not implemented | `npm run smoke:mosip-ida` |
+| **IDA foundational auth** | We authenticate against their registry | Complete, incl. eKYC | `npm run smoke:mosip-ida` |
 
-All four are gated in CI on every pull request.
+All four are gated in CI on every pull request, and `npm run conformance:mosip` is the
+authoritative statement of that state — it re-runs each suite, adds a check that no control
+flow in `src/core` branches on a vendor identifier, and **exits non-zero on any non-PASS**.
+
+Quote the suite, not this table. If they ever disagree, the suite is right and this document
+is stale.
 
 ---
 
@@ -186,13 +191,26 @@ IDA **authenticates**: by an OTP delivered to the device registered on the autho
 record, or by a demographic match performed by the authority. So a success attests
 `authoritative_authentication`, not the `none` that a bare lookup earns.
 
-What it does **not** do is retrieve attributes. `/auth` answers yes or no. The attributes on a
-successful result here are the ones the applicant submitted and MOSIP **confirmed** — which
-is a stronger statement than a lookup returning them, and the only one this endpoint
-supports. Attribute retrieval is the separate eKYC endpoint; its response decryption needs a
-partner encryption key and a live deployment to test against, so it is **not implemented**
-rather than implemented blind. If you need demographic retrieval, that is the next piece of
-work, and it should be built against a sandbox rather than from documentation.
+There are two modes, and **the default is the private one**. With `kyc` off, `/auth` answers
+yes or no and MOSIP releases nothing about the person: the attributes on a successful result
+are the ones the applicant submitted and MOSIP **confirmed**, which is a stronger statement
+than a lookup returning them.
+
+With `kyc` on, `/kyc-auth` additionally returns a token that `/kyc-exchange` trades for the
+attributes MOSIP holds. That asks the authority to hand over demographic data — a bigger ask
+of the resident and of your partner policy — so it is opt-in rather than a free upgrade, and
+you request only the claims you can justify (`kycClaims`, defaulting to `sub` alone).
+
+The exchange response is a **JWE wrapping a JWS**, and both layers are checked. Decrypting
+proves the payload was encrypted *to you*; only the inner signature proves *MOSIP asserted*
+what is inside. Treating the first as the second is the mistake the implementation is written
+to avoid, and the test suite includes a payload that decrypts perfectly but was signed by
+somebody else — it is refused.
+
+One consequence worth stating: if attributes were requested and cannot be obtained, the whole
+verification **fails** rather than returning a success with an empty identity. A success
+carrying nothing would look to the residency engine like an authority that holds no data about
+this person, which is a different and much worse claim than "we could not reach it".
 
 ### The envelope
 
@@ -223,7 +241,9 @@ comes from partner onboarding, not from this repository:
 
 - registration as an auth partner under a MISP, and the **MISP licence key**
 - your **partner id**, and the policy-linked **partner API key**
-- your **signing and encryption certificates**, uploaded through the partner portal
+- your **signing and encryption certificates**, uploaded through the partner portal (the
+  encryption key is what opens an eKYC response, so eKYC needs it and plain `/auth` does not)
+- **IDA's signing certificate**, to verify the signature inside an eKYC response
 - **MOSIP's own partner certificate**, which the session key is encrypted to
 
 Secrets are named as environment variables in config, never inlined. The two certificates are
@@ -252,14 +272,18 @@ asserted individually: replayed callback, nonce from another session, unmapped `
 userinfo.
 
 **What they do not establish.** None of this has run against a live MOSIP deployment.
+`npm run conformance:mosip` printing five PASSes means five capabilities are implemented and
+exercised; it does not mean any of them has met a real MOSIP instance, and the suite says so
+in its own summary on every run precisely because that is the part a reader drops.
 
 - The proof suites are verified against the reference **implementations** of those suites,
   not against a credential from a real Inji Certify instance.
 - The eSignet client is verified against eSignet's **documented** behaviour, not against a
   live eSignet, which needs a registered client this repository's CI cannot hold.
-- The IDA envelope is verified as **correct**; that MOSIP accepts *your* partner identity is
-  not, and cannot be, because it needs a MISP licence key, partner id, API key and uploaded
-  certificates.
+- The IDA envelope and the eKYC exchange are verified as **correct** — the test server opens
+  the envelope, and the KYC response is decrypted and its inner signature checked. That MOSIP
+  accepts *your* partner identity is not verified, and cannot be, because it needs a MISP
+  licence key, partner id, API key and uploaded certificates.
 
 This is the same boundary the Inji issuance profile has always stated, and it is drawn here
 for the same reason: a conformance claim that cannot be reproduced by the reader is not a

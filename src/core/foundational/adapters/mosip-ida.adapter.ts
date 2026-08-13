@@ -7,6 +7,7 @@ import {
   randomBytes,
   randomUUID,
   createSign,
+  createPrivateKey,
   constants as cryptoConstants,
   X509Certificate,
 } from 'node:crypto';
@@ -14,6 +15,7 @@ import {
   FoundationalProvider,
   FoundationalVerificationInput,
   FoundationalVerificationResult,
+  NormalizedIdentity,
   ProviderConfig,
 } from '../types';
 import { tokenizeSubject } from '../util';
@@ -50,12 +52,16 @@ import { tokenizeSubject } from '../util';
  * `authoritative_authentication`, not a bare lookup, and `authenticatesApplicant` is
  * therefore set for it rather than being left to config.
  *
- * It does not retrieve attributes. IDA's `/auth` endpoint returns a yes or a no, and the
- * demographic attributes in a successful response are the ones the APPLICANT submitted and
- * MOSIP CONFIRMED -- which is a stronger statement than a lookup returning them, and the
- * only one this endpoint supports. Attribute retrieval is the separate eKYC endpoint, whose
- * response decryption needs a partner encryption key and a live deployment to test against;
- * it is deliberately not implemented here rather than implemented blind.
+ * TWO MODES, AND THE DEFAULT IS THE PRIVATE ONE. With `kyc` off (the default), `/auth`
+ * returns a yes or a no and MOSIP releases nothing: the demographic attributes on a success
+ * are the ones the APPLICANT submitted and MOSIP CONFIRMED, which is a stronger statement
+ * than a lookup returning them. With `kyc` on, `/kyc-auth` additionally yields a token that
+ * `/kyc-exchange` trades for attributes MOSIP holds. That is a bigger ask of the resident
+ * and of the partner policy, so it is opt-in rather than a free upgrade.
+ *
+ * The KYC response is a JWE wrapping a JWS, and both layers are checked. Decrypting proves
+ * the payload was encrypted TO US; only the inner signature proves MOSIP ASSERTED what is
+ * inside. Treating the first as the second is the mistake this code is written to avoid.
  */
 
 export interface MosipIdaExtra {
@@ -87,12 +93,39 @@ export interface MosipIdaExtra {
   version?: string;
   /** Consent flag sent to MOSIP; the deployment is asserting it obtained consent. */
   consentObtained?: boolean;
+  /**
+   * Retrieve demographic attributes via eKYC instead of only authenticating.
+   *
+   * Off by default, and that default is the privacy-preserving one: `/auth` establishes that
+   * the person authenticated without MOSIP releasing anything about them. Turning this on
+   * asks the authority to hand over demographic data, which is a bigger ask of the resident
+   * and of the partner policy, so it is a deliberate choice rather than a free upgrade.
+   */
+  kyc?: boolean;
+  /**
+   * Env var holding the partner's PKCS#8 PEM decryption key. `encryptedKyc` is encrypted to
+   * the encryption certificate uploaded during partner onboarding, so without this key the
+   * response cannot be opened.
+   */
+  kycDecryptionKeyEnv?: string;
+  /**
+   * IDA's signing certificate (PEM), used to verify the signature INSIDE the encrypted KYC
+   * response. Required whenever `kyc` is on: decrypting proves only that the payload was
+   * encrypted to us, not that MOSIP asserted what is in it.
+   */
+  idaSigningCertificatePem?: string;
+  /** Claims requested in the exchange; MOSIP returns only what policy and consent allow. */
+  kycClaims?: string[];
+  /** ISO-3 language codes for the locales MOSIP should return attributes in. */
+  kycLocales?: string[];
 }
 
 /** Demographic fields IDA will match on, and the identifier keys they read from. */
 const DEMOGRAPHIC_KEYS = ['name', 'dob', 'gender', 'phoneNumber', 'emailId'] as const;
 
 const AUTH_ID = 'mosip.identity.auth';
+const KYC_AUTH_ID = 'mosip.identity.kycauth';
+const KYC_EXCHANGE_ID = 'mosip.identity.kycexchange';
 const OTP_ID = 'mosip.identity.otp';
 
 const b64url = (b: Buffer): string => b.toString('base64url');
@@ -183,7 +216,7 @@ export class MosipIdaAdapter implements FoundationalProvider {
   }
 
   /** `/idauthentication/v1/{kind}/{misp}/{partnerId}/{apiKey}` */
-  private endpoint(kind: 'auth' | 'otp'): string {
+  private endpoint(kind: 'auth' | 'otp' | 'kyc-auth' | 'kyc-exchange'): string {
     const misp = this.requireEnv(this.extra.mispLicenseKeyEnv);
     const apiKey = this.requireEnv(this.extra.partnerApiKeyEnv);
     const base = this.cfg.baseUrl!.replace(/\/$/, '');
@@ -302,6 +335,100 @@ export class MosipIdaAdapter implements FoundationalProvider {
     };
   }
 
+  /**
+   * Exchange a kyc-auth token for the resident's demographic attributes.
+   *
+   * `encryptedKyc` is a JWE encrypted to the partner's encryption certificate, wrapping a JWS
+   * that MOSIP signed. Both layers matter and they say different things: decrypting proves
+   * the payload was encrypted TO US, while only the inner signature proves MOSIP ASSERTED
+   * what is inside. A client that returns the decrypted payload without checking that
+   * signature has confused "nobody else could read this" with "the authority said it".
+   */
+  private async exchangeKyc(
+    individualId: string,
+    transactionID: string,
+    kycToken: string,
+  ): Promise<Record<string, unknown>> {
+    const body = await this.post(this.endpoint('kyc-exchange'), {
+      id: KYC_EXCHANGE_ID,
+      version: this.extra.version ?? '1.0',
+      requestTime: utcTimestamp(),
+      transactionID,
+      kycToken,
+      individualId,
+      // What MOSIP is asked to release. `sub` alone is the minimum the API accepts, and
+      // asking for nothing more is the right default for a system that only needs to know
+      // the person authenticated.
+      consentObtained: this.extra.kycClaims ?? ['sub'],
+      locales: this.extra.kycLocales ?? ['eng'],
+      respType: 'JWE',
+    });
+
+    const errors = (body.errors as { errorCode?: string }[] | undefined) ?? [];
+    const response = (body.response ?? {}) as { encryptedKyc?: string };
+    if (!response.encryptedKyc) {
+      throw new Error(`IDA_${errors[0]?.errorCode ?? 'KYC_EXCHANGE_FAILED'}`);
+    }
+
+    const keyEnv = this.extra.kycDecryptionKeyEnv;
+    if (!keyEnv) throw new Error('MOSIP_IDA kyc needs extra.kycDecryptionKeyEnv');
+    if (!this.extra.idaSigningCertificatePem) {
+      throw new Error('MOSIP_IDA kyc needs extra.idaSigningCertificatePem to verify the payload');
+    }
+
+    const { compactDecrypt, jwtVerify } = await import('jose');
+    const privateKey = createPrivateKey(this.requireEnv(keyEnv));
+
+    let inner = response.encryptedKyc.trim();
+    // Five segments is a JWE. MOSIP can be configured to return a bare signed JWT instead,
+    // and that stays acceptable -- what is never acceptable is skipping the signature.
+    if (inner.split('.').length === 5) {
+      const { plaintext } = await compactDecrypt(inner, privateKey);
+      inner = Buffer.from(plaintext).toString('utf8').trim();
+    }
+
+    const signingKey = new X509Certificate(this.extra.idaSigningCertificatePem).publicKey;
+    const { payload } = await jwtVerify(inner, signingKey, { clockTolerance: 60 });
+    return payload as Record<string, unknown>;
+  }
+
+  /** Map MOSIP's KYC claims onto the provider-agnostic identity shape. */
+  private identityFromKyc(
+    individualId: string,
+    claims: Record<string, unknown>,
+  ): NormalizedIdentity {
+    const read = (key: string): string | undefined => {
+      const value = claims[key];
+      return typeof value === 'string' && value.length ? value : undefined;
+    };
+    return {
+      subjectRef: tokenizeSubject(this.code, individualId, this.pepper),
+      fullName: read('name'),
+      givenName: read('given_name'),
+      familyName: read('family_name'),
+      dateOfBirth: read('birthdate') ?? read('dateOfBirth'),
+      gender: read('gender'),
+      phone: read('phone_number'),
+      email: read('email'),
+      photo: read('picture'),
+      // MOSIP's address is a structured claim; its locality is residence EVIDENCE offered to
+      // the proof-of-residence policy, never proof, and never a substitute for it.
+      addressHint: this.addressHintFrom(claims),
+    };
+  }
+
+  private addressHintFrom(claims: Record<string, unknown>): string | undefined {
+    const address = claims.address;
+    if (typeof address === 'string') return address;
+    if (address && typeof address === 'object') {
+      const parts = ['street_address', 'locality', 'region', 'postal_code', 'country']
+        .map((k) => (address as Record<string, unknown>)[k])
+        .filter((v): v is string => typeof v === 'string' && v.length > 0);
+      if (parts.length) return parts.join(', ');
+    }
+    return undefined;
+  }
+
   async verify(input: FoundationalVerificationInput): Promise<FoundationalVerificationResult> {
     const individualId = this.individualId(input);
     if (!individualId) {
@@ -343,7 +470,9 @@ export class MosipIdaAdapter implements FoundationalProvider {
     if (Object.keys(demographics).length) requestBlock.demographics = demographics;
 
     const payload = {
-      id: AUTH_ID,
+      // kyc-auth is the same envelope as auth; it additionally returns a kycToken that the
+      // exchange call trades for attributes.
+      id: this.extra.kyc ? KYC_AUTH_ID : AUTH_ID,
       version: this.extra.version ?? '1.0',
       individualId,
       individualIdType: this.extra.individualIdType ?? 'UIN',
@@ -364,7 +493,7 @@ export class MosipIdaAdapter implements FoundationalProvider {
 
     let body: Record<string, unknown>;
     try {
-      body = await this.post(this.endpoint('auth'), payload);
+      body = await this.post(this.endpoint(this.extra.kyc ? 'kyc-auth' : 'auth'), payload);
     } catch (e) {
       const message = (e as Error).message;
       return {
@@ -375,7 +504,7 @@ export class MosipIdaAdapter implements FoundationalProvider {
       };
     }
 
-    const response = (body.response ?? {}) as { authStatus?: boolean };
+    const response = (body.response ?? {}) as { authStatus?: boolean; kycToken?: string };
     const errors = (body.errors as { errorCode?: string }[] | undefined) ?? [];
     if (!response.authStatus) {
       return {
@@ -386,6 +515,45 @@ export class MosipIdaAdapter implements FoundationalProvider {
         // a wrong OTP from an expired one from a blocked identity.
         reason: errors.length ? `IDA_${errors[0]?.errorCode ?? 'AUTH_FAILED'}` : 'AUTH_FAILED',
       };
+    }
+
+    const binding = {
+      // An OTP to the registered device, or a demographic match performed by the
+      // authority itself. Either way the source vouched, which is what this method means.
+      method: 'authoritative_authentication' as const,
+      ref: transactionID,
+      verifiedAt: new Date().toISOString(),
+    };
+
+    if (this.extra.kyc) {
+      if (!response.kycToken) {
+        return {
+          verified: false,
+          providerCode: this.code,
+          assuranceLevel: 'none',
+          reason: 'KYC_TOKEN_MISSING',
+        };
+      }
+      try {
+        const claims = await this.exchangeKyc(individualId, transactionID, response.kycToken);
+        return {
+          verified: true,
+          providerCode: this.code,
+          assuranceLevel: this.cfg.assuranceOnSuccess,
+          identity: this.identityFromKyc(individualId, claims),
+          applicantBinding: binding,
+        };
+      } catch (e) {
+        // The authentication itself succeeded, but attributes were asked for and could not
+        // be obtained. Reporting success with an empty identity would look to the residency
+        // engine like an authority that holds nothing about this person, so it fails instead.
+        return {
+          verified: false,
+          providerCode: this.code,
+          assuranceLevel: 'none',
+          reason: (e as Error).message,
+        };
+      }
     }
 
     return {
@@ -402,13 +570,7 @@ export class MosipIdaAdapter implements FoundationalProvider {
         phone: demographics.phoneNumber,
         email: demographics.emailId,
       },
-      applicantBinding: {
-        // An OTP to the registered device, or a demographic match performed by the
-        // authority itself. Either way the source vouched, which is what this method means.
-        method: 'authoritative_authentication',
-        ref: transactionID,
-        verifiedAt: new Date().toISOString(),
-      },
+      applicantBinding: binding,
     };
   }
 

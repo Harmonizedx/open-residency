@@ -58,7 +58,8 @@
     "smoke:privacy": "tsc -p tsconfig.core.json && node dist-core/scripts/privacy-smoke.js",
     "smoke:ld-suites": "tsc -p tsconfig.core.json && node dist-core/scripts/ld-suites-smoke.js",
     "smoke:upstream-oidc": "tsc -p tsconfig.core.json && node dist-core/scripts/upstream-oidc-smoke.js",
-    "smoke:mosip-ida": "tsc -p tsconfig.core.json && node dist-core/scripts/mosip-ida-smoke.js"
+    "smoke:mosip-ida": "tsc -p tsconfig.core.json && node dist-core/scripts/mosip-ida-smoke.js",
+    "conformance:mosip": "tsc -p tsconfig.core.json && node dist-core/scripts/mosip-conformance.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.29",

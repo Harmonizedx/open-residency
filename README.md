@@ -455,13 +455,19 @@ the directions where being subtly wrong means accepting something we should have
 - **MOSIP ID Authentication's encrypted envelope**, driven against a test server that decrypts the
   session key, decrypts the request block, recomputes the digest, checks the certificate
   thumbprint and verifies the detached JWS — so a client that got the GCM IV placement, the
-  digest case or the base64 padding wrong fails exactly as it would in production.
+  digest case or the base64 padding wrong fails exactly as it would in production. eKYC
+  attribute retrieval is covered too: the response is a JWE wrapping a JWS, and a payload that
+  decrypts perfectly but was signed by somebody else is refused.
 
-**What those three do not establish:** none has run against a live MOSIP deployment. They verify
-against reference implementations and published behaviour; a credential from a real Inji Certify
-instance, a registered eSignet client, and a MISP partner agreement are all things CI cannot hold.
-[`docs/MOSIP.md`](docs/MOSIP.md) draws that line explicitly, surface by surface. No MOSIP
-certification, compliance or partnership is claimed.
+`npm run conformance:mosip` is the authoritative statement of that state — it re-runs each suite,
+adds a check that no control flow in `src/core` branches on a vendor identifier, and **gates the
+build**, exiting non-zero on any non-PASS. Quote the suite, not a document.
+
+**What none of it establishes:** nothing here has run against a live MOSIP deployment. These
+verify against reference implementations and published behaviour; a credential from a real Inji
+Certify instance, a registered eSignet client, and a MISP partner agreement are all things CI
+cannot hold. [`docs/MOSIP.md`](docs/MOSIP.md) draws that line explicitly, surface by surface. No
+MOSIP certification, compliance or partnership is claimed.
 
 **Not run in CI, and not claimed:** the official
 [`w3c/vc-data-model-2.0-test-suite`](https://github.com/w3c/vc-data-model-2.0-test-suite). It needs

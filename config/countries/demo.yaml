@@ -52,7 +52,8 @@ subnationalUnits:
 # `authoritative_authentication`, the strongest applicant binding there is. It is not a
 # lookup, and it is not treated as one. Note that /auth returns a yes or a no: the
 # attributes on a successful result are the ones the applicant submitted and MOSIP
-# CONFIRMED. Attribute RETRIEVAL is the separate eKYC endpoint and is not implemented.
+# CONFIRMED. To RETRIEVE the attributes MOSIP holds, turn on eKYC below -- deliberately a
+# separate decision, because it asks the authority to release data rather than confirm it.
 #
 # WHAT YOU MUST OBTAIN FIRST. None of this can be defaulted, and the adapter refuses to
 # start without it. All of it comes from partner onboarding, not from this repository:
@@ -89,6 +90,19 @@ subnationalUnits:
 #     environment: Developer
 #     individualIdType: UIN
 #     otpChannels: [PHONE]
+#     # eKYC: retrieve the attributes MOSIP holds, instead of only authenticating. OFF by
+#     # default, and the default is the private one -- /auth releases nothing about the
+#     # person. Turning this on asks the authority to hand over demographic data, so request
+#     # only the claims you can justify. Needs your ENCRYPTION key (the response is encrypted
+#     # to it) and IDA's signing certificate (to verify the signature inside it -- decrypting
+#     # alone proves only that it was encrypted to you, not that MOSIP asserted it).
+#     kyc: true
+#     kycDecryptionKeyEnv: IDA_KYC_DECRYPTION_KEY
+#     kycClaims: [sub, name, birthdate, gender, phone_number]
+#     idaSigningCertificatePem: |
+#       -----BEGIN CERTIFICATE-----
+#       ...IDA's signing certificate...
+#       -----END CERTIFICATE-----
 
 # ---------------------------------------------------------------------------
 # Wallet interoperability profile (OpenID4VCI). OPTIONAL.

@@ -20,6 +20,7 @@ import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 import {
   createDecipheriv,
+  createPublicKey,
   createHash,
   createPrivateKey,
   createVerify,
@@ -29,6 +30,7 @@ import {
   X509Certificate,
 } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { SignJWT, CompactEncrypt, importPKCS8, importSPKI } from 'jose';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -108,6 +110,17 @@ async function main() {
   process.env.IDA_PARTNER_API_KEY = 'partner-api-key';
   process.env.IDA_SIGNING_KEY = partner.keyPem;
 
+  // The partner's encryption keypair: IDA encrypts the KYC response to it.
+  const partnerEncryption = selfSignedCert('openresidency-encryption');
+  const partnerEncryptionSpki = createPublicKey(partnerEncryption.certPem)
+    .export({ type: 'spki', format: 'pem' })
+    .toString();
+  process.env.IDA_KYC_DECRYPTION_KEY = partnerEncryption.keyPem;
+
+  const KYC_TOKEN = 'kyc-token-abc123';
+  let kycSignWith = ida.keyPem;
+  let kycConsent: string[] | undefined;
+
   const received: Received = {};
   let authStatus = true;
   let authErrors: { errorCode: string; errorMessage: string }[] = [];
@@ -144,6 +157,43 @@ async function main() {
     const parsed = JSON.parse(body) as Record<string, string> & {
       requestedAuth?: Record<string, boolean>;
     };
+
+    // kyc-exchange: hand back attributes as a JWE wrapping a JWS, which is what IDA does.
+    if ((req.url ?? '').includes('/idauthentication/v1/kyc-exchange/')) {
+      const parsedExchange = JSON.parse(body) as { kycToken?: string; consentObtained?: string[] };
+      kycConsent = parsedExchange.consentObtained;
+      if (parsedExchange.kycToken !== KYC_TOKEN) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ response: {}, errors: [{ errorCode: 'IDA-KYC-001' }] }));
+        return;
+      }
+      const signed = await new SignJWT({
+        sub: UIN,
+        name: 'Amina Bello',
+        birthdate: '1990-04-11',
+        gender: 'female',
+        phone_number: '+2348030000000',
+        address: {
+          street_address: '12 Yandaka Road',
+          locality: 'Katsina',
+          region: 'KT',
+          postal_code: '820001',
+          country: 'NG',
+        },
+      })
+        .setProtectedHeader({ alg: 'RS256' })
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(await importPKCS8(kycSignWith, 'RS256'));
+
+      const encrypted = await new CompactEncrypt(new TextEncoder().encode(signed))
+        .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM', cty: 'JWT' })
+        .encrypt(await importSPKI(partnerEncryptionSpki, 'RSA-OAEP-256'));
+
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ response: { encryptedKyc: encrypted }, errors: [] }));
+      return;
+    }
 
     if ((req.url ?? '').includes('/idauthentication/v1/otp/')) {
       received.transactionID = parsed.transactionID;
@@ -188,7 +238,7 @@ async function main() {
         id: 'mosip.identity.auth',
         transactionID: parsed.transactionID,
         responseTime: new Date().toISOString(),
-        response: { authStatus, authToken: 'auth-token-1' },
+        response: { authStatus, authToken: 'auth-token-1', kycToken: KYC_TOKEN },
         errors: authErrors,
       }),
     );
@@ -342,6 +392,80 @@ async function main() {
     'a missing signing key fails the verification rather than sending an unsigned request',
     !noSigningKey.verified,
     noSigningKey.reason,
+  );
+
+  // ---- eKYC: attributes MOSIP holds, not attributes we asserted ------------
+  //
+  // The exchange response is a JWE wrapping a JWS. Both layers are asserted here, because
+  // they say different things: decrypting proves the payload was encrypted to us, and only
+  // the inner signature proves MOSIP asserted what is inside it.
+  console.log('\n  -- eKYC attribute retrieval');
+
+  const kycAdapter = new MosipIdaAdapter('test-pepper');
+  kycAdapter.init({
+    ...providerConfig,
+    extra: {
+      ...providerConfig.extra,
+      kyc: true,
+      kycDecryptionKeyEnv: 'IDA_KYC_DECRYPTION_KEY',
+      idaSigningCertificatePem: ida.certPem,
+      kycClaims: ['sub', 'name', 'birthdate', 'gender', 'phone_number', 'address'],
+    },
+  });
+
+  const kycResult = await kycAdapter.verify({
+    countryCode: 'NG',
+    identifiers: { individualId: UIN, otp: OTP },
+    challengeRef: challenge.challengeRef,
+  });
+
+  check('the kyc-auth endpoint is used when kyc is enabled', (received.path ?? '').includes('/kyc-exchange/'));
+  check('the eKYC exchange succeeds', kycResult.verified, kycResult.reason);
+  check(
+    'attributes MOSIP holds are returned, not ones we sent',
+    kycResult.identity?.fullName === 'Amina Bello' &&
+      kycResult.identity?.dateOfBirth === '1990-04-11' &&
+      kycResult.identity?.gender === 'female',
+    JSON.stringify(kycResult.identity),
+  );
+  check(
+    'the structured address becomes a residence HINT, never proof',
+    kycResult.identity?.addressHint === '12 Yandaka Road, Katsina, KT, 820001, NG',
+    kycResult.identity?.addressHint,
+  );
+  check('the identity reference is still tokenized', kycResult.identity?.subjectRef?.startsWith('mosip_ida:') === true);
+  check('eKYC still attests authoritative authentication', kycResult.applicantBinding?.method === 'authoritative_authentication');
+  check('the requested claims are sent as consentObtained', JSON.stringify(kycConsent) === JSON.stringify(['sub', 'name', 'birthdate', 'gender', 'phone_number', 'address']), JSON.stringify(kycConsent));
+
+  // Decryptable but not signed by MOSIP: the payload was encrypted to us by someone, which
+  // is not the same as the authority having asserted it.
+  const impostorIda = selfSignedCert('not-the-real-ida');
+  kycSignWith = impostorIda.keyPem;
+  const forgedKyc = await kycAdapter.verify({
+    countryCode: 'NG',
+    identifiers: { individualId: UIN, otp: OTP },
+    challengeRef: challenge.challengeRef,
+  });
+  check(
+    'a KYC payload signed by anyone but MOSIP is refused, even though it decrypts',
+    !forgedKyc.verified,
+    forgedKyc.reason,
+  );
+  kycSignWith = ida.keyPem;
+
+  // A partial failure must not read as an authority that holds nothing about this person.
+  const savedKycKey = process.env.IDA_KYC_DECRYPTION_KEY;
+  delete process.env.IDA_KYC_DECRYPTION_KEY;
+  const noKycKey = await kycAdapter.verify({
+    countryCode: 'NG',
+    identifiers: { individualId: UIN, otp: OTP },
+    challengeRef: challenge.challengeRef,
+  });
+  process.env.IDA_KYC_DECRYPTION_KEY = savedKycKey;
+  check(
+    'an undecryptable KYC response fails rather than returning an empty identity',
+    !noKycKey.verified && !noKycKey.identity,
+    noKycKey.reason,
   );
 
   // ---- The registry --------------------------------------------------------
