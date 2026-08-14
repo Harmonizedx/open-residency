@@ -11,6 +11,7 @@ import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
+import { OidcStore, OidcStoredItem } from '../core/sso/oidc-store';
 import {
   WebAuthnChallengeRecord,
   WebAuthnChallengeStore,
@@ -470,6 +471,99 @@ export class PrismaOid4vpStore implements Oid4vpStore {
       data: { status, outcome: outcome as any },
     });
     return count === 1;
+  }
+}
+
+/**
+ * Prisma-backed store for the OIDC provider's own state.
+ *
+ * Replaces oidc-provider's development in-memory adapter, which cannot serve a deployment
+ * running more than one replica -- see the port in `src/core/sso/oidc-store.ts` for why the
+ * resulting sign-in failure is intermittent rather than obvious.
+ */
+@Injectable()
+export class PrismaOidcStore implements OidcStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toItem = (r: any): OidcStoredItem => ({
+    name: r.name,
+    id: r.id,
+    payload: (r.payload ?? {}) as Record<string, unknown>,
+    grantId: r.grantId,
+    uid: r.uid,
+    userCode: r.userCode,
+    expiresAt: r.expiresAt,
+    consumedAt: r.consumedAt,
+  });
+
+  /**
+   * A row is only live while unexpired. Expressed as a `where` clause rather than filtered
+   * after the read so the database never hands back a token that has already lapsed, even
+   * if the sweep is behind.
+   */
+  private static unexpired(now: Date) {
+    return { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] };
+  }
+
+  async upsert(item: OidcStoredItem): Promise<void> {
+    const data = {
+      payload: item.payload as any,
+      grantId: item.grantId ?? null,
+      uid: item.uid ?? null,
+      userCode: item.userCode ?? null,
+      expiresAt: item.expiresAt ?? null,
+    };
+    // `consumedAt` is deliberately absent from the update branch: oidc-provider re-upserts
+    // an existing id to extend it, and clearing the consumed marker there would make a
+    // spent authorization code replayable.
+    await this.prisma.oidcStoredItem.upsert({
+      where: { name_id: { name: item.name, id: item.id } },
+      create: { name: item.name, id: item.id, ...data, consumedAt: item.consumedAt ?? null },
+      update: data,
+    });
+  }
+
+  async find(name: string, id: string, now: Date): Promise<OidcStoredItem | null> {
+    const r = await this.prisma.oidcStoredItem.findFirst({
+      where: { name, id, ...PrismaOidcStore.unexpired(now) },
+    });
+    return r ? this.toItem(r) : null;
+  }
+
+  async findByUid(name: string, uid: string, now: Date): Promise<OidcStoredItem | null> {
+    const r = await this.prisma.oidcStoredItem.findFirst({
+      where: { name, uid, ...PrismaOidcStore.unexpired(now) },
+    });
+    return r ? this.toItem(r) : null;
+  }
+
+  async findByUserCode(name: string, userCode: string, now: Date): Promise<OidcStoredItem | null> {
+    const r = await this.prisma.oidcStoredItem.findFirst({
+      where: { name, userCode, ...PrismaOidcStore.unexpired(now) },
+    });
+    return r ? this.toItem(r) : null;
+  }
+
+  async consume(name: string, id: string, at: Date): Promise<void> {
+    await this.prisma.oidcStoredItem.updateMany({
+      where: { name, id },
+      data: { consumedAt: at },
+    });
+  }
+
+  async destroy(name: string, id: string): Promise<void> {
+    await this.prisma.oidcStoredItem.deleteMany({ where: { name, id } });
+  }
+
+  async revokeByGrantId(name: string, grantId: string): Promise<void> {
+    await this.prisma.oidcStoredItem.deleteMany({ where: { name, grantId } });
+  }
+
+  async purgeExpired(now: Date): Promise<number> {
+    const { count } = await this.prisma.oidcStoredItem.deleteMany({
+      where: { expiresAt: { not: null, lte: now } },
+    });
+    return count;
   }
 }
 

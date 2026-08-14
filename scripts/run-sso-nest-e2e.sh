@@ -45,10 +45,13 @@ psql -h 127.0.0.1 -p "$PGPORT" -U postgres -c "CREATE DATABASE $DBNAME;" >/dev/n
 
 export DATABASE_URL="postgresql://postgres@127.0.0.1:$PGPORT/$DBNAME"
 
-echo "== pushing Prisma schema and generating client =="
-# Prisma 7 dropped --skip-generate from `db push`; generation is a separate step, which is
-# what the next line has always done anyway.
-npx prisma db push >/dev/null 2>&1
+echo "== applying migrations and generating client =="
+# `migrate deploy`, not `db push`, because that is what the deployment runs: both the Helm
+# chart and the raw k8s manifests apply migrations from prisma/migrations in an init
+# container. `db push` derives the schema straight from schema.prisma, so this harness used
+# to pass against a schema no deployment could actually reach -- which is how a missing
+# migrations directory stayed invisible while every test was green.
+npx prisma migrate deploy >/dev/null 2>&1
 npx prisma generate >/dev/null 2>&1
 
 echo "== building the application =="
