@@ -25,6 +25,24 @@ export const OIDC_PROVIDER = 'OIDC_PROVIDER';
         if (!platform.getIssuerKey?.()) await platform.init();
         const issuer = `${process.env.PUBLIC_BASE_URL ?? 'http://localhost:3000'}/oidc`;
         const config = await buildOidcConfiguration(platform);
+
+        // Fail closed if the storage adapter ever goes missing again.
+        //
+        // oidc-provider does not complain when `adapter` is absent -- it falls back to an
+        // in-process Map and logs a warning nobody reads in a running deployment. The
+        // symptom appears later, as intermittent failed sign-ins on a multi-replica
+        // cluster, and looks nothing like its cause. Refusing to boot is the only signal
+        // that arrives before citizens are affected. Same reasoning as `requireSecret`
+        // in oidc.provider.ts: there is no safe degraded mode here.
+        if (!config.adapter) {
+          throw new Error(
+            'OIDC provider has no storage adapter configured. It would fall back to ' +
+              'in-process memory, which loses every session on restart and breaks the ' +
+              'authorization-code exchange whenever more than one replica runs. ' +
+              'See buildOidcConfiguration in src/sso/oidc.provider.ts.',
+          );
+        }
+
         const provider = new Provider(issuer, config);
         provider.proxy = true;
         return provider;

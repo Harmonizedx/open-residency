@@ -27,6 +27,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { buildOidcConfiguration } from '../src/sso/oidc.provider';
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { pairwiseSubject } from '../src/core/sso/pairwise';
+import { InMemoryOidcStore, OidcStore } from '../src/core/sso/oidc-store';
 
 let pass = 0;
 let fail = 0;
@@ -88,16 +89,79 @@ const RESIDENT_RECORD = {
   person: { fullName: 'Amina Bello', givenName: 'Amina', familyName: 'Bello' },
 };
 
-/** A stub PlatformService exposing exactly the members buildOidcConfiguration reads. */
-function stubPlatform(oidcJwk: JWK): any {
+/**
+ * A stub PlatformService exposing exactly the members buildOidcConfiguration reads.
+ *
+ * `oidcStore` is a parameter so two replicas can be given the SAME store, which is what
+ * a shared database is from the provider's point of view.
+ */
+function stubPlatform(oidcJwk: JWK, oidcStore: OidcStore = new InMemoryOidcStore()): any {
   return {
     listConfigs: () => [CONFIG],
     getSubjectPepper: () => PEPPER,
     oidcSigningJwk: async () => oidcJwk,
+    getOidcStore: () => oidcStore,
     getStore: () => ({
       findByResidentId: async (id: string) => (id === RESIDENT_ID ? RESIDENT_RECORD : null),
     }),
   };
+}
+
+/**
+ * Boot one replica: a fresh Provider over `config`, mounted the way main.ts does, with the
+ * interaction routes InteractionController implements.
+ *
+ * Two replicas are two calls to this with configs built over one shared store -- which is
+ * the topology `deploy/helm` actually ships (`replicaCount: 2`) and the one a single-process
+ * test cannot represent.
+ */
+async function bootReplica(config: any): Promise<{ base: string; server: Server; provider: any }> {
+  const app = express();
+  app.use(urlencoded({ extended: false }));
+
+  const provider = new ProviderCtor(ISSUER, config);
+  provider.proxy = true;
+
+  app.get('/interaction/:uid', async (rawReq: Request, rawRes: Response) => {
+    try {
+      const details = await provider.interactionDetails(rawReq, rawRes);
+      const { prompt, params } = details;
+      if (prompt.name === 'login') {
+        const redirectTo = await provider.interactionResult(
+          rawReq,
+          rawRes,
+          { login: { accountId: RESIDENT_ID, acr: 'urn:openresidency:aal2', amr: ['pop'] } },
+          { mergeWithLastSubmission: false },
+        );
+        rawRes.redirect(303, redirectTo);
+        return;
+      }
+      if (prompt.name === 'consent') {
+        const grant = new provider.Grant({ accountId: RESIDENT_ID, clientId: String(params.client_id) });
+        grant.addOIDCScope(String(params.scope ?? 'openid'));
+        const grantId = await grant.save();
+        const redirectTo = await provider.interactionResult(
+          rawReq,
+          rawRes,
+          { consent: { grantId } },
+          { mergeWithLastSubmission: true },
+        );
+        rawRes.redirect(303, redirectTo);
+        return;
+      }
+      rawRes.status(400).end('unknown prompt');
+    } catch (e) {
+      rawRes.status(500).end(String((e as Error).message));
+    }
+  });
+
+  app.use('/oidc', provider.callback());
+
+  const server: Server = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const port = (server.address() as AddressInfo).port;
+  return { base: `http://127.0.0.1:${port}`, server, provider };
 }
 
 // --------------------------------------------------------------------------
@@ -212,52 +276,7 @@ async function main() {
 
   // Boot the provider and mount it exactly as main.ts does, plus an interaction handler
   // that mirrors InteractionController (complete login, then consent).
-  const app = express();
-  app.use(urlencoded({ extended: false }));
-
-  const provider = new ProviderCtor(ISSUER, config);
-  provider.proxy = true;
-
-  app.get('/interaction/:uid', async (rawReq: Request, rawRes: Response) => {
-    try {
-      const details = await provider.interactionDetails(rawReq, rawRes);
-      const { prompt, params } = details;
-      if (prompt.name === 'login') {
-        const redirectTo = await provider.interactionResult(
-          rawReq,
-          rawRes,
-          { login: { accountId: RESIDENT_ID, acr: 'urn:openresidency:aal2', amr: ['pop'] } },
-          { mergeWithLastSubmission: false },
-        );
-        rawRes.redirect(303, redirectTo);
-        return;
-      }
-      if (prompt.name === 'consent') {
-        const grant = new provider.Grant({ accountId: RESIDENT_ID, clientId: String(params.client_id) });
-        grant.addOIDCScope(String(params.scope ?? 'openid'));
-        const grantId = await grant.save();
-        const redirectTo = await provider.interactionResult(
-          rawReq,
-          rawRes,
-          { consent: { grantId } },
-          { mergeWithLastSubmission: true },
-        );
-        rawRes.redirect(303, redirectTo);
-        return;
-      }
-      rawRes.status(400).end('unknown prompt');
-    } catch (e) {
-      rawRes.status(500).end(String((e as Error).message));
-    }
-  });
-
-  app.use('/oidc', provider.callback());
-
-  const server: Server = await new Promise((resolve) => {
-    const s = app.listen(0, '127.0.0.1', () => resolve(s));
-  });
-  const port = (server.address() as AddressInfo).port;
-  const base = `http://127.0.0.1:${port}`;
+  const { base, server } = await bootReplica(config);
 
   // --- Drive a real Authorization Code + PKCE flow --------------------------
   const jar = new CookieJar();
@@ -345,6 +364,83 @@ async function main() {
   const claims = JSON.parse(userinfo.body || '{}');
   check('userinfo releases the consented residency claim', claims.resident_id === RESIDENT_ID);
   check('userinfo sub matches the id_token sub (consistent pairwise id)', claims.sub === payload?.sub);
+
+  // --- Two replicas, one store ---------------------------------------------
+  //
+  // Everything above runs in one process, which is precisely why it passed while sign-in
+  // was broken in production: `deploy/helm` ships replicaCount 2, and oidc-provider
+  // defaults to a Map in process memory when no adapter is configured. The citizen's
+  // redirect and the relying party's token call are separate connections that balance
+  // independently, so the code was minted on one replica and redeemed on another.
+  //
+  // These four assertions are the topology that catches it.
+  console.log('\ntwo replicas sharing one store:');
+
+  check('the config configures a storage adapter (not in-process memory)', typeof (config as any).adapter === 'function');
+
+  const sharedStore = new InMemoryOidcStore();
+  const a = await bootReplica(await buildOidcConfiguration(stubPlatform(oidcJwk, sharedStore)));
+  const b = await bootReplica(await buildOidcConfiguration(stubPlatform(oidcJwk, sharedStore)));
+
+  const jar3 = new CookieJar();
+  const verifier3 = b64url(randomBytes(32));
+  const challenge3 = b64url(createHash('sha256').update(verifier3).digest());
+
+  // The citizen signs in against replica A.
+  const endedA = await followUntilRedirectUri(
+    await req(
+      'GET',
+      `${a.base}/oidc/auth?client_id=${CLIENT_ID}&response_type=code` +
+        `&scope=${encodeURIComponent('openid profile residency health')}` +
+        `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+        `&code_challenge=${challenge3}&code_challenge_method=S256&state=r`,
+      jar3,
+    ),
+    a.base,
+    jar3,
+  );
+  const codeA = new URL(endedA.location ?? 'http://invalid').searchParams.get('code');
+
+  // The relying party's backend redeems it against replica B. This is the failing case:
+  // before the adapter was configured, B had never heard of this code.
+  const crossRes = await req('POST', `${b.base}/oidc/token`, new CookieJar(), {
+    headers: { authorization: `Basic ${basic}` },
+    body: `grant_type=authorization_code&code=${codeA}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_verifier=${verifier3}`,
+  });
+  check(
+    'a code minted on replica A is redeemed on replica B',
+    crossRes.status === 200,
+    `status ${crossRes.status}: ${crossRes.body.slice(0, 200)}`,
+  );
+
+  // Single-use has to survive the store round-trip too: `consumed` is held in a column and
+  // re-attached to the payload on read, so a replay must still be refused -- on either
+  // replica. Replaying at A proves the marker written by B is visible back at A.
+  const replay = await req('POST', `${a.base}/oidc/token`, new CookieJar(), {
+    headers: { authorization: `Basic ${basic}` },
+    body: `grant_type=authorization_code&code=${codeA}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_verifier=${verifier3}`,
+  });
+  check('replaying that code at replica A is refused', replay.status === 400, `status ${replay.status}`);
+
+  // The session half of the same bug: the citizen's cookie was set by A, so a silent
+  // re-authentication at B must find the session rather than demand a fresh login.
+  const silent = await req(
+    'GET',
+    `${b.base}/oidc/auth?client_id=${CLIENT_ID}&response_type=code&prompt=none` +
+      `&scope=${encodeURIComponent('openid profile residency health')}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&code_challenge=${challenge3}&code_challenge_method=S256&state=s`,
+    jar3,
+  );
+  const silentTarget = new URL(silent.location ?? 'http://invalid', b.base);
+  check(
+    'the session set on replica A is recognised on replica B (prompt=none)',
+    silentTarget.searchParams.get('error') !== 'login_required',
+    `error=${silentTarget.searchParams.get('error')}`,
+  );
+
+  a.server.close();
+  b.server.close();
 
   server.close();
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);

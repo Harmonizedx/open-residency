@@ -3,6 +3,7 @@ import type { Configuration, ClientMetadata } from 'oidc-provider' with { 'resol
 import { PlatformService } from '../platform/platform.service';
 import { RelyingPartyConfig } from '../core/config/country-config';
 import { pairwiseSubject } from '../core/sso/pairwise';
+import { createOidcAdapterFactory } from '../core/sso/oidc-store';
 
 /**
  * OpenID Connect configuration that turns the residency system into an Identity
@@ -92,6 +93,21 @@ export async function buildOidcConfiguration(
   const sectorScopes = [...new Set(rps.map((rp) => rp.sector))];
 
   return {
+    /**
+     * Where the provider keeps sessions, interactions, codes, tokens and grants.
+     *
+     * Left unset, oidc-provider silently uses a development adapter backed by a Map in
+     * process memory. That works in a smoke test, which drives one process, and fails in
+     * production the moment `replicaCount` exceeds one: the authorization code is minted on
+     * the citizen's redirect and redeemed by the relying party's backend on a separate
+     * connection, which balances to whichever replica the ingress picks. The cookie still
+     * verifies there -- OIDC_COOKIE_SECRET is shared -- so the citizen gets a silent bounce
+     * back to login rather than an error anyone can trace. It also means every restart logs
+     * the whole jurisdiction out, which is what the 14-day Session and Grant TTLs below
+     * would otherwise be promising.
+     */
+    adapter: createOidcAdapterFactory(platform.getOidcStore()) as any,
+
     clients: rps.map((rp) => toClientMetadata(rp, subjectType)),
 
     jwks: { keys: [privateJwk as any] },

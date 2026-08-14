@@ -45,6 +45,7 @@ import {
   PrismaConsentStore,
   PrismaOid4vciStore,
   PrismaOid4vpStore,
+  PrismaOidcStore,
   PrismaOtpStore,
   PrismaOperatorStore,
   PrismaResidencyStore,
@@ -76,6 +77,7 @@ export class PlatformService implements OnModuleDestroy {
   /** Federated peers, kept so their status lists can be re-synced after boot. */
   private federatedPeers: FederatedIssuer[] = [];
   private federationTimer?: NodeJS.Timeout;
+  private oidcPurgeTimer?: NodeJS.Timeout;
 
   private readonly log = new Logger('Platform');
   private configs!: Map<string, CountryConfig>;
@@ -111,6 +113,7 @@ export class PlatformService implements OnModuleDestroy {
     private consentStore: PrismaConsentStore,
     private oid4vciStore: PrismaOid4vciStore,
     private oid4vpStore: PrismaOid4vpStore,
+    private oidcStore: PrismaOidcStore,
     private otpStore: PrismaOtpStore,
     private operatorStore: PrismaOperatorStore,
     private webauthnChallengeStore: PrismaWebAuthnChallengeStore,
@@ -255,6 +258,7 @@ export class PlatformService implements OnModuleDestroy {
       this.log.warn(`Federation: initial status sync failed: ${(e as Error).message}`),
     );
     this.startFederationRefresh();
+    this.startOidcPurge();
 
     // Operator identity for privileged routes.
     this.operatorAuth = this.buildOperatorAuth(defaultCfg);
@@ -524,6 +528,10 @@ export class PlatformService implements OnModuleDestroy {
   getStore(): PrismaResidencyStore {
     return this.store;
   }
+  /** Persistence for the OIDC provider's own sessions, codes and tokens. */
+  getOidcStore(): PrismaOidcStore {
+    return this.oidcStore;
+  }
   getAudit(): AuditLog {
     return this.audit;
   }
@@ -533,6 +541,7 @@ export class PlatformService implements OnModuleDestroy {
   /** Release the HSM session, if the signing backend holds one. */
   async onModuleDestroy(): Promise<void> {
     if (this.federationTimer) clearInterval(this.federationTimer);
+    if (this.oidcPurgeTimer) clearInterval(this.oidcPurgeTimer);
     if (!this.closeSigner) return;
     try {
       await this.closeSigner();
@@ -875,4 +884,31 @@ export class PlatformService implements OnModuleDestroy {
     this.federationTimer.unref?.();
   }
 
+  /**
+   * Delete OIDC provider state that has already expired.
+   *
+   * Nothing reads an expired row -- `PrismaOidcStore` filters on every lookup -- but
+   * without a sweep they accumulate for the life of the deployment. This is the busiest
+   * table in the system: a row per authorization code, access token, refresh token and
+   * session, for every sign-in to every sector service. Left alone it becomes the largest
+   * thing in the database and the reason its backups stop fitting.
+   *
+   * Every replica runs this, which is harmless: the delete is idempotent and the losers of
+   * a race simply remove nothing. `OIDC_PURGE_INTERVAL_SECONDS=0` disables it for
+   * deployments that would rather sweep from cron.
+   */
+  private startOidcPurge(): void {
+    const seconds = Number(process.env.OIDC_PURGE_INTERVAL_SECONDS ?? 3600);
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    this.oidcPurgeTimer = setInterval(() => {
+      void this.oidcStore
+        .purgeExpired(new Date())
+        .then((n) => {
+          if (n > 0) this.log.log(`OIDC: swept ${n} expired provider record(s)`);
+        })
+        .catch((e) => this.log.warn(`OIDC: expiry sweep failed: ${(e as Error).message}`));
+    }, seconds * 1000);
+    // A housekeeping sweep must not keep the process alive.
+    this.oidcPurgeTimer.unref?.();
+  }
 }

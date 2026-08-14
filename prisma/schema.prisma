@@ -282,3 +282,37 @@ model WebAuthnChallenge {
 
   @@index([residentId])
 }
+
+// State belonging to the OpenID Connect provider itself: sessions, interactions,
+// authorization codes, access and refresh tokens, grants.
+//
+// oidc-provider keeps this in process memory unless an adapter is configured, which breaks
+// sign-in across replicas -- the authorization code is minted on the citizen's redirect and
+// redeemed by the relying party's backend on a separate connection that load-balances
+// independently. Same reasoning as PresentationRequest above: an interaction spanning more
+// than one connection needs a table.
+//
+// `payload` is the record of truth. grantId / uid / userCode are lifted out of it into
+// columns only so the lookups oidc-provider performs can be indexed.
+model OidcStoredItem {
+  // The oidc-provider model name ('Session', 'AuthorizationCode', ...). Ids are only unique
+  // within a model, so the key is the pair.
+  name       String
+  id         String
+  payload    Json
+  grantId    String?
+  uid        String?
+  userCode   String?
+  // Null means the model never expires; a past value is filtered on read and swept later.
+  expiresAt  DateTime?
+  // Set when a single-use artefact is redeemed. Read back as `consumed` so a replayed
+  // authorization code is recognised as spent.
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@id([name, id])
+  @@index([name, grantId])
+  @@index([name, uid])
+  @@index([name, userCode])
+  @@index([expiresAt])
+}
