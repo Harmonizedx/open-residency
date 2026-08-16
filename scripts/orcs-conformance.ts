@@ -37,6 +37,7 @@ import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
 import { StatusList } from '../src/core/credentials/status-list';
 import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
+import { buildDefaultAssuranceRegistry } from '../src/core/assurance/profiles';
 
 type Verdict = 'PASS' | 'FAIL' | 'PARTIAL';
 
@@ -229,18 +230,44 @@ async function main() {
   // ---------------------------------------------------------------------------
   //
   // ORCS §8: "assuranceLevel MUST NOT be a free-text string."
+  // The record is the one issued by the real ResidencyService above, not a hand-built
+  // fixture: resolving a struct assembled here would prove the registry can parse its own
+  // output, which is the false-green G-01 already taught this suite to avoid.
   const sample = (await homeStore.list({ countryCode: 'NG' })).items[0];
-  const resolvesToRegistry = false; // no AssuranceProfile entity exists to resolve against
+  const assurance = buildDefaultAssuranceRegistry();
+  const resolved = sample ? assurance.resolveRecord(sample) : null;
+
+  // Governed: the profile is versioned and attributed to an authority.
+  const governed = !!resolved?.profile.version?.trim() && !!resolved?.profile.issuer?.trim();
+  // ORCS §8.1: the authority that performed the verification published what it means.
+  const mapped =
+    !!resolved?.mapping?.verificationMethod?.trim() && (resolved?.mapping?.limitations.length ?? 0) > 0;
+  // ORCS §8: identity and authentication are distinct dimensions. A stored record carries
+  // identity; authentication belongs to a sign-in event and must NOT appear here.
+  const dimensionsSeparated =
+    !!resolved?.dimensions.identity && resolved?.dimensions.authentication === undefined;
+  // Closed vocabulary. This is the actual requirement -- "MUST NOT be a free-text string"
+  // is only met if an unrecognised string fails to resolve.
+  const closedVocabulary =
+    assurance.resolve('probably-fine') === null &&
+    assurance.resolveRecord({ ...sample, assuranceLevel: 'probably-fine' }) === null;
+
+  const criterion3 = !!resolved && governed && mapped && dimensionsSeparated && closedVocabulary;
   record(
     3,
     'Assurance values resolve to a governed registry',
-    resolvesToRegistry ? 'PASS' : 'FAIL',
-    `assuranceLevel is the bare string "${sample?.assuranceLevel}" from a four-value enum; no ` +
-      'AssuranceProfile registry exists to resolve it against, no per-authority mapping records ' +
-      'what a given verification establishes, and identity assurance is not separated from ' +
-      'authentication assurance. (The fail-open default that handed "verified" to a config ' +
-      'declaring no level is fixed; the registry itself is not built.)',
-    'G-02',
+    criterion3 ? 'PASS' : 'FAIL',
+    criterion3
+      ? `the issued record's "${sample.assuranceLevel}" resolves to ${resolved!.profile.id} ` +
+        `(v${resolved!.profile.version}, ${resolved!.profile.issuer}); the ${sample.providerCode} ` +
+        `mapping states its verification method and ${resolved!.mapping!.limitations.length} ` +
+        `limitation(s); identity resolves to ${resolved!.dimensions.identity} and evidence to ` +
+        `${resolved!.dimensions.evidence}, with authentication assurance deliberately absent ` +
+        'from a stored record; and an unregistered value resolves to nothing rather than a default'
+      : `assuranceLevel "${sample?.assuranceLevel}" did not resolve to a governed profile ` +
+        `(resolved=${!!resolved}, governed=${governed}, §8.1 mapping=${mapped}, ` +
+        `dimensions separated=${dimensionsSeparated}, closed vocabulary=${closedVocabulary})`,
+    criterion3 ? undefined : 'G-02',
   );
 
   // ---------------------------------------------------------------------------

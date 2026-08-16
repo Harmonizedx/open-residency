@@ -15,6 +15,7 @@ import { Oid4vpModule } from './oid4vp/oid4vp.module';
 import { VcApiModule } from './vcapi/vcapi.module';
 import { MetaModule } from './meta/meta.module';
 import { OperatorModule } from './operator/operator.module';
+import { AssuranceModule } from './assurance/assurance.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { OperatorModule } from './operator/operator.module';
     VcApiModule,
     MetaModule,
     OperatorModule,
+    AssuranceModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
