@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
+import { RelationshipStatus, RelationshipType } from '../core/residency/lifecycle';
 import { BindingMethod } from '../core/proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
@@ -80,6 +81,28 @@ export class PrismaResidencyStore implements ResidencyStore {
         asOf: r.residenceAsOf ? r.residenceAsOf.toISOString() : undefined,
       },
       provisional: r.provisional,
+      // ORCS §4.3 attributes. Reconstructed only when the row carries a decision -- a row
+      // written before the lifecycle existed has no `decidedAt`, and leaving `relationship`
+      // undefined lets relationshipOf() apply the documented backfill rather than inventing
+      // provenance here that nobody recorded.
+      relationship: r.decidedAt
+        ? {
+            type: r.relationshipType as RelationshipType,
+            purpose: r.relationshipPurpose ?? '',
+            status: r.relationshipStatus as RelationshipStatus,
+            validFrom: r.validFrom ? r.validFrom.toISOString() : r.createdAt.toISOString(),
+            validTo: r.validTo ? r.validTo.toISOString() : undefined,
+            policyVersion: r.policyVersion ?? '',
+            evidenceRefs: r.evidenceRefs ?? [],
+            assuranceProfileId: r.assuranceProfileId ?? undefined,
+            issuer: r.relationshipIssuer ?? '',
+            decidedBy: r.decidedBy ?? '',
+            decidedAt: r.decidedAt.toISOString(),
+            endedAt: r.endedAt ? r.endedAt.toISOString() : undefined,
+            endedReason: r.endedReason ?? undefined,
+            endedBy: r.endedBy ?? undefined,
+          }
+        : undefined,
       erasedAt: r.erasedAt ? r.erasedAt.toISOString() : undefined,
       credentialId: r.credentialId ?? undefined,
       statusListIndex: r.statusListIndex,
@@ -153,33 +176,64 @@ export class PrismaResidencyStore implements ResidencyStore {
     return state.nextIndex - 1;
   }
 
+  /**
+   * Write a record, creating it or updating it in place.
+   *
+   * An upsert rather than a create, because a record's relationship now changes after
+   * issuance: a lifecycle transition rewrites its status, and a person who left and returned
+   * is re-issued onto the same row (`subjectRef` is unique, so a second row is not an option).
+   * A bare `create` threw on both. Keyed on `id`, which the service carries forward from the
+   * existing record precisely so this lands on the right row.
+   *
+   * Every ORCS §4.3 column is set explicitly in both branches. A defaulted column that the
+   * write path leaves out is silently overridden by its default, which is the third of the
+   * three false greens recorded under G-01 -- a service that had decided one thing and a row
+   * that ended up saying another.
+   */
   async save(record: ResidentRecord): Promise<ResidentRecord> {
-    const r = await this.prisma.resident.create({
-      data: {
-        id: record.id,
-        residentId: record.residentId,
-        subjectRef: record.subjectRef,
-        countryCode: record.countryCode,
-        subnationalUnit: record.subnationalUnit,
-        providerCode: record.providerCode,
-        assuranceLevel: record.assuranceLevel,
-        bindingMethod: record.binding?.method ?? 'none',
-        bindingRef: record.binding?.ref,
-        bindingAt: record.binding?.verifiedAt ? new Date(record.binding.verifiedAt) : undefined,
-        bindingScore: record.binding?.score,
-        residenceAssurance: record.residence?.assuranceLevel ?? 'RAL0',
-        residenceMethod: record.residence?.method ?? 'self_declared',
-        residenceUnit: record.residence?.unit,
-        residenceAsOf: record.residence?.asOf ? new Date(record.residence.asOf) : undefined,
-        provisional: record.provisional,
-        credentialId: record.credentialId,
-        statusListIndex: record.statusListIndex,
-        fullName: record.person.fullName,
-        givenName: record.person.givenName,
-        familyName: record.person.familyName,
-        dateOfBirth: record.person.dateOfBirth,
-        gender: record.person.gender,
-      },
+    const rel = record.relationship;
+    const data = {
+      residentId: record.residentId,
+      subjectRef: record.subjectRef,
+      countryCode: record.countryCode,
+      subnationalUnit: record.subnationalUnit,
+      providerCode: record.providerCode,
+      assuranceLevel: record.assuranceLevel,
+      bindingMethod: record.binding?.method ?? 'none',
+      bindingRef: record.binding?.ref,
+      bindingAt: record.binding?.verifiedAt ? new Date(record.binding.verifiedAt) : undefined,
+      bindingScore: record.binding?.score,
+      residenceAssurance: record.residence?.assuranceLevel ?? 'RAL0',
+      residenceMethod: record.residence?.method ?? 'self_declared',
+      residenceUnit: record.residence?.unit,
+      residenceAsOf: record.residence?.asOf ? new Date(record.residence.asOf) : undefined,
+      provisional: record.provisional,
+      relationshipType: rel?.type ?? 'GENERAL_RESIDENCY',
+      relationshipPurpose: rel?.purpose ?? '',
+      relationshipStatus: rel?.status ?? 'ACTIVE',
+      validFrom: rel?.validFrom ? new Date(rel.validFrom) : undefined,
+      validTo: rel?.validTo ? new Date(rel.validTo) : null,
+      policyVersion: rel?.policyVersion,
+      evidenceRefs: rel?.evidenceRefs ?? [],
+      assuranceProfileId: rel?.assuranceProfileId,
+      relationshipIssuer: rel?.issuer,
+      decidedBy: rel?.decidedBy,
+      decidedAt: rel?.decidedAt ? new Date(rel.decidedAt) : undefined,
+      endedAt: rel?.endedAt ? new Date(rel.endedAt) : null,
+      endedReason: rel?.endedReason ?? null,
+      endedBy: rel?.endedBy ?? null,
+      credentialId: record.credentialId,
+      statusListIndex: record.statusListIndex,
+      fullName: record.person.fullName,
+      givenName: record.person.givenName,
+      familyName: record.person.familyName,
+      dateOfBirth: record.person.dateOfBirth,
+      gender: record.person.gender,
+    };
+    const r = await this.prisma.resident.upsert({
+      where: { id: record.id },
+      create: { id: record.id, ...data },
+      update: data,
     });
     return this.toRecord(r);
   }

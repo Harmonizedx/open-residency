@@ -1,8 +1,6 @@
 # 7. Residency status is lifecycle, not multiplicity
 
-- Status: Proposed — **decided, not yet landed.** Per the convention in
-  [the index](README.md), this becomes `Accepted` when the change it describes ships. The
-  design questions below are settled; the code is not written.
+- Status: Accepted — the implementation lands in the same change that flips this line.
 - Date: 2026-08-16
 - Amended: 2026-08-16 — two amendments, and the open question resolved; see **Amendments**
 - Relates to: [ADR-0004](0004-one-deployment-one-jurisdiction.md), [ADR-0006](0006-additive-migration-resident-facade.md)
@@ -159,8 +157,9 @@ fixed-term residency. Nothing in this implementation drives a record into it.
 
 ## How this is verified
 
-Not yet implemented; verification is specified here so it lands with the change rather than
-after it.
+All four are implemented. `npm run smoke:lifecycle` covers 1-4 below (55 assertions), and
+criterion 1 was mutation-checked: removing the §4.3 attributes, and making the relationship
+unendable, each turn it red and name which condition failed.
 
 1. **`conformance:orcs` criterion 1 extended to assert ORCS §4.3 field presence** — all ten
    attributes, `type`, `purpose`, `status` and `validity` among them. Today the criterion

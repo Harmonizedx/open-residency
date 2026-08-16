@@ -397,15 +397,14 @@ This repository is the generic public infrastructure, not a single-country app:
   sign that policy, so a decision cannot be reliably reproduced after the policy changes — record
   the ruleset alongside any decision you need to defend later. Wire it to your attestation or
   register source.
-- **Ending a residency.** A record has no lifecycle state. It can be created and erased, but not
-  *ended*. When a resident leaves the jurisdiction the only available action is revoking their
-  credential, which makes one lever carry two meanings — "this credential is dead" and "this
-  person no longer resides here" — and `revoke()` preserves no reason, so the audit trail cannot
-  separate them afterwards. A move between wards inside the same jurisdiction is unrecordable for
-  the same reason, and `GET /residency/{residentId}` returns nothing that can change. ORCS §4.3
-  requires ten attributes on every relationship, of which the record states none of status,
-  validity, type or purpose; this is the gap, recorded as
-  [ADR-0007](docs/adr/0007-residency-status-is-lifecycle.md).
+- **Ending a residency is a separate act from revoking a credential.** A record carries an ORCS
+  §6.2 lifecycle status, so a jurisdiction can record that somebody left — with the reason, the
+  deciding authority and the moment — rather than only killing their credential. The two stay
+  separate on purpose: one is a statement about a person's relationship to the jurisdiction, the
+  other about a key, and ending a residency does **not** revoke the credential as a side effect.
+  A caller doing both makes both calls, and both are audited. Residency is permanent until ended:
+  validity dates are recorded, but nothing lapses on its own
+  ([ADR-0007](docs/adr/0007-residency-status-is-lifecycle.md)).
 - **Enrolment capture is out of scope.** This issues a credential, not a card. There is no
   portrait capture or storage (a photo returned by a foundational source is dropped, never
   persisted), no printed ID-slip renderer, and no schema for local demographic fields — ward,

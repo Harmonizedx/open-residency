@@ -11,7 +11,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0004](0004-one-deployment-one-jurisdiction.md) | One deployment, one jurisdiction: multiplicity lives in the ecosystem, `subjectRef @unique` stays | Accepted |
 | [0005](0005-enrolment-capture-layer.md) | Enrolment capture is a bounded, jurisdiction-declared layer; the credential stays minimal | Proposed |
 | [0006](0006-additive-migration-resident-facade.md) | Additive migration: `Resident` stays the write-through facade while ORCS entities are extracted | Accepted |
-| [0007](0007-residency-status-is-lifecycle.md) | Residency status is lifecycle, not multiplicity: a record carries `status` and validity, records type and purpose, and never reads either. Permanent until ended | Proposed (decided) |
+| [0007](0007-residency-status-is-lifecycle.md) | Residency status is lifecycle, not multiplicity: a record carries `status` and validity, records type and purpose, and never reads either. Permanent until ended | Accepted |
 | [0008](0008-assurance-registry-maps-existing-vocabularies.md) | The Assurance Registry is a closed vocabulary; ORCS §8 dimensions derive from the existing `RAL*` and `BindingMethod` rather than replacing them | Accepted |
 
 ## Pending

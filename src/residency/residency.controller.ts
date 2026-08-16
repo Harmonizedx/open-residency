@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Body, Controller, Get, NotFoundException, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import {
   OperatorGuard,
@@ -11,7 +21,7 @@ import { operatorActor } from '../core/operator/operator';
 import { encryptContact } from '../core/messaging/contact-directory';
 import { PlatformService } from '../platform/platform.service';
 import { residentIdPattern } from '../core/residency/resident-id';
-import { IssueDto, VerifyDto } from './dto/residency.dto';
+import { IssueDto, TransitionRelationshipDto, VerifyDto } from './dto/residency.dto';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/residency.dto.ts.
 // The trust requirements the old inline docs described still hold: `binding` and
@@ -81,6 +91,9 @@ export class ResidencyController {
       proofOfResidence: body.proofOfResidence,
       binding: body.binding,
       residenceEvidence: body.residenceEvidence,
+      // ORCS §4.3 decision provenance: the record names the operator who actually decided,
+      // not a generic marker. The audit entry below names the same actor.
+      decidedBy: operatorActor(operator),
       context: { offline: body.offline === true },
     });
 
@@ -172,6 +185,70 @@ export class ResidencyController {
       outcome: ok ? 'success' : 'failure',
     });
     return { revoked: ok };
+  }
+
+  /**
+   * Move a residency relationship to another state: end it, suspend it, reinstate it.
+   *
+   * This is the act revoking a credential could never express. Revocation says a key is dead;
+   * this says the person's relationship to this jurisdiction changed, and records who decided,
+   * when, and why. ORCS §10 asks the same four things of revocation and does not get them yet
+   * (finding G-07), which is exactly why the two must not share one lever.
+   *
+   * Deliberately does NOT revoke the credential as a side effect. A jurisdiction ending a
+   * residency will usually want to revoke too, but making that automatic would re-collapse the
+   * two acts and leave the audit trail unable to say which one was intended -- the conflation
+   * ADR-0007 exists to undo. The caller makes both calls, and both are audited.
+   *
+   * `revoker`-guarded, matching revocation: this is a privileged act on somebody else's
+   * identity, and resident ids are semi-public by design.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('revoker')
+  @Post(':residentId/relationship/transition')
+  async transitionRelationship(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: TransitionRelationshipDto,
+  ) {
+    const operator = requireOperator(req);
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+
+    const result = await this.platform.getResidency().transitionRelationship(residentId, {
+      to: body.status,
+      by: operatorActor(operator),
+      reason: body.reason,
+    });
+
+    await this.platform.getAudit().record({
+      action: 'residency.relationship.transition',
+      actor: operatorActor(operator),
+      target: residentId,
+      countryCode: record.countryCode,
+      outcome: result.ok ? 'success' : 'failure',
+    });
+
+    if (!result.ok) throw new BadRequestException(result.reason);
+    return {
+      residentId,
+      from: result.from,
+      to: result.to,
+      relationship: result.record.relationship,
+    };
+  }
+
+  /**
+   * What this relationship states about itself (ORCS §4.3).
+   *
+   * Separate from `GET /residency/{residentId}`, which reports registration details that
+   * cannot change. This is the one that can.
+   */
+  @Get(':residentId/relationship')
+  async relationship(@Param('residentId') residentId: string) {
+    const attrs = await this.platform.getResidency().relationshipFor(residentId);
+    if (!attrs) throw new NotFoundException('Unknown residentId');
+    return { residentId, relationship: attrs };
   }
 
   /**

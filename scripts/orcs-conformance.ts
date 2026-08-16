@@ -192,7 +192,55 @@ async function main() {
       ? (await homeVerifier.verify(strangerIssued.credentialJwt, { offline: true })).valid === false
       : false;
 
-  if (registerIsAuthoritative && peerCredentialUsableHere && untrustedRejected) {
+  // (c) The record STATES what ORCS §4.3 requires of a relationship.
+  //
+  // Added because the criterion previously asserted only concurrency and peer attribution and
+  // reported PASS regardless of what a record actually said about itself -- so a register that
+  // could never record that somebody left still passed. §4.3 lists ten attributes; jurisdiction
+  // is `countryCode` + `subnationalUnit`, and the other nine live on `relationship`.
+  //
+  // Checked on the record the real ResidencyService issued, never on one assembled here.
+  const issuedRecord = first.status === 'issued' ? first.record : undefined;
+  const rel = issuedRecord?.relationship;
+  const missing43: string[] = [];
+  if (!issuedRecord) missing43.push('no record issued');
+  else {
+    if (!issuedRecord.countryCode || !issuedRecord.subnationalUnit) missing43.push('jurisdiction');
+    if (!rel?.type) missing43.push('type');
+    if (!rel?.purpose) missing43.push('purpose');
+    if (!rel?.status) missing43.push('status');
+    if (!rel?.validFrom) missing43.push('validity');
+    if (!rel?.policyVersion) missing43.push('policyVersion');
+    if (!rel?.evidenceRefs?.length) missing43.push('evidenceReferences');
+    if (!rel?.assuranceProfileId) missing43.push('assuranceProfile');
+    if (!rel?.issuer) missing43.push('issuer');
+    if (!rel?.decidedBy || !rel?.decidedAt) missing43.push('decisionProvenance');
+  }
+  const statesItsAttributes = missing43.length === 0;
+
+  // And the relationship can actually reach a terminal state: §4.3 asking for `status` is
+  // only meaningful if something can change it. A field that never moves is a constant.
+  let canBeEnded = false;
+  if (first.status === 'issued') {
+    const ends = await home.transitionRelationship(first.residentId, {
+      to: 'ENDED',
+      by: 'conformance',
+      reason: 'left the jurisdiction',
+    });
+    canBeEnded = ends.ok && ends.to === 'ENDED';
+    // Put it back, so later criteria see the register as they expect to find it.
+    if (ends.ok) {
+      await homeStore.save({ ...ends.record, relationship: { ...rel!, status: 'ACTIVE' } });
+    }
+  }
+
+  if (
+    registerIsAuthoritative &&
+    peerCredentialUsableHere &&
+    untrustedRejected &&
+    statesItsAttributes &&
+    canBeEnded
+  ) {
     record(
       1,
       'Concurrent relationships across jurisdictions (federated)',
@@ -200,7 +248,9 @@ async function main() {
       'this deployment issues exactly one residency per person and re-enrolment is idempotent; ' +
         "a federated peer's credential verifies here and is attributed to the peer, not absorbed; " +
         'an unlisted issuer is refused. The person holds several relationships across the ' +
-        'federation, and no single deployment claims authority over another',
+        'federation, and no single deployment claims authority over another. The record states ' +
+        'all ten ORCS §4.3 attributes, and the relationship can be ended -- so a residency that ' +
+        'has stopped holding can be recorded as such rather than only having its credential killed',
     );
   } else {
     record(
@@ -208,7 +258,9 @@ async function main() {
       'Concurrent relationships across jurisdictions (federated)',
       'FAIL',
       `own register authoritative: ${registerIsAuthoritative}; peer credential usable here: ` +
-        `${peerCredentialUsableHere}; unlisted issuer refused: ${untrustedRejected}`,
+        `${peerCredentialUsableHere}; unlisted issuer refused: ${untrustedRejected}; ` +
+        `§4.3 attributes stated: ${statesItsAttributes}${missing43.length ? ` (missing: ${missing43.join(', ')})` : ''}; ` +
+        `relationship can be ended: ${canBeEnded}`,
       'G-01',
     );
   }

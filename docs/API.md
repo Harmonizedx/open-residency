@@ -18,11 +18,17 @@ quick orientation.
   attestations (`binding`, `residenceEvidence`) that a self-serving caller must not be
   able to assert about themselves.
 - `GET /residency/{residentId}` — non-sensitive registration details: `residentId`,
-  `countryCode`, `subnationalUnit`, `assuranceLevel`, `provisional`, `createdAt`. Note that none
-  of these can change: the record carries no lifecycle state, so this does **not** report
-  revocation, and it cannot tell you whether the person still resides in the unit. To check a
-  credential is live, call `POST /residency/verify`.
-  See [ADR-0007](adr/0007-residency-status-is-lifecycle.md).
+  `countryCode`, `subnationalUnit`, `assuranceLevel`, `provisional`, `createdAt`. These are
+  registration facts and do not change; this does **not** report credential revocation, so call
+  `POST /residency/verify` to check a credential is live.
+- `GET /residency/{residentId}/relationship` — what the relationship states about itself
+  (ORCS §4.3): `status`, validity, policy version, evidence references, assurance profile,
+  issuer and decision provenance. **This is the one that can change** — it is how you tell
+  whether the person still holds residency here.
+- `POST /residency/{residentId}/relationship/transition` `{ status, reason }` — end, suspend or
+  reinstate a residency (ORCS §6.2). A terminal transition requires a reason, and the deciding
+  operator is recorded. **Requires `x-admin-key`** (`revoker`). Deliberately does not revoke the
+  credential: see [ADR-0007](adr/0007-residency-status-is-lifecycle.md).
 - `POST /residency/verify` — verify a presented VC-JWT (signature, expiry, revocation).
 - `POST /residency/revoke/{residentId}` — revoke a credential. **Requires `x-admin-key`.**
 

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { createHash } from 'node:crypto';
 import { CountryConfig } from '../config/country-config';
 import { ProviderRegistry } from '../foundational/registry';
 import {
@@ -14,6 +15,17 @@ import {
 } from '../credentials/vc-issuer';
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
+import {
+  RelationshipAttributes,
+  RelationshipStatus,
+  TransitionRequest,
+  applyTransition,
+  isTerminal,
+  newRelationship,
+  relationshipOf,
+} from './lifecycle';
+import { AssuranceRegistry } from '../assurance/registry';
+import { buildDefaultAssuranceRegistry } from '../assurance/profiles';
 import { generateResidentId } from './resident-id';
 import { erasureTombstone } from '../privacy/erasure';
 import {
@@ -87,6 +99,12 @@ export interface IssueResidencyRequest {
    */
   residenceEvidence?: ResidenceEvidence[];
   /**
+   * Who took the enrolment decision, for ORCS §4.3 decision provenance. An operator id from
+   * the authenticated enrolment context; defaults to a generic marker rather than inventing
+   * an actor, so a record never names somebody who did not decide it.
+   */
+  decidedBy?: string;
+  /**
    * Binding the enrolment channel performed itself: an agent's in-person comparison, a
    * face/fingerprint match, or an external eID authentication. Combined with any binding
    * the foundational provider attested; the strongest wins. Must originate from a trusted
@@ -114,6 +132,13 @@ export class ResidencyService {
     private statusListUrlFor: (cfg: CountryConfig) => string,
     /** Present when the deployment also issues JSON-LD credentials (OpenID4VCI / wallets). */
     private ldpIssuer?: LdpIssuer,
+    /**
+     * The ORCS §8 registry the recorded assurance value resolves against, so §4.3's
+     * `assuranceProfileId` names a governed record rather than repeating the bare word.
+     * Defaults to the shipped registry, which is what a deployment that has not customised
+     * one is using anyway.
+     */
+    private assurance: AssuranceRegistry = buildDefaultAssuranceRegistry(),
   ) {}
 
   /** The issuance parameters for a country, given an already-reserved status index. */
@@ -308,8 +333,17 @@ export class ResidencyService {
     const identity = result.identity!;
 
     // 4. One person per (provider subject) per deployment: idempotent issuance.
+    //
+    // Idempotency is now conditional on the relationship still holding. Returning `exists`
+    // for a relationship that was ENDED would hand back a stale record -- original unit,
+    // original evidence, original assurance -- to someone re-enrolling precisely because
+    // their circumstances changed. A person who left and came back gets a re-evaluation.
+    //
+    // A SUSPENDED relationship also returns `exists`: it is under adjudication (ORCS §7), and
+    // re-enrolling is not the way to resolve that.
     const existing = await this.store.findBySubjectRef(identity.subjectRef);
-    if (existing) {
+    const priorRelationship = existing ? relationshipOf(existing) : null;
+    if (existing && priorRelationship && !isTerminal(priorRelationship.status)) {
       return { status: 'exists', residentId: existing.residentId, record: existing };
     }
 
@@ -357,7 +391,14 @@ export class ResidencyService {
     if (residence.asOf) residenceClaim.asOf = residence.asOf;
 
     // 5. Mint residency id + assign a revocation status index.
-    const residentId = await this.generateUniqueResidentId(cfg, req.subnationalUnit);
+    //
+    // A returning person keeps their resident id -- they are the same person, and the register
+    // holds one record for them -- but takes a FRESH status-list index. The index of the
+    // credential issued under the ended relationship keeps its bit, so that credential stays
+    // revoked; reusing the index would resurrect a dead credential the moment the new one was
+    // issued. Indices are only ever handed out by `nextStatusIndex`, so none is reused.
+    const residentId =
+      existing?.residentId ?? (await this.generateUniqueResidentId(cfg, req.subnationalUnit));
     const statusListIndex = await this.store.nextStatusIndex(cfg.countryCode);
     const unit = cfg.subnationalUnits.find((u) => u.code === req.subnationalUnit);
 
@@ -396,8 +437,34 @@ export class ResidencyService {
     // 6. Issue the Verifiable Credential.
     const issued = await this.issuer.issue(claims, this.issueOptionsFor(cfg, statusListIndex));
 
+    // 6b. State what this relationship says about itself (ORCS §4.3).
+    //
+    // Evidence is referenced, not copied: §4.3 asks for references, and duplicating the
+    // residence and binding detail here would create a second copy to disagree with the first.
+    const evidenceRefs = [
+      `binding:${binding.method}${binding.ref ? `:${binding.ref}` : ''}`,
+      `residence:${residence.method}:${residence.level}`,
+    ];
+    const relationship = newRelationship({
+      // Purpose is recorded because §4.3 requires it and never read by anything. A deployment
+      // holds one kind of relationship, so this states what the register is FOR rather than
+      // sorting people into categories that could gate what they reach.
+      purpose: cfg.residency.proofOfResidence
+        ? 'Subnational residency for service delivery and planning'
+        : 'Subnational residency',
+      policyVersion: this.policyVersionFor(cfg),
+      evidenceRefs,
+      assuranceProfileId:
+        this.assurance.resolve(result.assuranceLevel, result.providerCode)?.id ?? undefined,
+      issuer: cfg.credential.issuerDid,
+      decidedBy: req.decidedBy ?? 'enrolment',
+      at: issued.issuedAt,
+    });
+
     const record: ResidentRecord = {
-      id: crypto.randomUUID(),
+      // A returning person keeps their row: `subjectRef` is unique, so this is an update of
+      // the same record with a new relationship on it, not a second residency.
+      id: existing?.id ?? crypto.randomUUID(),
       residentId,
       subjectRef: identity.subjectRef,
       countryCode: cfg.countryCode,
@@ -407,6 +474,7 @@ export class ResidencyService {
       binding,
       residence: residenceClaim,
       provisional,
+      relationship,
       credentialId: issued.credentialId,
       statusListIndex,
       createdAt: issued.issuedAt,
@@ -433,6 +501,61 @@ export class ResidencyService {
     throw new Error(
       'exhausted attempts generating a unique resident id; increase residentId entropy in config',
     );
+  }
+
+  /**
+   * A reproducible identifier for the ruleset a decision was taken under (ORCS §4.3).
+   *
+   * Derived by hashing the rules that actually decide an issuance -- the residency policy, the
+   * residence policy and the assurance the foundational check confers. A content hash is
+   * honest about what it is: it changes exactly when the rules change, and two deployments on
+   * the same rules produce the same value. It is NOT a signed policy version; ORCS §4.6 wants
+   * policies signed, versioned and effective-dated, which is finding G-13 and not built. When
+   * that lands, this becomes a lookup rather than a hash.
+   */
+  private policyVersionFor(cfg: CountryConfig): string {
+    const material = JSON.stringify({
+      residency: cfg.residency,
+      assuranceOnSuccess: cfg.foundational.assuranceOnSuccess,
+    });
+    return `sha256:${createHash('sha256').update(material).digest('hex').slice(0, 16)}`;
+  }
+
+  /**
+   * Move a residency relationship to another state (ORCS §6.2).
+   *
+   * This is how a jurisdiction records that somebody left, which revoking a credential has
+   * never been able to say. The two acts stay separate: this states something about a
+   * person's relationship to the jurisdiction, `revoke()` states something about a key. A
+   * caller ending a residency will usually want both, and doing both is the caller's decision
+   * rather than a side effect hidden in here -- collapsing them is exactly the conflation
+   * ADR-0007 exists to undo.
+   *
+   * Returns a reason string on refusal rather than throwing, matching `issue()`.
+   */
+  async transitionRelationship(
+    residentId: string,
+    req: TransitionRequest,
+  ): Promise<
+    | { ok: true; record: ResidentRecord; from: RelationshipStatus; to: RelationshipStatus }
+    | { ok: false; reason: string }
+  > {
+    const record = await this.store.findByResidentId(residentId);
+    if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
+
+    const current = relationshipOf(record);
+    const outcome = applyTransition(current, req);
+    if (!outcome.ok) return outcome;
+
+    const updated: ResidentRecord = { ...record, relationship: outcome.attributes };
+    await this.store.save(updated);
+    return { ok: true, record: updated, from: current.status, to: outcome.attributes.status };
+  }
+
+  /** The relationship attributes for a resident, with the pre-lifecycle backfill applied. */
+  async relationshipFor(residentId: string): Promise<RelationshipAttributes | null> {
+    const record = await this.store.findByResidentId(residentId);
+    return record ? relationshipOf(record) : null;
   }
 
   /** Revoke a residency credential by flipping its status-list bit. */

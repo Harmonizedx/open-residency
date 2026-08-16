@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Allow, IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { Allow, IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { IsStringRecord } from '../../common/dto/is-string-record.validator';
 import { ApplicantBinding } from '../../core/proofing/binding';
 import { ResidenceEvidence } from '../../core/proofing/residence';
@@ -71,4 +71,25 @@ export class VerifyDto {
   @IsOptional()
   @IsBoolean()
   offline?: boolean;
+}
+
+/**
+ * Request body for `POST /residency/{residentId}/relationship/transition`.
+ *
+ * `status` is a closed set rather than a free string: ORCS §6.2 defines the vocabulary, and a
+ * typo landing an unrecognised state on a record would be indistinguishable from a real one.
+ * The states omitted here (DRAFT, SUBMITTED, EVIDENCE_PENDING, UNDER_REVIEW, REJECTED)
+ * describe a submission workflow a single-jurisdiction deployment does not have.
+ *
+ * `reason` is required by the engine for any terminal transition, not by this DTO -- the rule
+ * belongs with the transition logic, which is also what an internal caller goes through.
+ */
+export class TransitionRelationshipDto {
+  @IsIn(['ACTIVE', 'SUSPENDED', 'ENDED', 'REVOKED', 'EXPIRED'])
+  status!: 'ACTIVE' | 'SUSPENDED' | 'ENDED' | 'REVOKED' | 'EXPIRED';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  reason?: string;
 }
