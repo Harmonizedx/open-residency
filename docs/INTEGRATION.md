@@ -153,7 +153,7 @@ moment a scholarship is awarded, not just at login.
 | Call | Purpose |
 |---|---|
 | `POST /residency/verify` `{ credential, offline }` | Validate a VC-JWT: signature, expiry, revocation |
-| `GET /residency/{residentId}` | Current, non-sensitive residency status |
+| `GET /residency/{residentId}` | Non-sensitive registration details. Does **not** report revocation or whether the person still resides there — use `POST /residency/verify` for liveness ([ADR-0007](adr/0007-residency-status-is-lifecycle.md)) |
 
 With the typed SDK ([`SDK.md`](SDK.md)):
 
