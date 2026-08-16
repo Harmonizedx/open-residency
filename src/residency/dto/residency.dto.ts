@@ -123,3 +123,16 @@ export class CredentialTransitionDto {
   @MaxLength(512)
   supersededBy?: string;
 }
+
+/**
+ * Request body for `POST /residency/:residentId/reconcile`.
+ *
+ * Only the identifiers: everything else about the record is already held, and re-accepting
+ * it here would let a caller quietly amend a residency under cover of confirming one. The
+ * identifiers must be resubmitted because the raw national id is never stored -- the
+ * register keeps only the tokenized subjectRef the live lookup is checked against.
+ */
+export class ReconcileDto {
+  @IsStringRecord()
+  identifiers!: Record<string, string>;
+}

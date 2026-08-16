@@ -24,6 +24,12 @@ export type AuditAction =
   | 'residency.relationship.transition'
   // A CREDENTIAL changed state under ORCS §10: suspended, reinstated, revoked, replaced.
   | 'residency.credential.transition'
+  // A provisional record was checked against the live foundational authority. Recorded on
+  // every outcome, not only success: a live match naming a DIFFERENT person is the entry an
+  // investigator most needs to find, and it exists nowhere else.
+  | 'residency.reconcile'
+  // Provisional records revoked in bulk for never having been confirmed in the window.
+  | 'residency.provisional.expire'
   | 'credential.verify'
   | 'consent.grant'
   | 'consent.revoke'
