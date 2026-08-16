@@ -17,6 +17,7 @@ import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vc
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
 import { OidcStore, OidcStoredItem } from '../core/sso/oidc-store';
+import { RefusalRecord, RefusalStore } from '../core/residency/refusal';
 import {
   WebAuthnChallengeRecord,
   WebAuthnChallengeStore,
@@ -658,6 +659,58 @@ export class PrismaOidcStore implements OidcStore {
       where: { expiresAt: { not: null, lte: now } },
     });
     return count;
+  }
+}
+
+/**
+ * Prisma-backed store for refused applications.
+ *
+ * The read paths are by reference and by tokenized subject only. There is deliberately no
+ * "list all refusals" method: a refusal log is a record each applicant can consult about
+ * themselves, not a roster of people the deployment turned away.
+ */
+@Injectable()
+export class PrismaRefusalStore implements RefusalStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toRecord = (r: any): RefusalRecord => ({
+    reference: r.reference,
+    countryCode: r.countryCode,
+    subnationalUnit: r.subnationalUnit,
+    subjectRef: r.subjectRef ?? undefined,
+    reason: r.reason,
+    decidedBy: r.decidedBy,
+    appealPath: r.appealPath,
+    refusedAt: r.refusedAt.toISOString(),
+  });
+
+  async save(record: RefusalRecord): Promise<RefusalRecord> {
+    const r = await this.prisma.residencyRefusal.create({
+      data: {
+        reference: record.reference,
+        countryCode: record.countryCode,
+        subnationalUnit: record.subnationalUnit,
+        subjectRef: record.subjectRef ?? null,
+        reason: record.reason,
+        decidedBy: record.decidedBy,
+        appealPath: record.appealPath,
+        refusedAt: new Date(record.refusedAt),
+      },
+    });
+    return this.toRecord(r);
+  }
+
+  async findByReference(reference: string): Promise<RefusalRecord | null> {
+    const r = await this.prisma.residencyRefusal.findUnique({ where: { reference } });
+    return r ? this.toRecord(r) : null;
+  }
+
+  async listBySubjectRef(subjectRef: string): Promise<RefusalRecord[]> {
+    const rows = await this.prisma.residencyRefusal.findMany({
+      where: { subjectRef },
+      orderBy: { refusedAt: 'desc' },
+    });
+    return rows.map(this.toRecord);
   }
 }
 

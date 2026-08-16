@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { CountryConfig } from '../config/country-config';
 import { ProviderRegistry } from '../foundational/registry';
 import {
@@ -31,6 +31,11 @@ import {
   applyCredentialTransition,
   backfilledCredentialStatus,
 } from '../credentials/credential-lifecycle';
+import {
+  RefusalRecord,
+  RefusalStore,
+  generateRefusalReference,
+} from './refusal';
 import { AssuranceRegistry } from '../assurance/registry';
 import { buildDefaultAssuranceRegistry } from '../assurance/profiles';
 import { generateResidentId } from './resident-id';
@@ -135,7 +140,16 @@ export type IssueResidencyResult =
   | { status: 'issued'; residentId: string; credentialJwt: string; record: ResidentRecord }
   | { status: 'exists'; residentId: string; record: ResidentRecord }
   | { status: 'challenge'; challenge: { type: string; channel: string; challengeRef: string } }
-  | { status: 'rejected'; reason: string };
+  | {
+      status: 'rejected';
+      reason: string;
+      /**
+       * The reference the applicant contests this refusal with, and where. Absent only when
+       * the deployment wired no refusal store -- see the constructor.
+       */
+      reference?: string;
+      appealPath?: string;
+    };
 
 /**
  * The orchestration that ties the four layers together. It is deliberately free of
@@ -156,7 +170,42 @@ export class ResidencyService {
      * one is using anyway.
      */
     private assurance: AssuranceRegistry = buildDefaultAssuranceRegistry(),
+    /**
+     * Where refused applications are recorded. Optional so an embedder that has not wired one
+     * still works, but a deployment serving real applicants MUST set it: without it a refusal
+     * leaves no record and the applicant has nothing to appeal with.
+     */
+    private refusals?: RefusalStore,
   ) {}
+
+  /**
+   * Record a refusal and return the rejection result carrying its reference.
+   *
+   * Every rejection path in `issue()` goes through here, so none can quietly return without
+   * leaving a record -- the failure this exists to prevent.
+   */
+  private async refuse(
+    cfg: CountryConfig,
+    req: IssueResidencyRequest,
+    reason: string,
+    subjectRef?: string,
+  ): Promise<IssueResidencyResult> {
+    if (!this.refusals) return { status: 'rejected', reason };
+    const appealPath = cfg.credential.appealPath ?? APPEAL_PATH_UNDECLARED;
+    const record: RefusalRecord = {
+      reference: generateRefusalReference((n) => randomBytes(n)),
+      countryCode: cfg.countryCode,
+      subnationalUnit: req.subnationalUnit,
+      reason,
+      decidedBy: req.decidedBy ?? 'enrolment',
+      appealPath,
+      refusedAt: new Date().toISOString(),
+    };
+    // Identity only when verification produced a tokenized reference. See refusal.ts.
+    if (subjectRef) record.subjectRef = subjectRef;
+    await this.refusals.save(record);
+    return { status: 'rejected', reason, reference: record.reference, appealPath };
+  }
 
   /** The issuance parameters for a country, given an already-reserved status index. */
   private issueOptionsFor(
@@ -303,7 +352,7 @@ export class ResidencyService {
     // arbitrary string here is what turns an unvalidated field into a stored-injection
     // vector for anything downstream that renders it.
     const unitRejection = validateSubnationalUnit(cfg, req.subnationalUnit);
-    if (unitRejection) return { status: 'rejected', reason: unitRejection };
+    if (unitRejection) return this.refuse(cfg, req, unitRejection);
 
     // 1. Resolve the foundational provider from country config and verify.
     const provider = this.getProvider(cfg);
@@ -321,13 +370,13 @@ export class ResidencyService {
       if (result.pendingChallenge) {
         return { status: 'challenge', challenge: result.pendingChallenge };
       }
-      return { status: 'rejected', reason: result.reason ?? 'FOUNDATIONAL_REJECTED' };
+      return this.refuse(cfg, req, result.reason ?? 'FOUNDATIONAL_REJECTED');
     }
 
     // 2. Enforce assurance policy.
     const required = cfg.residency.minAssurance;
     if (ASSURANCE_RANK[result.assuranceLevel] < ASSURANCE_RANK[required]) {
-      return { status: 'rejected', reason: `ASSURANCE_TOO_LOW_${result.assuranceLevel}` };
+      return this.refuse(cfg, req, `ASSURANCE_TOO_LOW_${result.assuranceLevel}`, result.identity?.subjectRef);
     }
 
     // 3. Establish applicant -> identity binding.
@@ -341,10 +390,12 @@ export class ResidencyService {
     const binding = strongestBinding(result.applicantBinding, req.binding);
     const bindingPolicy = cfg.residency.applicantBinding;
     if (bindingPolicy.required && !bindingSatisfies(binding, bindingPolicy.acceptedMethods)) {
-      return {
-        status: 'rejected',
-        reason: `APPLICANT_BINDING_REQUIRED_${binding.method.toUpperCase()}`,
-      };
+      return this.refuse(
+        cfg,
+        req,
+        `APPLICANT_BINDING_REQUIRED_${binding.method.toUpperCase()}`,
+        result.identity?.subjectRef,
+      );
     }
 
     const identity = result.identity!;
@@ -396,7 +447,7 @@ export class ResidencyService {
       new Date().toISOString(),
     );
     if (residencePolicy.required && !residence.satisfied) {
-      return { status: 'rejected', reason: residence.reason ?? 'PROOF_OF_RESIDENCE_REQUIRED' };
+      return this.refuse(cfg, req, residence.reason ?? 'PROOF_OF_RESIDENCE_REQUIRED', identity.subjectRef);
     }
     const residenceClaim: {
       assuranceLevel: typeof residence.level;

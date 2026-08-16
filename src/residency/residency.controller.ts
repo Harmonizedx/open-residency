@@ -309,6 +309,22 @@ export class ResidencyController {
     };
   }
 
+  /**
+   * Look up a refused application by the reference the applicant was given.
+   *
+   * Operator-guarded, and the reference is the lookup key rather than a person's name or
+   * number: an operator can answer "why was I refused" for somebody standing at the desk with
+   * their slip, without anyone being able to enumerate who a jurisdiction has turned away.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Get('refusals/:reference')
+  async refusal(@Param('reference') reference: string) {
+    const record = await this.platform.getRefusalStore().findByReference(reference);
+    if (!record) throw new NotFoundException('Unknown refusal reference');
+    return record;
+  }
+
   /** The credential's ORCS §10 status: why, by whom, when, and how to appeal. */
   @Get(':residentId/credential')
   async credentialStatus(@Param('residentId') residentId: string) {

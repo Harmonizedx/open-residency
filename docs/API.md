@@ -14,7 +14,9 @@ quick orientation.
 
 - `GET /residency/countries` — served countries and the inputs each check needs.
 - `POST /residency/issue` — verify then issue a residency VC. Returns `issued`,
-  `exists`, `challenge`, or `rejected`. **Requires `x-admin-key`**: it accepts operator
+  `exists`, `challenge`, or `rejected`. A `rejected` result carries a `reference` and
+  `appealPath` — the refusal is recorded, and the reference is what the applicant contests it
+  with. **Requires `x-admin-key`**: it accepts operator
   attestations (`binding`, `residenceEvidence`) that a self-serving caller must not be
   able to assert about themselves.
 - `GET /residency/{residentId}` — non-sensitive registration details: `residentId`,
@@ -32,6 +34,9 @@ quick orientation.
 - `POST /residency/verify` — verify a presented VC-JWT (signature, expiry, revocation).
 - `POST /residency/revoke/{residentId}` — revoke a credential, recording the jurisdiction's
   configured reason and appeal path. **Requires `x-admin-key`.**
+- `GET /residency/refusals/{reference}` — why an application was refused, by whom, and how to
+  appeal. Looked up by the applicant's reference, never by name or number, so refusals cannot
+  be enumerated. **Requires `x-admin-key`** (`registrar`).
 - `GET /residency/{residentId}/credential` — the credential's ORCS §10 status: why it was
   revoked or suspended, by whom, when, and how the holder appeals.
 - `POST /residency/{residentId}/credential/transition` `{ status, reason, appealPath,

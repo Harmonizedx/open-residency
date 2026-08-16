@@ -360,3 +360,29 @@ model OidcStoredItem {
   @@index([name, userCode])
   @@index([expiresAt])
 }
+
+// A refused residency application.
+//
+// Recorded so a refusal is a decision somebody can be held to and an applicant can contest,
+// rather than a return value that vanished. Same requirement ORCS §10 places on revocation,
+// at the point of entry instead of exit.
+//
+// Deliberately NOT a database of people who failed verification: `subjectRef` is set only
+// when the foundational check succeeded and produced a tokenized reference. A refusal raised
+// before an identity was established carries no identifier at all. See
+// src/core/residency/refusal.ts.
+model ResidencyRefusal {
+  // The reference handed to the applicant. Unguessable, because knowing it is what proves
+  // they are the person refused.
+  reference       String   @id
+  countryCode     String
+  subnationalUnit String
+  subjectRef      String?
+  reason          String
+  decidedBy       String
+  appealPath      String
+  refusedAt       DateTime @default(now())
+
+  @@index([subjectRef])
+  @@index([countryCode, refusedAt])
+}
