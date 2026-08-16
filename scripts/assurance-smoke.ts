@@ -157,6 +157,35 @@ function main() {
       (mockProfile?.limitations ?? []).some((l) => /MUST NOT/.test(l)),
   );
 
+  // The bug this section exists for: an imported register declaring `verified` used to
+  // resolve to "Verified against an authoritative source" at IAL2, with the §8.1 limitations
+  // that source published about itself silently dropped, because the provider-qualified
+  // lookup missed and the global alias answered on the word alone.
+  console.log('\na mapped provider never falls through to the bare word:');
+  check(
+    'DATASET_FILE/basic resolves, and carries its §8.1 mapping',
+    registry.resolve('basic', 'DATASET_FILE')?.id === 'orcs:profile:basic' &&
+      !!registry.getMapping('DATASET_FILE', 'basic'),
+  );
+  check(
+    'DATASET_FILE/verified resolves to NOTHING, rather than borrowing the global profile',
+    registry.resolve('verified', 'DATASET_FILE') === null,
+  );
+  check('the IMPORT alias behaves identically', registry.resolve('verified', 'IMPORT') === null);
+  check(
+    'an UNMAPPED provider still uses the global alias',
+    registry.resolve('verified', 'SOME_UNKNOWN_PROVIDER')?.id === 'orcs:profile:verified',
+  );
+  check(
+    'and the limitations are attached whenever a mapping answers',
+    (registry.resolveRecord({
+      assuranceLevel: 'basic',
+      providerCode: 'DATASET_FILE',
+      binding: { method: 'attended_comparison' },
+      residence: { assuranceLevel: 'RAL2' },
+    })?.limitations ?? []).some((l) => /point-in-time snapshot/i.test(l)),
+  );
+
   console.log('\nderivations reuse the existing vocabularies:');
   check('a bare lookup with no binding is IAL1', identityFromBinding('none') === 'IAL1');
   check('an attended comparison is IAL2', identityFromBinding('attended_comparison') === 'IAL2');

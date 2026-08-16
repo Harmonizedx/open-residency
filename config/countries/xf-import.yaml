@@ -33,12 +33,20 @@ foundational:
     phone: phone
     residenceAdminUnit: residence_state # residence evidence only -- never origin
     originAdminUnit: origin_state # kept separate; never used to prove residence
-  assuranceOnSuccess: verified
+  # An imported register is a point-in-time snapshot with no liveness and no owner
+  # authentication, so a match establishes that a RECORD exists -- not that this applicant owns
+  # it, and not that the source still says the same thing today. `verified` overstated that; the
+  # §8.1 mapping for this provider is published against `basic`, and declaring anything else now
+  # resolves to nothing rather than quietly borrowing a stronger profile.
+  assuranceOnSuccess: basic
   extra:
     subjectSourcePath: national_id # tokenized before leaving the adapter
 
 residency:
-  minAssurance: verified
+  # Matches what this source can actually establish. A jurisdiction wanting more from an
+  # imported register must add binding at the desk, which raises IAL without pretending the
+  # file itself proved more than it did.
+  minAssurance: basic
   proofOfResidence: attestation
   # A file match proves the record exists, not that the applicant owns it. Bind at the desk.
   applicantBinding:
