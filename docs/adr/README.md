@@ -11,6 +11,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0004](0004-one-deployment-one-jurisdiction.md) | One deployment, one jurisdiction: multiplicity lives in the ecosystem, `subjectRef @unique` stays | Accepted |
 | [0005](0005-enrolment-capture-layer.md) | Enrolment capture is a bounded, jurisdiction-declared layer; the credential stays minimal | Proposed |
 | [0006](0006-additive-migration-resident-facade.md) | Additive migration: `Resident` stays the write-through facade while ORCS entities are extracted | Accepted |
+| [0008](0008-assurance-registry-maps-existing-vocabularies.md) | The Assurance Registry is a closed vocabulary; ORCS §8 dimensions derive from the existing `RAL*` and `BindingMethod` rather than replacing them | Accepted |
 
 ## Pending
 
@@ -18,7 +19,6 @@ Recorded here so the queue survives independently of any working note:
 
 | Decision | Blocking |
 | --- | --- |
-| Assurance profile registry, and the `RAL*`→`EA*` / `bindingMethod`→`IAL*` mappings | Phase 1 |
 | Jurisdiction as a registry versus the current YAML configuration model | Phase 1 |
 | Event architecture kept separate from the audit hash chain | Phase 4 |
 
