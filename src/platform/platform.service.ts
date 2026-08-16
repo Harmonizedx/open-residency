@@ -40,6 +40,8 @@ import {
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
+import { AssuranceRegistry } from '../core/assurance/registry';
+import { buildDefaultAssuranceRegistry } from '../core/assurance/profiles';
 import {
   PrismaAuditStore,
   PrismaConsentStore,
@@ -106,6 +108,7 @@ export class PlatformService implements OnModuleDestroy {
   private messaging?: MessagingProvider;
   private contacts!: ContactDirectory;
   private pepper!: string;
+  private assurance: AssuranceRegistry = buildDefaultAssuranceRegistry();
 
   constructor(
     private store: PrismaResidencyStore,
@@ -527,6 +530,10 @@ export class PlatformService implements OnModuleDestroy {
   }
   getStore(): PrismaResidencyStore {
     return this.store;
+  }
+  /** The ORCS §8 Assurance Registry every assurance value resolves against. */
+  getAssuranceRegistry(): AssuranceRegistry {
+    return this.assurance;
   }
   /** Persistence for the OIDC provider's own sessions, codes and tokens. */
   getOidcStore(): PrismaOidcStore {
