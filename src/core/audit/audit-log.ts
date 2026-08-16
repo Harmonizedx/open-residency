@@ -18,6 +18,10 @@ export type AuditAction =
   | 'identity.challenge'
   | 'residency.issue'
   | 'residency.revoke'
+  // A residency RELATIONSHIP changed state: ended, suspended, reinstated. Distinct from
+  // residency.revoke, which is about a credential -- keeping the two audit actions apart is
+  // what lets the trail say which act was intended (ADR-0007).
+  | 'residency.relationship.transition'
   | 'credential.verify'
   | 'consent.grant'
   | 'consent.revoke'

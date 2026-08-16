@@ -45,6 +45,31 @@ model Resident {
   residenceUnit      String?
   residenceAsOf      DateTime?
   provisional        Boolean   @default(false)
+  // ORCS §4.3: what this relationship states about itself over time. Added additively under
+  // ORRA §15 -- every column either defaults or is nullable, so rows written before the
+  // lifecycle existed read as an ACTIVE general residency rather than as having no status.
+  // See docs/adr/0007-residency-status-is-lifecycle.md.
+  //
+  // `relationshipType` and `relationshipPurpose` are recorded because §4.3 requires them and
+  // are never read in a decision path: the reason a person resides somewhere must not
+  // determine what they can reach. No index on either, deliberately -- an index is an
+  // invitation to filter by it.
+  relationshipType   String    @default("GENERAL_RESIDENCY")
+  relationshipPurpose String   @default("")
+  relationshipStatus String    @default("ACTIVE")
+  // Validity is recorded because §4.3 requires it. NOTHING expires on its own: a record past
+  // validTo is still ACTIVE until somebody ends it (ADR-0007, Amendment 2).
+  validFrom          DateTime?
+  validTo            DateTime?
+  policyVersion      String?
+  evidenceRefs       String[]
+  assuranceProfileId String?
+  relationshipIssuer String?
+  decidedBy          String?
+  decidedAt          DateTime?
+  endedAt            DateTime?
+  endedReason        String?
+  endedBy            String?
   credentialId       String?
   statusListIndex    Int
   // Minimized demographic attributes carried into the credential.

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { StatusList } from '../credentials/status-list';
+import { RelationshipAttributes } from './lifecycle';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
 
@@ -29,6 +30,16 @@ export interface ResidentRecord {
     asOf?: string;
   };
   provisional: boolean;
+  /**
+   * The ORCS §4.3 attributes this relationship states about itself: status, validity, type,
+   * purpose, policy version, evidence references, assurance profile, issuer and decision
+   * provenance. Jurisdiction is `countryCode` + `subnationalUnit` above.
+   *
+   * Optional on the type because ADR-0006 keeps this additive: a row written before the
+   * lifecycle existed has none, and is read as ACTIVE with backfilled provenance rather than
+   * rejected. New records always carry it.
+   */
+  relationship?: RelationshipAttributes;
   /** Set when this resident's identifying data was erased. See core/privacy/erasure.ts. */
   erasedAt?: string;
   credentialId?: string;
