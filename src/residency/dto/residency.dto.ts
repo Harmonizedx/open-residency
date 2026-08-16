@@ -93,3 +93,33 @@ export class TransitionRelationshipDto {
   @MaxLength(512)
   reason?: string;
 }
+
+/**
+ * Request body for `POST /residency/{residentId}/credential/transition`.
+ *
+ * ORCS §10 requires a revocation to preserve reason, authority, timestamp and appeal path.
+ * Authority and timestamp come from the authenticated operator context and the clock, so what
+ * a caller supplies is the reason and — for a revocation — the appeal path. The engine refuses
+ * a terminal transition missing either, rather than writing a blank.
+ */
+export class CredentialTransitionDto {
+  @IsIn(['ACTIVE', 'SUSPENDED', 'REVOKED', 'EXPIRED', 'REPLACED'])
+  status!: 'ACTIVE' | 'SUSPENDED' | 'REVOKED' | 'EXPIRED' | 'REPLACED';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  reason?: string;
+
+  /** Overrides the jurisdiction's configured appeal path for this decision. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  appealPath?: string;
+
+  /** The credential that replaces this one. Required for REPLACED (ORCS §10). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  supersededBy?: string;
+}

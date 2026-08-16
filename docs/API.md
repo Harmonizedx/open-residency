@@ -30,7 +30,14 @@ quick orientation.
   operator is recorded. **Requires `x-admin-key`** (`revoker`). Deliberately does not revoke the
   credential: see [ADR-0007](adr/0007-residency-status-is-lifecycle.md).
 - `POST /residency/verify` — verify a presented VC-JWT (signature, expiry, revocation).
-- `POST /residency/revoke/{residentId}` — revoke a credential. **Requires `x-admin-key`.**
+- `POST /residency/revoke/{residentId}` — revoke a credential, recording the jurisdiction's
+  configured reason and appeal path. **Requires `x-admin-key`.**
+- `GET /residency/{residentId}/credential` — the credential's ORCS §10 status: why it was
+  revoked or suspended, by whom, when, and how the holder appeals.
+- `POST /residency/{residentId}/credential/transition` `{ status, reason, appealPath,
+  supersededBy }` — suspend, reinstate, revoke or replace a credential. A revocation missing a
+  reason, authority or appeal path is **refused**, not recorded blank (ORCS §10). **Requires
+  `x-admin-key`** (`revoker`).
 
 ## Consent
 

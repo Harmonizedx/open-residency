@@ -231,6 +231,18 @@ const credentialSchema = z.object({
   validityDays: z.number().int().positive().default(1095),
   /** JSON-LD context URLs for the credential. */
   context: z.array(z.string()).default(['https://www.w3.org/ns/credentials/v2']),
+  /**
+   * Where a holder contests a revocation. ORCS §10 requires an appeal path be preserved with
+   * every revocation, and only the jurisdiction knows what its own is -- an office, a form, a
+   * statute reference. Left unset, revocations record that none has been published, which is
+   * a finding an operator can act on rather than a silent gap.
+   */
+  appealPath: z.string().optional(),
+  /**
+   * The reason recorded when a caller revokes without supplying one. A deployment that
+   * revokes through the plain endpoint still has to put something truthful in the record.
+   */
+  defaultRevocationReason: z.string().optional(),
 });
 
 /**
