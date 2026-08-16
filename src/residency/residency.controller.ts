@@ -21,7 +21,12 @@ import { operatorActor } from '../core/operator/operator';
 import { encryptContact } from '../core/messaging/contact-directory';
 import { PlatformService } from '../platform/platform.service';
 import { residentIdPattern } from '../core/residency/resident-id';
-import { IssueDto, TransitionRelationshipDto, VerifyDto } from './dto/residency.dto';
+import {
+  CredentialTransitionDto,
+  IssueDto,
+  TransitionRelationshipDto,
+  VerifyDto,
+} from './dto/residency.dto';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/residency.dto.ts.
 // The trust requirements the old inline docs described still hold: `binding` and
@@ -249,6 +254,69 @@ export class ResidencyController {
     const attrs = await this.platform.getResidency().relationshipFor(residentId);
     if (!attrs) throw new NotFoundException('Unknown residentId');
     return { residentId, relationship: attrs };
+  }
+
+  /**
+   * Move a credential through its ORCS §10 lifecycle: suspend it, reinstate it, revoke it,
+   * or record that it was replaced.
+   *
+   * This is what `POST /residency/revoke/{residentId}` could not do. That endpoint flipped a
+   * bit and returned true; a cleared bit was indistinguishable from one never set, and nothing
+   * recorded who decided, why, or where a citizen contests it. §10 requires all four, and the
+   * engine refuses a terminal transition that is missing any of them rather than writing a
+   * blank into the record.
+   *
+   * Distinct from `/relationship/transition`: that says whether the person still resides here,
+   * this says whether this key still works.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('revoker')
+  @Post(':residentId/credential/transition')
+  async transitionCredential(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: CredentialTransitionDto,
+  ) {
+    const operator = requireOperator(req);
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+    const cfg = this.platform.getConfig(record.countryCode)!;
+
+    const result = await this.platform.getResidency().transitionCredential(cfg, residentId, {
+      to: body.status,
+      reason: body.reason,
+      // The authority is the authenticated operator, never something the caller asserts.
+      authority: operatorActor(operator),
+      appealPath: body.appealPath ?? cfg.credential.appealPath,
+      supersededBy: body.supersededBy,
+    });
+
+    await this.platform.getAudit().record({
+      action: 'residency.credential.transition',
+      actor: operatorActor(operator),
+      target: residentId,
+      countryCode: cfg.countryCode,
+      outcome: result.ok ? 'success' : 'failure',
+    });
+
+    if (!result.ok) throw new BadRequestException(result.reason);
+    await this.platform.syncStatusList(cfg);
+    return {
+      residentId,
+      from: result.from,
+      to: result.to,
+      credentialStatus: result.record.credentialStatus,
+    };
+  }
+
+  /** The credential's ORCS §10 status: why, by whom, when, and how to appeal. */
+  @Get(':residentId/credential')
+  async credentialStatus(@Param('residentId') residentId: string) {
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+    const cfg = this.platform.getConfig(record.countryCode)!;
+    const status = await this.platform.getResidency().credentialStatusFor(cfg, residentId);
+    return { residentId, credentialStatus: status };
   }
 
   /**

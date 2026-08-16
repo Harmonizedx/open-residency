@@ -404,7 +404,11 @@ This repository is the generic public infrastructure, not a single-country app:
   other about a key, and ending a residency does **not** revoke the credential as a side effect.
   A caller doing both makes both calls, and both are audited. Residency is permanent until ended:
   validity dates are recorded, but nothing lapses on its own
-  ([ADR-0007](docs/adr/0007-residency-status-is-lifecycle.md)).
+  ([ADR-0007](docs/adr/0007-residency-status-is-lifecycle.md)). Revocation, separately, preserves
+  what ORCS §10 requires — reason, authority, timestamp and the appeal path a holder contests it
+  through — and is refused rather than recorded blank when any of the four is missing. Suspension
+  is published on its own status list, so a verifier can tell a suspended credential from a
+  revoked one.
 - **Enrolment capture is out of scope.** This issues a credential, not a card. There is no
   portrait capture or storage (a photo returned by a foundational source is dropped, never
   persisted), no printed ID-slip renderer, and no schema for local demographic fields — ward,

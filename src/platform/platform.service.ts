@@ -489,6 +489,17 @@ export class PlatformService implements OnModuleDestroy {
     return `${this.publicBaseUrl()}/.well-known/status/${cfg.countryCode.toLowerCase()}.json`;
   }
 
+  /**
+   * Where the SUSPENSION list is published (ORCS §10).
+   *
+   * A separate URL from the revocation list, because they are separate credentials with
+   * separate `statusPurpose` values. A verifier that fetched one and read it as the other
+   * would treat a suspended credential as revoked, or worse, the reverse.
+   */
+  suspensionListUrl(cfg: CountryConfig): string {
+    return `${this.publicBaseUrl()}/.well-known/status/${cfg.countryCode.toLowerCase()}-suspension.json`;
+  }
+
   /** The residency JSON-LD context document, published for external verifiers. */
   residencyContext(): unknown {
     return residencyContextDocument();
