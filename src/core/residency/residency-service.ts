@@ -104,6 +104,21 @@ function validateSubnationalUnit(cfg: CountryConfig, unitCode: string): string |
   return undefined;
 }
 
+/**
+ * Outcome of confirming a provisional record against the live foundational authority.
+ *
+ * `unconfirmed` and `mismatch` are kept apart because they mean opposite things about the
+ * citizen: the first is "we could not reach agreement" (often the gateway's fault, and the
+ * record stays pending), the second is "the authority says this is a different person",
+ * which is a data-quality incident somebody has to look at.
+ */
+export type ReconcileResult =
+  | { status: 'confirmed'; record: ResidentRecord }
+  | { status: 'already-confirmed'; record: ResidentRecord }
+  | { status: 'unknown' }
+  | { status: 'unconfirmed'; reason: string }
+  | { status: 'mismatch'; reason: string; record: ResidentRecord };
+
 export interface IssueResidencyRequest {
   countryCode: string;
   subnationalUnit: string; // unit code, e.g. KT
@@ -639,6 +654,114 @@ export class ResidencyService {
       appealPath: cfg.credential.appealPath ?? APPEAL_PATH_UNDECLARED,
     });
     return out.ok;
+  }
+
+  /**
+   * Confirm a provisionally-issued residency against the live foundational authority.
+   *
+   * A provisional record is one issued when the live authority could not be consulted --
+   * typically verified against an imported register extract at a desk with no connectivity.
+   * It is a promise to check later. Until this exists, "later" never arrives: the flag is
+   * written at issuance, read when assembling claims, and nothing in the system can ever
+   * clear it, so a record entered offline in a rural LGA stays provisional permanently.
+   *
+   * The identifiers are supplied again by the caller rather than replayed from storage,
+   * because the raw national id is deliberately never stored -- only the tokenized
+   * `subjectRef`. That constraint turns out to make this stronger, not weaker: the live
+   * lookup derives a subjectRef under the same provider code and pepper, so comparing it to
+   * the stored one proves the live authority agrees this is the SAME person. A provisional
+   * record created against a stale extract for someone who has since been merged, corrected,
+   * or was keyed in wrongly does not silently pass.
+   *
+   * Note on the outstanding credential: clearing the flag here does not reissue what the
+   * holder already carries, which still asserts `provisional`. That is deliberate and safe
+   * in the conservative direction -- the credential understates their standing rather than
+   * overstating it -- but a deployment that wants the assertion to match must reissue.
+   */
+  async reconcile(
+    cfg: CountryConfig,
+    residentId: string,
+    identifiers: Record<string, string>,
+  ): Promise<ReconcileResult> {
+    const record = await this.store.findByResidentId(residentId);
+    if (!record || record.erasedAt) return { status: 'unknown' };
+    // Idempotent: re-running a sweep, or two operators confirming at once, must not fail.
+    if (!record.provisional) return { status: 'already-confirmed', record };
+
+    const result = await this.getProvider(cfg).verify({
+      countryCode: cfg.countryCode,
+      identifiers,
+      // No `offline` context: reaching the live authority is the entire point of this call.
+    });
+
+    if (!result.verified || !result.identity) {
+      // The record stays provisional. A gateway that is down must not be read as a
+      // negative verdict on the citizen -- it is an absence of one.
+      return { status: 'unconfirmed', reason: result.reason ?? 'FOUNDATIONAL_REJECTED' };
+    }
+
+    if (result.identity.subjectRef !== record.subjectRef) {
+      // Verified, but as somebody else. Left provisional and reported rather than corrected
+      // here: reassigning a residency to a different person is an identity-link decision,
+      // not a reconciliation one.
+      return { status: 'mismatch', reason: 'SUBJECT_MISMATCH', record };
+    }
+
+    const required = cfg.residency.minAssurance;
+    if (ASSURANCE_RANK[result.assuranceLevel] < ASSURANCE_RANK[required]) {
+      return { status: 'unconfirmed', reason: `ASSURANCE_TOO_LOW_${result.assuranceLevel}` };
+    }
+
+    const confirmed = await this.store.save({
+      ...record,
+      provisional: false,
+      assuranceLevel: result.assuranceLevel,
+    });
+    return { status: 'confirmed', record: confirmed };
+  }
+
+  /**
+   * Revoke provisional records that were never confirmed within the policy window.
+   *
+   * The counterpart to `reconcile`, and the half that does not depend on anyone remembering.
+   * A provisional credential is issued on trust that the live authority will later agree; if
+   * nobody ever asks, that trust never expires on its own, and the register accumulates
+   * credentials asserting a residency no authority has confirmed. Bounding it is what keeps
+   * "provisional" meaningfully different from "verified".
+   *
+   * Revocation rather than deletion: the person may well be a genuine resident whose
+   * reconciliation simply never happened, so the record and its status index survive and
+   * they can re-enrol. What stops is the outstanding credential.
+   */
+  async expireProvisional(
+    cfg: CountryConfig,
+    opts: { maxAgeDays?: number; now?: Date; limit?: number } = {},
+  ): Promise<{ checked: number; expired: string[] }> {
+    const maxAgeDays = opts.maxAgeDays ?? cfg.residency.provisionalMaxAgeDays;
+    // No policy declared means no expiry. Inventing a default here would silently revoke
+    // credentials in a deployment that never asked for it.
+    if (!maxAgeDays) return { checked: 0, expired: [] };
+
+    const now = opts.now ?? new Date();
+    const cutoff = new Date(now.getTime() - maxAgeDays * 86_400_000).toISOString();
+    const { items } = await this.store.list({
+      countryCode: cfg.countryCode,
+      provisional: true,
+      limit: opts.limit ?? 500,
+    });
+
+    const expired: string[] = [];
+    for (const record of items) {
+      if (record.erasedAt || record.createdAt >= cutoff) continue;
+      const out = await this.transitionCredential(cfg, record.residentId, {
+        to: 'REVOKED',
+        reason: `Provisional issuance not confirmed against the foundational authority within ${maxAgeDays} days`,
+        authority: cfg.credential.issuerName,
+        appealPath: cfg.credential.appealPath ?? APPEAL_PATH_UNDECLARED,
+      });
+      if (out.ok) expired.push(record.residentId);
+    }
+    return { checked: items.length, expired };
   }
 
   /**

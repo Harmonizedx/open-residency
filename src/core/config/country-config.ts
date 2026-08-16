@@ -206,6 +206,16 @@ const residencySchema = z.object({
   /** Allow provisional issuance offline, to be reconciled when connectivity returns. */
   allowProvisional: z.boolean().default(true),
   /**
+   * How long a provisionally-issued residency may go unconfirmed before its credential is
+   * revoked. Omit to let provisional records stand indefinitely.
+   *
+   * A provisional record is issued on trust that the live authority will later agree. If
+   * nobody ever checks, that trust never expires by itself, and the register fills with
+   * credentials asserting a residency no authority has confirmed — which is what would make
+   * "provisional" and "verified" mean the same thing in practice.
+   */
+  provisionalMaxAgeDays: z.number().int().positive().optional(),
+  /**
    * Applicant -> identity binding policy.
    *
    * Foundational verification proves the identity RECORD is genuine; on its own it does

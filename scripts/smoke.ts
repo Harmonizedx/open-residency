@@ -663,6 +663,98 @@ async function main() {
     unknownUnit.status === 'rejected' && unknownUnit.reason === 'UNKNOWN_SUBNATIONAL_UNIT',
   );
 
+  // --- Provisional issuance is reconciled, and does not stand forever -----------
+  //
+  // A record entered at a desk with no connectivity is issued on trust and flagged
+  // provisional. Before reconcile() existed, nothing could ever clear that flag, so an
+  // offline enrolment in a rural LGA stayed provisional permanently and "provisional"
+  // and "verified" meant the same thing in practice.
+  console.log('\nProvisional reconciliation:');
+  {
+    const pCfg: CountryConfig = parseCountryConfig({
+      countryCode: 'NG',
+      countryName: 'Nigeria',
+      defaultSubnationalUnit: 'KT',
+      foundational: { provider: 'MOCK', inputs: [{ key: 'nin', label: 'NIN' }], assuranceOnSuccess: 'verified' },
+      residency: {
+        minAssurance: 'verified',
+        proofOfResidence: 'attestation',
+        allowProvisional: true,
+        provisionalMaxAgeDays: 30,
+      },
+      credential: { issuerDid, issuerName: 'Katsina State Residency Authority', context: ['https://www.w3.org/ns/credentials/v2'] },
+      subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
+    });
+    const pStore = new InMemoryStore();
+    const pSvc = new ResidencyService(new ProviderRegistry('smoke-pepper'), issuer, pStore, () => statusUrl);
+
+    // MOCK verifies any identifier ending in an even digit, so both of these pass the
+    // lookup -- they simply describe different people.
+    const AMINA = '12345678902';
+    const SOMEONE_ELSE = '12345678904';
+
+    const offlineIssue = await pSvc.issue(pCfg, {
+      countryCode: 'NG',
+      subnationalUnit: 'KT',
+      identifiers: { nin: AMINA },
+      context: { offline: true },
+    });
+    check('an offline enrolment is issued provisionally', offlineIssue.status === 'issued' && offlineIssue.record?.provisional === true);
+    const pRid = offlineIssue.status === 'issued' ? offlineIssue.residentId : '';
+
+    // A gateway that is down is an ABSENCE of a verdict, not a negative one: the record
+    // must stay provisional rather than be treated as refuted.
+    const unreachable = await pSvc.reconcile(pCfg, pRid, { nin: '12345678901' }); // odd -> no match
+    check('a failed live check leaves the record provisional', unreachable.status === 'unconfirmed');
+    check('and it really is still provisional', (await pStore.findByResidentId(pRid))?.provisional === true);
+
+    // Verified, but as a different person: reported, never silently accepted.
+    const wrongPerson = await pSvc.reconcile(pCfg, pRid, { nin: SOMEONE_ELSE });
+    check('a live match for a DIFFERENT person is a mismatch, not a confirmation', wrongPerson.status === 'mismatch');
+    check('a mismatch also leaves it provisional', (await pStore.findByResidentId(pRid))?.provisional === true);
+
+    // The happy path: the live authority agrees this is the same person.
+    const confirmed = await pSvc.reconcile(pCfg, pRid, { nin: AMINA });
+    check('the live authority confirming the same subject clears provisional', confirmed.status === 'confirmed');
+    check('the stored record is no longer provisional', (await pStore.findByResidentId(pRid))?.provisional === false);
+    const again = await pSvc.reconcile(pCfg, pRid, { nin: AMINA });
+    check('reconciling twice is idempotent', again.status === 'already-confirmed');
+
+    // Unconfirmed records do not stand forever.
+    const stale = await pSvc.issue(pCfg, {
+      countryCode: 'NG',
+      subnationalUnit: 'KT',
+      identifiers: { nin: '22345678902' },
+      context: { offline: true },
+    });
+    const staleRid = stale.status === 'issued' ? stale.residentId : '';
+    const notYet = await pSvc.expireProvisional(pCfg, { now: new Date() });
+    check('a fresh provisional record is left alone', notYet.expired.length === 0);
+
+    const later = new Date(Date.now() + 40 * 86_400_000);
+    const swept = await pSvc.expireProvisional(pCfg, { now: later });
+    check('one unconfirmed past the window is revoked', swept.expired.includes(staleRid));
+    check('the confirmed record is NOT swept', !swept.expired.includes(pRid));
+
+    const sweptList = await pStore.loadStatusList('NG');
+    const staleRec = await pStore.findByResidentId(staleRid);
+    check('the expired credential is actually revoked in the status list', !!staleRec && sweptList.isRevoked(staleRec.statusListIndex));
+    check('the record survives so the person can re-enrol', !!staleRec);
+
+    // A deployment that declares no window keeps its provisional records.
+    const noPolicy: CountryConfig = parseCountryConfig({
+      countryCode: 'NG',
+      countryName: 'Nigeria',
+      defaultSubnationalUnit: 'KT',
+      foundational: { provider: 'MOCK', inputs: [{ key: 'nin', label: 'NIN' }], assuranceOnSuccess: 'verified' },
+      residency: { minAssurance: 'verified', proofOfResidence: 'attestation', allowProvisional: true },
+      credential: { issuerDid, issuerName: 'X', context: ['https://www.w3.org/ns/credentials/v2'] },
+      subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
+    });
+    const unbounded = await pSvc.expireProvisional(noPolicy, { now: later });
+    check('no declared window means nothing is expired', unbounded.expired.length === 0 && unbounded.checked === 0);
+  }
+
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
   process.exit(fail === 0 ? 0 : 1);
 }
