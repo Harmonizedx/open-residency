@@ -25,6 +25,8 @@ export class AssuranceRegistry {
   private mappings = new Map<string, ProviderAssuranceMapping>();
   /** Declared assurance value -> profile id, for values not qualified by a provider. */
   private valueAliases = new Map<string, string>();
+  /** Providers that have published at least one §8.1 mapping. See `resolve`. */
+  private providersWithMappings = new Set<string>();
 
   constructor(profiles: AssuranceProfile[] = [], mappings: ProviderAssuranceMapping[] = []) {
     for (const p of profiles) this.registerProfile(p);
@@ -73,6 +75,7 @@ export class AssuranceRegistry {
       );
     }
     this.mappings.set(`${mapping.providerCode}:${mapping.assuranceValue}`, mapping);
+    this.providersWithMappings.add(mapping.providerCode);
   }
 
   /** Alias a declared assurance value to a canonical profile. */
@@ -106,6 +109,18 @@ export class AssuranceRegistry {
     if (providerCode) {
       const mapped = this.mappings.get(`${providerCode}:${value}`);
       if (mapped) return this.profiles.get(mapped.profileId) ?? null;
+      // A provider that has published ANY mapping does not fall through to the global alias.
+      //
+      // Falling through looks harmless and is not. The alias resolves on the word alone, so an
+      // imported register declaring `verified` resolved to "Verified against an authoritative
+      // source" at IAL2 -- and the §8.1 limitations that authority published about itself, the
+      // ones saying a file import has no liveness and no owner authentication, were silently
+      // dropped because the qualified lookup missed. That is fail-open: the deployment gets a
+      // better answer than it earned, and the caveats that made the answer honest disappear.
+      //
+      // So an unmapped value from a mapped provider resolves to NOTHING, and the deployment
+      // has to publish what that value means for that source. Which is what §8.1 asks of it.
+      if (this.providersWithMappings.has(providerCode)) return null;
     }
     const aliased = this.valueAliases.get(value);
     return aliased ? (this.profiles.get(aliased) ?? null) : null;
