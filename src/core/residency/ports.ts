@@ -98,7 +98,19 @@ export interface ResidencyStore {
    */
   loadStatusList(countryCode: string, purpose?: StatusPurpose): Promise<StatusList>;
   saveStatusList(countryCode: string, list: StatusList, purpose?: StatusPurpose): Promise<void>;
-  list(opts?: { countryCode?: string; limit?: number; offset?: number }): Promise<{
+  /**
+   * Page the register.
+   *
+   * `provisional` filters on the flag rather than adding a second listing method: the
+   * reconciliation sweep needs exactly "the provisional ones", and a caller that wants
+   * everything simply omits it.
+   */
+  list(opts?: {
+    countryCode?: string;
+    limit?: number;
+    offset?: number;
+    provisional?: boolean;
+  }): Promise<{
     total: number;
     items: ResidentRecord[];
   }>;
@@ -166,12 +178,20 @@ export class InMemoryStore implements ResidencyStore {
   ): Promise<void> {
     this.statusLists.set(`${countryCode}:${purpose}`, list);
   }
-  async list(opts?: { countryCode?: string; limit?: number; offset?: number }): Promise<{
+  async list(opts?: {
+    countryCode?: string;
+    limit?: number;
+    offset?: number;
+    provisional?: boolean;
+  }): Promise<{
     total: number;
     items: ResidentRecord[];
   }> {
     let items = [...this.byResidentId.values()];
     if (opts?.countryCode) items = items.filter((r) => r.countryCode === opts.countryCode);
+    if (opts?.provisional !== undefined) {
+      items = items.filter((r) => r.provisional === opts.provisional);
+    }
     items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     const total = items.length;
     const offset = opts?.offset ?? 0;

@@ -52,6 +52,22 @@ const foundationalSchema = z.object({
   baseUrl: z.string().optional(),
   auth: authSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /**
+   * Retry policy for transient gateway failures.
+   *
+   * A national ID gateway is another government's server on another government's network,
+   * reached from a desk that may be on a poor rural link, so a dropped connection is an
+   * ordinary event rather than an exceptional one. Only transport failures, 429 and 5xx are
+   * retried; a 4xx refusal and a clean "no match" are answers, not failures, and repeating
+   * them spends a paid call to be told the same thing.
+   */
+  retry: z
+    .object({
+      attempts: z.number().int().min(1).max(10).optional(),
+      baseDelayMs: z.number().int().nonnegative().optional(),
+      maxDelayMs: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
   /** Response wire format; `xml` uses the same mapping dot-paths over parsed elements. */
   responseFormat: z.enum(['json', 'xml']).optional(),
   /** XML-parsing options (XML/SOAP providers). */
@@ -189,6 +205,16 @@ const residencySchema = z.object({
     .default('attestation'),
   /** Allow provisional issuance offline, to be reconciled when connectivity returns. */
   allowProvisional: z.boolean().default(true),
+  /**
+   * How long a provisionally-issued residency may go unconfirmed before its credential is
+   * revoked. Omit to let provisional records stand indefinitely.
+   *
+   * A provisional record is issued on trust that the live authority will later agree. If
+   * nobody ever checks, that trust never expires by itself, and the register fills with
+   * credentials asserting a residency no authority has confirmed — which is what would make
+   * "provisional" and "verified" mean the same thing in practice.
+   */
+  provisionalMaxAgeDays: z.number().int().positive().optional(),
   /**
    * Applicant -> identity binding policy.
    *

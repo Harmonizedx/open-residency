@@ -293,11 +293,19 @@ export class PrismaResidencyStore implements ResidencyStore {
     });
   }
 
-  async list(opts?: { countryCode?: string; limit?: number; offset?: number }): Promise<{
+  async list(opts?: {
+    countryCode?: string;
+    limit?: number;
+    offset?: number;
+    provisional?: boolean;
+  }): Promise<{
     total: number;
     items: ResidentRecord[];
   }> {
-    const where = opts?.countryCode ? { countryCode: opts.countryCode } : {};
+    const where = {
+      ...(opts?.countryCode ? { countryCode: opts.countryCode } : {}),
+      ...(opts?.provisional !== undefined ? { provisional: opts.provisional } : {}),
+    };
     const [total, rows] = await Promise.all([
       this.prisma.resident.count({ where }),
       this.prisma.resident.findMany({

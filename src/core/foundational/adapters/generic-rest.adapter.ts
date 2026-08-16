@@ -8,6 +8,7 @@ import {
 } from '../types';
 import { interpolate, interpolateObject } from '../util';
 import { buildAuthHeaders, resultFromBody } from '../mapping';
+import { RetryPolicy, resolveRetryPolicy, withRetry } from '../retry';
 
 /**
  * A foundational provider that is driven ENTIRELY by configuration.
@@ -28,6 +29,7 @@ export class GenericRestAdapter implements FoundationalProvider {
   private cfg!: ProviderConfig;
   private http!: AxiosInstance;
   private pepper: string;
+  private retry!: RetryPolicy;
 
   constructor(code = 'GENERIC_REST', pepper = process.env.SUBJECT_PEPPER ?? 'dev-pepper') {
     this.code = code;
@@ -36,6 +38,7 @@ export class GenericRestAdapter implements FoundationalProvider {
 
   init(config: ProviderConfig): void {
     this.cfg = config;
+    this.retry = resolveRetryPolicy(config.retry);
     this.http = axios.create({
       baseURL: config.baseUrl,
       timeout: config.timeoutMs ?? 8000,
@@ -51,12 +54,15 @@ export class GenericRestAdapter implements FoundationalProvider {
     const headers = { ...interpolateObject(req.headers, scope), ...buildAuthHeaders(this.cfg) };
 
     try {
-      const res =
-        (req.method ?? 'POST') === 'GET'
-          ? await this.http.get(path, { headers })
-          : await this.http.post(path, interpolateObject(req.bodyTemplate, scope), {
-              headers,
-            });
+      // Retried as a unit. A verification lookup is a read, so a repeat is safe: the far
+      // end either never saw the first attempt or has nothing to undo.
+      const res = await withRetry(
+        () =>
+          (req.method ?? 'POST') === 'GET'
+            ? this.http.get(path, { headers })
+            : this.http.post(path, interpolateObject(req.bodyTemplate, scope), { headers }),
+        this.retry,
+      );
 
       return resultFromBody(this.cfg, this.code, this.pepper, res.data, input);
     } catch (err: unknown) {

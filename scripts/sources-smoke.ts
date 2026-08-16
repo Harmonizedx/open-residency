@@ -136,6 +136,89 @@ async function main(): Promise<void> {
 
   await new Promise<void>((r) => server.close(() => r()));
 
+  // --- Transient gateway failure: retried, not refused ------------------------
+  //
+  // A national ID gateway is another government's server on another government's network.
+  // Before this, one dropped connection refused the applicant outright and the desk had to
+  // key the whole application in again. What must NOT happen is retrying a definitive
+  // answer: a 4xx refusal costs a paid call to be told the same thing, and on a metered
+  // contract it spends the budget of the citizens queued behind this one.
+  console.log('\nGateway retry (transient failure recovers, definitive failure does not):');
+  {
+    let hits = 0;
+    const flaky: Server = createServer((req, res) => {
+      let data = '';
+      req.on('data', (c) => (data += c));
+      req.on('end', () => {
+        hits++;
+        // Fail the first two attempts the way a real gateway does, then answer.
+        if (hits === 1) {
+          res.socket?.destroy(); // connection reset: no response at all
+          return;
+        }
+        if (hits === 2) {
+          res.statusCode = 503;
+          res.end('upstream unavailable');
+          return;
+        }
+        res.setHeader('content-type', 'application/soap+xml; charset=utf-8');
+        res.end(SOAP_MATCH);
+      });
+    });
+    await new Promise<void>((r) => flaky.listen(0, '127.0.0.1', r));
+    const flakyPort = (flaky.address() as AddressInfo).port;
+    const flakyCfg = xmlConfig(`http://127.0.0.1:${flakyPort}`);
+    const retried = registry.resolve({
+      ...flakyCfg,
+      retry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 5 },
+    } as ProviderConfig);
+
+    const recovered = await retried.verify({
+      countryCode: 'XM',
+      identifiers: { nationalId: '23456789012', lastName: 'Bello' },
+    });
+    check('a reset connection then a 503 still verifies on the third attempt', recovered.verified === true);
+    check('it took exactly three attempts', hits === 3);
+
+    // A 4xx is the gateway understanding us and saying no. One call, no retry.
+    hits = 0;
+    const refusing: Server = createServer((_req, res) => {
+      hits++;
+      res.statusCode = 400;
+      res.end('bad request');
+    });
+    await new Promise<void>((r) => refusing.listen(0, '127.0.0.1', r));
+    const refusingPort = (refusing.address() as AddressInfo).port;
+    const notRetried = registry.resolve({
+      ...xmlConfig(`http://127.0.0.1:${refusingPort}`),
+      retry: { attempts: 3, baseDelayMs: 1, maxDelayMs: 5 },
+    } as ProviderConfig);
+    const refused = await notRetried.verify({ countryCode: 'XM', identifiers: { nationalId: '1' } });
+    check('a 400 is NOT retried (one call only)', hits === 1);
+    check('and is reported with its status', refused.verified === false && refused.reason === 'PROVIDER_HTTP_400');
+
+    // Exhausting the attempts still reports the honest reason rather than a retry artefact.
+    hits = 0;
+    const down: Server = createServer((_req, res) => {
+      hits++;
+      res.statusCode = 502;
+      res.end('bad gateway');
+    });
+    await new Promise<void>((r) => down.listen(0, '127.0.0.1', r));
+    const downPort = (down.address() as AddressInfo).port;
+    const exhausted = registry.resolve({
+      ...xmlConfig(`http://127.0.0.1:${downPort}`),
+      retry: { attempts: 2, baseDelayMs: 1, maxDelayMs: 5 },
+    } as ProviderConfig);
+    const gaveUp = await exhausted.verify({ countryCode: 'XM', identifiers: { nationalId: '1' } });
+    check('a gateway that stays down is retried to the limit then reported', hits === 2);
+    check('the reported reason is the real one', gaveUp.verified === false && gaveUp.reason === 'PROVIDER_HTTP_502');
+
+    await new Promise<void>((r) => flaky.close(() => r()));
+    await new Promise<void>((r) => refusing.close(() => r()));
+    await new Promise<void>((r) => down.close(() => r()));
+  }
+
   // --- Dataset provider: CSV (committed), plus JSON and YAML temp files ---
   console.log('\nDATASET_FILE / IMPORT provider:');
   const dir = mkdtempSync(join(tmpdir(), 'openres-ds-'));

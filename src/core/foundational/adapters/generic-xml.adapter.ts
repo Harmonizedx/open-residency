@@ -8,6 +8,7 @@ import {
 } from '../types';
 import { interpolate, interpolateObject, parseXml } from '../util';
 import { buildAuthHeaders, resultFromBody } from '../mapping';
+import { RetryPolicy, resolveRetryPolicy, withRetry } from '../retry';
 
 /**
  * A config-driven foundational provider for XML and SOAP national-ID services.
@@ -27,6 +28,7 @@ export class GenericXmlAdapter implements FoundationalProvider {
   private cfg!: ProviderConfig;
   private http!: AxiosInstance;
   private pepper: string;
+  private retry!: RetryPolicy;
 
   constructor(code = 'GENERIC_XML', pepper = process.env.SUBJECT_PEPPER ?? 'dev-pepper') {
     this.code = code;
@@ -35,6 +37,7 @@ export class GenericXmlAdapter implements FoundationalProvider {
 
   init(config: ProviderConfig): void {
     this.cfg = config;
+    this.retry = resolveRetryPolicy(config.retry);
     this.http = axios.create({
       baseURL: config.baseUrl,
       timeout: config.timeoutMs ?? 8000,
@@ -56,15 +59,17 @@ export class GenericXmlAdapter implements FoundationalProvider {
     };
 
     try {
-      let raw: unknown;
-      if ((req.method ?? 'POST') === 'GET') {
-        raw = (await this.http.get(path, { headers })).data;
-      } else {
+      // Retried on transient transport/5xx/429 failure, exactly as the REST adapter is:
+      // an X-Road or SOAP gateway is no less prone to a dropped connection.
+      const raw: unknown = await withRetry(async () => {
+        if ((req.method ?? 'POST') === 'GET') {
+          return (await this.http.get(path, { headers })).data;
+        }
         // A SOAP/XML POST carries a raw envelope, not a form/JSON body.
         const body = interpolate(req.bodyRaw ?? '', scope);
         headers['content-type'] = req.contentType ?? 'text/xml; charset=utf-8';
-        raw = (await this.http.post(path, body, { headers })).data;
-      }
+        return (await this.http.post(path, body, { headers })).data;
+      }, this.retry);
 
       const xml = typeof raw === 'string' ? raw : String(raw ?? '');
       const parsed = parseXml(xml, {

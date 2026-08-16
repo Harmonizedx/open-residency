@@ -24,6 +24,7 @@ import { residentIdPattern } from '../core/residency/resident-id';
 import {
   CredentialTransitionDto,
   IssueDto,
+  ReconcileDto,
   TransitionRelationshipDto,
   VerifyDto,
 } from './dto/residency.dto';
@@ -402,6 +403,111 @@ export class ResidencyController {
       // that on trust.
       auditChainIntact: chain.ok,
     };
+  }
+
+  /**
+   * Confirm a provisionally-issued residency against the live foundational authority.
+   *
+   * `registrar`-guarded, like issuance, because it is the same act finished late: an
+   * enrolment that could not reach the authority at the desk being completed once it can.
+   *
+   * The identifiers are submitted again rather than replayed from the record, because the
+   * raw national id is never stored. The outcome is deliberately four-valued — a gateway
+   * that is down (`unconfirmed`) is not the same as the authority naming a different person
+   * (`mismatch`), and collapsing them would hide a data-quality incident behind a retry.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Post(':residentId/reconcile')
+  async reconcile(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: ReconcileDto,
+  ) {
+    const operator = requireOperator(req);
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+    const cfg = this.platform.getConfig(record.countryCode);
+    if (!cfg) throw new NotFoundException('No config for this record');
+
+    const outcome = await this.platform
+      .getResidency()
+      .reconcile(cfg, residentId, body.identifiers);
+
+    await this.platform.getAudit().record({
+      action: 'residency.reconcile',
+      actor: operatorActor(operator),
+      target: residentId,
+      countryCode: cfg.countryCode,
+      // A mismatch is a failure of the check, not of the request: it is the outcome an
+      // investigator most needs to find later, so it is recorded as one.
+      outcome: outcome.status === 'confirmed' || outcome.status === 'already-confirmed' ? 'success' : 'failure',
+      metadata: {
+        result: outcome.status,
+        reason: 'reason' in outcome ? outcome.reason : undefined,
+      },
+    });
+
+    return {
+      status: outcome.status,
+      reason: 'reason' in outcome ? outcome.reason : undefined,
+      provisional: 'record' in outcome ? outcome.record.provisional : undefined,
+    };
+  }
+
+  /**
+   * Revoke provisional records never confirmed within the policy window.
+   *
+   * **Dry run unless `confirm: true`**, for the same reason as the retention sweep: it acts
+   * in bulk on other people's credentials, and an operator should see the list before it
+   * happens rather than afterwards.
+   *
+   * Does nothing when no window is configured, reported as `skipped` rather than as an empty
+   * success — "nothing was due" and "the policy is switched off" look identical otherwise.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('admin')
+  @Post('provisional/sweep')
+  async provisionalSweep(
+    @Req() req: RequestWithOperator,
+    @Body() body: { countryCode?: string; confirm?: boolean },
+  ) {
+    const operator = requireOperator(req);
+    const configs = body?.countryCode
+      ? [this.platform.getConfig(body.countryCode)].filter(Boolean)
+      : this.platform.listConfigs();
+    if (!configs.length) throw new NotFoundException('No matching country config');
+
+    const report: Array<Record<string, unknown>> = [];
+    for (const cfg of configs as NonNullable<(typeof configs)[number]>[]) {
+      const window = cfg.residency.provisionalMaxAgeDays;
+      if (!window) {
+        report.push({ countryCode: cfg.countryCode, skipped: 'no provisionalMaxAgeDays configured', expired: 0 });
+        continue;
+      }
+      const cutoff = new Date(Date.now() - window * 86_400_000).toISOString();
+      const { items } = await this.platform
+        .getStore()
+        .list({ countryCode: cfg.countryCode, provisional: true, limit: 500 });
+      const due = items.filter((r) => !r.erasedAt && r.createdAt < cutoff).map((r) => r.residentId);
+
+      if (body?.confirm !== true) {
+        report.push({ countryCode: cfg.countryCode, dueCount: due.length, due, expired: 0, dryRun: true });
+        continue;
+      }
+
+      const swept = await this.platform.getResidency().expireProvisional(cfg);
+      await this.platform.syncStatusList(cfg);
+      await this.platform.getAudit().record({
+        action: 'residency.provisional.expire',
+        actor: operatorActor(operator),
+        countryCode: cfg.countryCode,
+        outcome: 'success',
+        metadata: { expired: swept.expired.length, windowDays: window },
+      });
+      report.push({ countryCode: cfg.countryCode, dueCount: due.length, expired: swept.expired.length, residents: swept.expired });
+    }
+    return { report };
   }
 
   /**
