@@ -48,6 +48,7 @@ import {
   PrismaOid4vciStore,
   PrismaOid4vpStore,
   PrismaOidcStore,
+  PrismaRefusalStore,
   PrismaOtpStore,
   PrismaOperatorStore,
   PrismaResidencyStore,
@@ -117,6 +118,7 @@ export class PlatformService implements OnModuleDestroy {
     private oid4vciStore: PrismaOid4vciStore,
     private oid4vpStore: PrismaOid4vpStore,
     private oidcStore: PrismaOidcStore,
+    private refusalStore: PrismaRefusalStore,
     private otpStore: PrismaOtpStore,
     private operatorStore: PrismaOperatorStore,
     private webauthnChallengeStore: PrismaWebAuthnChallengeStore,
@@ -157,6 +159,8 @@ export class PlatformService implements OnModuleDestroy {
       this.store,
       (cfg) => this.statusListUrl(cfg),
       this.ldpIssuer,
+      this.assurance,
+      this.refusalStore,
     );
 
     // OpenID4VCI: the standards-based issuance path that lets a citizen's own wallet
@@ -549,6 +553,10 @@ export class PlatformService implements OnModuleDestroy {
   /** Persistence for the OIDC provider's own sessions, codes and tokens. */
   getOidcStore(): PrismaOidcStore {
     return this.oidcStore;
+  }
+  /** Refused applications, so an applicant can be told why and where to appeal. */
+  getRefusalStore(): PrismaRefusalStore {
+    return this.refusalStore;
   }
   getAudit(): AuditLog {
     return this.audit;
