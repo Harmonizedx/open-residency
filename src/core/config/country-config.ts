@@ -52,6 +52,22 @@ const foundationalSchema = z.object({
   baseUrl: z.string().optional(),
   auth: authSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /**
+   * Retry policy for transient gateway failures.
+   *
+   * A national ID gateway is another government's server on another government's network,
+   * reached from a desk that may be on a poor rural link, so a dropped connection is an
+   * ordinary event rather than an exceptional one. Only transport failures, 429 and 5xx are
+   * retried; a 4xx refusal and a clean "no match" are answers, not failures, and repeating
+   * them spends a paid call to be told the same thing.
+   */
+  retry: z
+    .object({
+      attempts: z.number().int().min(1).max(10).optional(),
+      baseDelayMs: z.number().int().nonnegative().optional(),
+      maxDelayMs: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
   /** Response wire format; `xml` uses the same mapping dot-paths over parsed elements. */
   responseFormat: z.enum(['json', 'xml']).optional(),
   /** XML-parsing options (XML/SOAP providers). */

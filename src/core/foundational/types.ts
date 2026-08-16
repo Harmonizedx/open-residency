@@ -104,6 +104,17 @@ export interface ProviderConfig {
   };
   timeoutMs?: number;
   /**
+   * Retry policy for transient gateway failures. Omitted fields take the defaults in
+   * core/foundational/retry.ts. Only transport errors, 429 and 5xx are retried — a 4xx
+   * refusal and a clean "no match" never are.
+   */
+  retry?: {
+    /** Total attempts including the first. 1 disables retrying. */
+    attempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+  };
+  /**
    * Response wire format. `json` (default) and `xml` share the same `responseMapping` /
    * `verifiedFlag` dot-paths -- for `xml`, they address parsed elements. Selecting the
    * GENERIC_XML provider implies `xml`; DATASET_FILE ignores this entirely.

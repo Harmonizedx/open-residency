@@ -331,6 +331,7 @@ export class ResidencyService {
       baseUrl: cfg.foundational.baseUrl,
       auth: cfg.foundational.auth,
       timeoutMs: cfg.foundational.timeoutMs,
+      retry: cfg.foundational.retry,
       responseFormat: cfg.foundational.responseFormat,
       xml: cfg.foundational.xml,
       dataset: cfg.foundational.dataset,
