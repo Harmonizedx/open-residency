@@ -36,6 +36,7 @@ import {
   RefusalStore,
   generateRefusalReference,
 } from './refusal';
+import { automatedDecider, decisionModeFor } from './decision-mode';
 import { AssuranceRegistry } from '../assurance/registry';
 import { buildDefaultAssuranceRegistry } from '../assurance/profiles';
 import { generateResidentId } from './resident-id';
@@ -204,6 +205,7 @@ export class ResidencyService {
     req: IssueResidencyRequest,
     reason: string,
     subjectRef?: string,
+    mode: 'attended' | 'automated' = 'automated',
   ): Promise<IssueResidencyResult> {
     if (!this.refusals) return { status: 'rejected', reason };
     const appealPath = cfg.credential.appealPath ?? APPEAL_PATH_UNDECLARED;
@@ -212,8 +214,17 @@ export class ResidencyService {
       countryCode: cfg.countryCode,
       subnationalUnit: req.subnationalUnit,
       reason,
-      decidedBy: req.decidedBy ?? 'enrolment',
+      decidedBy:
+        mode === 'automated'
+          ? automatedDecider(this.policyVersionFor(cfg))
+          : (req.decidedBy ?? 'enrolment'),
+      submittedBy: req.decidedBy,
       appealPath,
+      // Where a person obtains HUMAN review, when software refused them. Carried on the record
+      // rather than looked up later, so it survives a config change and says what was offered
+      // at the time (NDPA §37, GDPR Art.22, Convention 108+).
+      humanReviewPath: mode === 'automated' ? cfg.residency.humanReview?.path : undefined,
+      reviewStatus: 'none',
       refusedAt: new Date().toISOString(),
     };
     // Identity only when verification produced a tokenized reference. See refusal.ts.
@@ -541,7 +552,14 @@ export class ResidencyService {
       assuranceProfileId:
         this.assurance.resolve(result.assuranceLevel, result.providerCode)?.id ?? undefined,
       issuer: cfg.credential.issuerDid,
-      decidedBy: req.decidedBy ?? 'enrolment',
+      // ORCS §4.3 decision provenance, and the NDPA §37 / GDPR Art.22 record. A decision no
+      // person took says so, and names the ruleset that took it -- an operator id would be a
+      // lie and a bare "system" would lose the only thing that makes it auditable.
+      decidedBy:
+        decisionModeFor({ binding, residence: residenceClaim }) === 'automated'
+          ? automatedDecider(this.policyVersionFor(cfg))
+          : (req.decidedBy ?? 'enrolment'),
+      submittedBy: req.decidedBy,
       at: issued.issuedAt,
     });
 

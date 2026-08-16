@@ -40,12 +40,45 @@ export interface RefusalRecord {
   subjectRef?: string;
   /** The machine-readable reason `issue()` returned, e.g. PROOF_OF_RESIDENCE_REQUIRED. */
   reason: string;
-  /** Who refused. An operator identity from the authenticated enrolment context. */
+  /**
+   * What took the decision to refuse: an operator identity, or `automated:<policyVersion>`.
+   *
+   * In practice this is almost always automated. No path lets a person exercise judgement in
+   * refusing -- the engine applies the jurisdiction's thresholds and the answer falls out --
+   * so recording an operator here would misdescribe who is answerable for the outcome.
+   */
   decidedBy: string;
+  /**
+   * The operator who took the application, kept separately.
+   *
+   * Distinct from `decidedBy` on purpose. The software decided, but a person was at the desk,
+   * and losing that would leave nobody able to say where or by whom the application was
+   * handled. Two facts, two fields, rather than one field meaning whichever the reader assumes.
+   */
+  submittedBy?: string;
   /** How the applicant contests it. Never blank -- see APPEAL_PATH_UNDECLARED. */
   appealPath: string;
+  /**
+   * Where the applicant obtains human review, set when the refusal was taken by software
+   * alone. Absent when a person refused them -- they have already had the human.
+   */
+  humanReviewPath?: string;
+  /** Whether a human has been asked to look again, and what they concluded. */
+  reviewStatus: ReviewStatus;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
   refusedAt: string;
 }
+
+/**
+ * The state of a request for human review.
+ *
+ * `overturned` exists because a review that cannot change the outcome is not a review. All
+ * three regimes require the reviewer to hold genuine authority to reach a different answer,
+ * so recording only "a human looked" would satisfy the letter and miss the point.
+ */
+export type ReviewStatus = 'none' | 'requested' | 'upheld' | 'overturned';
 
 /** Persistence port, mirroring the other stores in this tree. */
 export interface RefusalStore {
@@ -58,6 +91,11 @@ export interface RefusalStore {
    * uses this to answer "has this person been refused before, and why" at the desk.
    */
   listBySubjectRef(subjectRef: string): Promise<RefusalRecord[]>;
+  /** Record a review outcome against a refusal. Returns null if the reference is unknown. */
+  recordReview(
+    reference: string,
+    review: { status: ReviewStatus; by: string; at: string; note?: string },
+  ): Promise<RefusalRecord | null>;
 }
 
 /** In-memory implementation, for the smoke tests and single-node pilots. */
@@ -75,6 +113,22 @@ export class InMemoryRefusalStore implements RefusalStore {
     return [...this.byReference.values()]
       .filter((r) => r.subjectRef === subjectRef)
       .sort((a, b) => (a.refusedAt < b.refusedAt ? 1 : -1));
+  }
+  async recordReview(
+    reference: string,
+    review: { status: ReviewStatus; by: string; at: string; note?: string },
+  ): Promise<RefusalRecord | null> {
+    const existing = this.byReference.get(reference);
+    if (!existing) return null;
+    const updated: RefusalRecord = {
+      ...existing,
+      reviewStatus: review.status,
+      reviewedBy: review.by,
+      reviewedAt: review.at,
+      reviewNote: review.note,
+    };
+    this.byReference.set(reference, updated);
+    return updated;
   }
 }
 

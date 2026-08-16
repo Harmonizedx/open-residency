@@ -15,12 +15,17 @@
  */
 import { InMemoryStore } from '../src/core/residency/ports';
 import { InMemoryRefusalStore, generateRefusalReference } from '../src/core/residency/refusal';
+import { decisionModeFor, permitsAutomatedDecisions, isAutomatedDecider } from '../src/core/residency/decision-mode';
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { ProviderRegistry } from '../src/core/foundational/registry';
 import { VcIssuer } from '../src/core/credentials/vc-issuer';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
-import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
+import {
+  assertHumanReviewDeclared,
+  parseCountryConfig,
+  CountryConfig,
+} from '../src/core/config/country-config';
 import { buildDefaultAssuranceRegistry } from '../src/core/assurance/profiles';
 import { randomBytes } from 'node:crypto';
 
@@ -121,7 +126,8 @@ async function main() {
     const stored = reference ? await refusals.findByReference(reference) : null;
     check('  the refusal is persisted', !!stored);
     check('  it records the reason', stored?.reason === 'MOCK_NO_MATCH');
-    check('  it names who refused', stored?.decidedBy === 'operator:Desk-1');
+    check('  the software is recorded as having decided', isAutomatedDecider(stored?.decidedBy ?? ''), stored?.decidedBy);
+    check('  and the operator at the desk is kept separately', stored?.submittedBy === 'operator:Desk-1');
     check('  it carries the appeal path', /Appeals Office/.test(stored?.appealPath ?? ''));
     check('  and NO identifier, because none was established', stored?.subjectRef === undefined);
   }
@@ -213,6 +219,69 @@ async function main() {
     });
     check('it refuses without throwing', r.status === 'rejected');
     check('  and returns no reference, rather than a fake one', r.status === 'rejected' && !r.reference);
+  }
+
+  console.log('\nthe decision mode is DERIVED from what actually happened:');
+  check('an attended comparison is an attended decision',
+    decisionModeFor({ binding: { method: 'attended_comparison' }, residence: { method: 'document' } }) === 'attended');
+  check('an authority attestation is too',
+    decisionModeFor({ binding: { method: 'face_match' }, residence: { method: 'authority_attestation' } }) === 'attended');
+  check('biometric binding + documentary residence is AUTOMATED',
+    decisionModeFor({ binding: { method: 'face_match' }, residence: { method: 'document' } }) === 'automated');
+  check('owner authentication at the source is still automated — no person here looked',
+    decisionModeFor({ binding: { method: 'authoritative_authentication' }, residence: { method: 'register_declared_residence' } }) === 'automated');
+
+  console.log('\na policy that can decide alone is detected before it decides anything:');
+  check('requiring attended comparison keeps a human in the loop',
+    !permitsAutomatedDecisions({ bindingRequired: true, acceptedBindingMethods: ['attended_comparison'], acceptedResidenceMethods: ['document'] }));
+  check('accepting only authority attestation does too',
+    !permitsAutomatedDecisions({ bindingRequired: true, acceptedBindingMethods: ['face_match'], acceptedResidenceMethods: ['authority_attestation'] }));
+  check('accepting a biometric and a document does NOT',
+    permitsAutomatedDecisions({ bindingRequired: true, acceptedBindingMethods: ['face_match'], acceptedResidenceMethods: ['document'] }));
+  check('and neither does leaving binding optional',
+    permitsAutomatedDecisions({ bindingRequired: false, acceptedBindingMethods: ['attended_comparison'], acceptedResidenceMethods: ['document'] }));
+
+  console.log('\na config that can decide alone MUST declare where a person is heard:');
+  const automatable = {
+    countryCode: 'NG', countryName: 'N', defaultSubnationalUnit: 'KT',
+    foundational: { provider: 'MOCK', inputs: [{ key: 'nin', label: 'NIN' }], assuranceOnSuccess: 'verified' },
+    residency: {
+      minAssurance: 'verified', proofOfResidence: 'attestation',
+      applicantBinding: { required: true, acceptedMethods: ['face_match'] },
+      residence: { required: true, targetLevel: 'RAL2', acceptedMethods: ['document'], unitMatchRequired: true },
+    },
+    credential: { issuerDid, issuerName: 'X', type: 'StateResidencyCredential', validityDays: 365, context: ['https://www.w3.org/ns/credentials/v2'] },
+    subnationalUnits: [{ code: 'KT', name: 'Katsina', parent: 'NG', level: 'state' }],
+  };
+  let refused = false;
+  try { assertHumanReviewDeclared(parseCountryConfig(automatable), 'test'); } catch { refused = true; }
+  check('such a config is REFUSED at deployment load without humanReview', refused);
+  let accepted = false;
+  try {
+    assertHumanReviewDeclared(
+      parseCountryConfig({ ...automatable, residency: { ...automatable.residency, humanReview: { path: 'Appeals office' } } }),
+      'test',
+    );
+    accepted = true;
+  } catch { /* ignore */ }
+  check('  and accepted once it declares one', accepted);
+  // The schema itself stays permissive: a fixture built in memory is not a deployment.
+  let schemaAccepts = false;
+  try { parseCountryConfig(automatable); schemaAccepts = true; } catch { /* ignore */ }
+  check('  while parseCountryConfig alone does not impose it (fixtures are not deployments)', schemaAccepts);
+
+  console.log('\nhuman review can reach a DIFFERENT outcome:');
+  {
+    const { svc, refusals } = build();
+    const r = await svc.issue(cfg, { countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin: NIN_NO_MATCH } });
+    const ref = r.status === 'rejected' ? r.reference! : '';
+    const stored = await refusals.findByReference(ref);
+    check('a fresh refusal has had no review', stored?.reviewStatus === 'none');
+    check('  and it was taken by software, which the provenance says', isAutomatedDecider(stored?.decidedBy ?? ''), stored?.decidedBy);
+    const reviewed = await refusals.recordReview(ref, { status: 'overturned', by: 'operator:Reviewer', at: new Date().toISOString(), note: 'Number was mistyped at the desk' });
+    check('a human can OVERTURN it', reviewed?.reviewStatus === 'overturned');
+    check('  the reviewer is named', reviewed?.reviewedBy === 'operator:Reviewer');
+    check('  and their reasoning is kept', /mistyped/.test(reviewed?.reviewNote ?? ''));
   }
 
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);

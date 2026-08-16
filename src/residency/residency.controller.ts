@@ -25,6 +25,7 @@ import {
   CredentialTransitionDto,
   IssueDto,
   ReconcileDto,
+  RecordReviewDto,
   TransitionRelationshipDto,
   VerifyDto,
 } from './dto/residency.dto';
@@ -324,6 +325,45 @@ export class ResidencyController {
     const record = await this.platform.getRefusalStore().findByReference(reference);
     if (!record) throw new NotFoundException('Unknown refusal reference');
     return record;
+  }
+
+  /**
+   * Record that a person reconsidered a refusal, and what they concluded.
+   *
+   * This is the human intervention NDPA 2023 s.37 (and GDPR Art.22, and Convention 108+)
+   * requires when software refused somebody on its own. The reviewer is named, and
+   * `overturned` is a genuine outcome -- a review that could only ever uphold would not be one.
+   *
+   * Overturning does not itself enrol the applicant. It records that the refusal no longer
+   * stands, and the operator then issues normally; nothing blocks a fresh application. Making
+   * it automatic would hide a second decision inside the first.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Post('refusals/:reference/review')
+  async reviewRefusal(
+    @Req() req: RequestWithOperator,
+    @Param('reference') reference: string,
+    @Body() body: RecordReviewDto,
+  ) {
+    const operator = requireOperator(req);
+    const updated = await this.platform.getRefusalStore().recordReview(reference, {
+      status: body.status,
+      by: operatorActor(operator),
+      at: new Date().toISOString(),
+      note: body.note,
+    });
+    if (!updated) throw new NotFoundException('Unknown refusal reference');
+
+    await this.platform.getAudit().record({
+      action: 'residency.refusal.review',
+      actor: operatorActor(operator),
+      target: reference,
+      countryCode: updated.countryCode,
+      outcome: 'success',
+      metadata: { status: body.status },
+    });
+    return updated;
   }
 
   /** The credential's ORCS §10 status: why, by whom, when, and how to appeal. */

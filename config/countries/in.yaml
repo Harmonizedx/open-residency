@@ -35,6 +35,13 @@ foundational:
   authenticatesApplicant: true
 
 residency:
+  # Aadhaar OTP authenticates the owner at the source, so an enrolment can complete with no
+  # person in this jurisdiction having looked at the applicant. That is a solely-automated
+  # decision with legal effect, so India's deployment must say where an affected person is
+  # heard -- the config refuses to load otherwise. See src/core/residency/decision-mode.ts.
+  humanReview:
+    path: 'Request reconsideration by an officer at any enrolment centre, or in writing to the State Residency Authority'
+    withinDays: 30
   minAssurance: verified
   proofOfResidence: document
   allowProvisional: false

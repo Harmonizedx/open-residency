@@ -15,6 +15,12 @@ foundational:
   assuranceOnSuccess: verified
 
 residency:
+  # This demo does not require a person to bind the applicant, so a decision can be taken with
+  # nobody having looked at them. Declared here because the config refuses to load otherwise --
+  # and because a demo that quietly skipped the safeguard would teach the wrong shape.
+  humanReview:
+    path: 'Demo deployment: reconsideration would be requested at the enrolment desk'
+    withinDays: 30
   minAssurance: verified
   proofOfResidence: attestation
   allowProvisional: true

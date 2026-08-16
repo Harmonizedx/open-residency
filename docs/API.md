@@ -34,6 +34,10 @@ quick orientation.
 - `POST /residency/verify` — verify a presented VC-JWT (signature, expiry, revocation).
 - `POST /residency/revoke/{residentId}` — revoke a credential, recording the jurisdiction's
   configured reason and appeal path. **Requires `x-admin-key`.**
+- `POST /residency/refusals/{reference}/review` `{ status, note }` — record that a person
+  reconsidered a refusal the software took. `overturned` is a real outcome, not a courtesy: the
+  reviewer must be able to reach a different answer (NDPA 2023 s.37, GDPR Art.22, Convention
+  108+). **Requires `x-admin-key`** (`registrar`).
 - `GET /residency/refusals/{reference}` — why an application was refused, by whom, and how to
   appeal. Looked up by the applicant's reference, never by name or number, so refusals cannot
   be enumerated. **Requires `x-admin-key`** (`registrar`).

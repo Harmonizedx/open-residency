@@ -30,6 +30,8 @@ export type AuditAction =
   | 'residency.reconcile'
   // Provisional records revoked in bulk for never having been confirmed in the window.
   | 'residency.provisional.expire'
+  // A person reconsidered a refusal the software took. NDPA s.37 / GDPR Art.22.
+  | 'residency.refusal.review'
   | 'credential.verify'
   | 'consent.grant'
   | 'consent.revoke'
