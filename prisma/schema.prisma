@@ -70,6 +70,17 @@ model Resident {
   endedAt            DateTime?
   endedReason        String?
   endedBy            String?
+  // ORCS §10 credential lifecycle: what a status decision preserved. Distinct from the
+  // relationship columns above -- this is about the key, those are about the person.
+  credentialStatus   String    @default("ACTIVE")
+  credentialReason   String?
+  credentialAuthority String?
+  credentialStatusAt DateTime?
+  // Required for REVOKED by §10: a revocation a citizen cannot contest is a decision with no
+  // remedy attached.
+  appealPath         String?
+  // Required for REPLACED by §10.
+  supersededBy       String?
   credentialId       String?
   statusListIndex    Int
   // Minimized demographic attributes carried into the credential.
@@ -96,10 +107,18 @@ model Resident {
 // One growable revocation bitstring per country/deployment, plus a monotonic counter
 // for assigning fresh status indices.
 model StatusListState {
-  countryCode String   @id
+  countryCode String
+  // ORCS §10 distinguishes SUSPENDED from REVOKED, so a jurisdiction publishes two lists and
+  // a verifier can tell them apart. Defaulted, so the existing single row keeps its meaning.
+  purpose     String   @default("revocation")
   encodedList String // gzip+base64url bitstring
+  // The index counter belongs to the jurisdiction, not to a list: a resident occupies the same
+  // index in both, so revocation and suspension refer to the same person. Only the revocation
+  // row's counter is ever advanced.
   nextIndex   Int      @default(0)
   updatedAt   DateTime @updatedAt
+
+  @@id([countryCode, purpose])
 }
 
 // A pending OpenID4VCI credential offer: the bridge between an enrollment desk and a

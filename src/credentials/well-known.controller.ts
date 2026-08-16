@@ -45,12 +45,23 @@ export class WellKnownController {
   @Get('status/:file')
   @Header('Cache-Control', 'public, max-age=300')
   async status(@Param('file') file: string) {
-    const countryCode = file.replace(/\.json$/i, '');
+    // `ng.json` is the revocation list; `ng-suspension.json` is the suspension list. ORCS §10
+    // treats SUSPENDED and REVOKED as different states, so they are different documents with
+    // different `statusPurpose` values rather than one list a verifier has to interpret.
+    const base = file.replace(/\.json$/i, '');
+    const purpose: 'revocation' | 'suspension' = base.endsWith('-suspension')
+      ? 'suspension'
+      : 'revocation';
+    const countryCode = base.replace(/-suspension$/, '');
     const cfg = this.platform.getConfig(countryCode);
     if (!cfg) throw new NotFoundException('Unknown country');
-    const list = await this.platform.getStore().loadStatusList(cfg.countryCode);
+    const list = await this.platform.getStore().loadStatusList(cfg.countryCode, purpose);
+    const id =
+      purpose === 'suspension'
+        ? this.platform.suspensionListUrl(cfg)
+        : this.platform.statusListUrl(cfg);
     return this.platform
       .getStatusListPublisher()
-      .publish(this.platform.statusListUrl(cfg), cfg.credential.issuerDid, list);
+      .publish(id, cfg.credential.issuerDid, list, purpose);
   }
 }

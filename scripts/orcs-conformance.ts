@@ -371,28 +371,117 @@ async function main() {
   // 5. Every credential supports status checking and revocation.
   // ---------------------------------------------------------------------------
   //
-  // ORCS §10 requires ISSUED -> ACTIVE -> SUSPENDED -> ACTIVE -> REVOKED | EXPIRED | REPLACED.
+  // ORCS §10 requires ISSUED -> ACTIVE -> SUSPENDED -> ACTIVE -> REVOKED | EXPIRED | REPLACED,
+  // a machine-verifiable status reference, revocation preserving reason/authority/timestamp/
+  // appeal path, and replacement pointing at the superseding credential.
+  //
+  // Asserted against the real ResidencyService and its real status lists, not against the
+  // StatusList primitive: the primitive always supported a suspension purpose, and testing it
+  // proved only that a bitstring can hold a bit.
   const list = new StatusList();
   list.set(0, true);
   const revocationWorks = list.isRevoked(0) === true;
   list.set(0, false);
   const bitClears = list.isRevoked(0) === false;
 
-  // The StatusList primitive can already express a suspension list -- toCredentialSubject
-  // takes a `purpose` of 'revocation' | 'suspension'. What is missing is everything above it:
-  // only one list is published (well-known.controller.ts calls toCredentialSubject with the
-  // default 'revocation' purpose), and no suspend/reinstate operation exists. So SUSPENDED is
-  // representable but unreachable, and clearing a revocation bit is indistinguishable from
-  // never having set it -- no reason, no authority, no record.
+  const credHolder = await home.issue(e2eCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '12345678920' },
+  });
+  const credId = credHolder.status === 'issued' ? credHolder.residentId : '';
+
+  // Suspension is reachable AND published, and reinstatement clears it.
+  const suspended = await home.transitionCredential(e2eCfg, credId, {
+    to: 'SUSPENDED',
+    authority: 'conformance',
+    reason: 'reported lost',
+  });
+  const suspensionList = await homeStore.loadStatusList('NG', 'suspension');
+  const suspensionPublished =
+    suspended.ok && suspensionList.isRevoked(credHolder.status === 'issued' ? credHolder.record.statusListIndex : -1);
+  const reinstated = await home.transitionCredential(e2eCfg, credId, {
+    to: 'ACTIVE',
+    authority: 'conformance',
+  });
+  const suspensionClears =
+    reinstated.ok &&
+    !(await homeStore.loadStatusList('NG', 'suspension')).isRevoked(
+      credHolder.status === 'issued' ? credHolder.record.statusListIndex : -1,
+    );
+
+  // §10's four: a revocation missing any one of them is refused rather than recorded blank.
+  const noReason = await home.transitionCredential(e2eCfg, credId, {
+    to: 'REVOKED',
+    authority: 'conformance',
+    appealPath: 'Appeals office',
+  });
+  const noAppeal = await home.transitionCredential(e2eCfg, credId, {
+    to: 'REVOKED',
+    authority: 'conformance',
+    reason: 'fraud',
+  });
+  const revokedProperly = await home.transitionCredential(e2eCfg, credId, {
+    to: 'REVOKED',
+    authority: 'operator:Registrar',
+    reason: 'Issued in error',
+    appealPath: 'Katsina State Residency Appeals Office, within 30 days',
+  });
+  const revoked = await home.credentialStatusFor(e2eCfg, credId);
+  const preservesAllFour =
+    !noReason.ok &&
+    !noAppeal.ok &&
+    revokedProperly.ok &&
+    !!revoked?.reason &&
+    !!revoked?.authority &&
+    !!revoked?.at &&
+    !!revoked?.appealPath;
+
+  // Replacement points at its successor.
+  const replaceHolder = await home.issue(e2eCfg, {
+    countryCode: 'NG',
+    subnationalUnit: 'KT',
+    identifiers: { nin: '12345678922' },
+  });
+  const replaceId = replaceHolder.status === 'issued' ? replaceHolder.residentId : '';
+  const noPointer = await home.transitionCredential(e2eCfg, replaceId, {
+    to: 'REPLACED',
+    authority: 'conformance',
+    reason: 'reissued',
+  });
+  const replacedOk = await home.transitionCredential(e2eCfg, replaceId, {
+    to: 'REPLACED',
+    authority: 'conformance',
+    reason: 'reissued after device loss',
+    supersededBy: 'urn:uuid:successor-credential',
+  });
+  const replacementPoints =
+    !noPointer.ok &&
+    replacedOk.ok &&
+    (await home.credentialStatusFor(e2eCfg, replaceId))?.supersededBy ===
+      'urn:uuid:successor-credential';
+
+  const criterion5 =
+    revocationWorks &&
+    bitClears &&
+    suspensionPublished &&
+    suspensionClears &&
+    preservesAllFour &&
+    replacementPoints;
+
   record(
     5,
     'Credential status checking and revocation',
-    'PARTIAL',
-    `status list works (revocation=${revocationWorks}, bit clears=${bitClears}); the primitive ` +
-      'supports a suspension purpose but no suspension list is published and no suspend/reinstate ' +
-      'operation exists; no supersededBy pointer for REPLACED; revoke() preserves neither reason, ' +
-      'authority nor appeal path (ORCS §10 requires all four)',
-    'G-07',
+    criterion5 ? 'PASS' : 'PARTIAL',
+    criterion5
+      ? 'status list works; a suspension list is published separately from the revocation list ' +
+        'and reinstatement clears it; revocation preserves reason, authority, timestamp and ' +
+        'appeal path, and is REFUSED when any is missing rather than recorded blank; ' +
+        'replacement points at the superseding credential and is refused without it'
+      : `status list works (revocation=${revocationWorks}, bit clears=${bitClears}); ` +
+        `suspension published=${suspensionPublished}, clears=${suspensionClears}; ` +
+        `revocation preserves all four=${preservesAllFour}; replacement points at successor=${replacementPoints}`,
+    criterion5 ? undefined : 'G-07',
   );
 
   // ---------------------------------------------------------------------------

@@ -5,6 +5,10 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
 import { RelationshipStatus, RelationshipType } from '../core/residency/lifecycle';
+import {
+  CredentialStatus,
+  StatusPurpose,
+} from '../core/credentials/credential-lifecycle';
 import { BindingMethod } from '../core/proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
@@ -103,6 +107,19 @@ export class PrismaResidencyStore implements ResidencyStore {
             endedBy: r.endedBy ?? undefined,
           }
         : undefined,
+      // ORCS §10 credential status. Reconstructed only when a decision was recorded; a row
+      // with no `credentialStatusAt` predates this and is read through
+      // backfilledCredentialStatus from whatever its revocation bit says.
+      credentialStatus: r.credentialStatusAt
+        ? {
+            status: r.credentialStatus as CredentialStatus,
+            reason: r.credentialReason ?? undefined,
+            authority: r.credentialAuthority ?? undefined,
+            at: r.credentialStatusAt.toISOString(),
+            appealPath: r.appealPath ?? undefined,
+            supersededBy: r.supersededBy ?? undefined,
+          }
+        : undefined,
       erasedAt: r.erasedAt ? r.erasedAt.toISOString() : undefined,
       credentialId: r.credentialId ?? undefined,
       statusListIndex: r.statusListIndex,
@@ -163,10 +180,16 @@ export class PrismaResidencyStore implements ResidencyStore {
 
   async nextStatusIndex(countryCode: string): Promise<number> {
     // Atomically reserve the next index for this country.
+    //
+    // The counter lives on the REVOCATION row and nowhere else. An index identifies a person
+    // within the jurisdiction, and the same index means the same person in both lists -- so
+    // incrementing per list would let a resident's revocation bit and suspension bit refer to
+    // two different people, which is the worst failure this table can produce.
     const state = await this.prisma.statusListState.upsert({
-      where: { countryCode },
+      where: { countryCode_purpose: { countryCode, purpose: 'revocation' } },
       create: {
         countryCode,
+        purpose: 'revocation',
         encodedList: new StatusList().encode(),
         nextIndex: 1,
       },
@@ -222,6 +245,14 @@ export class PrismaResidencyStore implements ResidencyStore {
       endedAt: rel?.endedAt ? new Date(rel.endedAt) : null,
       endedReason: rel?.endedReason ?? null,
       endedBy: rel?.endedBy ?? null,
+      credentialStatus: record.credentialStatus?.status ?? 'ACTIVE',
+      credentialReason: record.credentialStatus?.reason ?? null,
+      credentialAuthority: record.credentialStatus?.authority ?? null,
+      credentialStatusAt: record.credentialStatus?.at
+        ? new Date(record.credentialStatus.at)
+        : undefined,
+      appealPath: record.credentialStatus?.appealPath ?? null,
+      supersededBy: record.credentialStatus?.supersededBy ?? null,
       credentialId: record.credentialId,
       statusListIndex: record.statusListIndex,
       fullName: record.person.fullName,
@@ -238,16 +269,25 @@ export class PrismaResidencyStore implements ResidencyStore {
     return this.toRecord(r);
   }
 
-  async loadStatusList(countryCode: string): Promise<StatusList> {
-    const state = await this.prisma.statusListState.findUnique({ where: { countryCode } });
+  async loadStatusList(
+    countryCode: string,
+    purpose: StatusPurpose = 'revocation',
+  ): Promise<StatusList> {
+    const state = await this.prisma.statusListState.findUnique({
+      where: { countryCode_purpose: { countryCode, purpose } },
+    });
     if (!state) return new StatusList();
     return StatusList.fromEncoded(state.encodedList);
   }
 
-  async saveStatusList(countryCode: string, list: StatusList): Promise<void> {
+  async saveStatusList(
+    countryCode: string,
+    list: StatusList,
+    purpose: StatusPurpose = 'revocation',
+  ): Promise<void> {
     await this.prisma.statusListState.upsert({
-      where: { countryCode },
-      create: { countryCode, encodedList: list.encode(), nextIndex: 0 },
+      where: { countryCode_purpose: { countryCode, purpose } },
+      create: { countryCode, purpose, encodedList: list.encode(), nextIndex: 0 },
       update: { encodedList: list.encode() },
     });
   }

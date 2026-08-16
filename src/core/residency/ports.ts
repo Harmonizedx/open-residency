@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { StatusList } from '../credentials/status-list';
 import { RelationshipAttributes } from './lifecycle';
+import { CredentialStatusRecord, StatusPurpose } from '../credentials/credential-lifecycle';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
 
@@ -40,6 +41,15 @@ export interface ResidentRecord {
    * rejected. New records always carry it.
    */
   relationship?: RelationshipAttributes;
+  /**
+   * The credential's own ORCS §10 status: why it was revoked or suspended, by whom, when, and
+   * how the holder contests it. Distinct from `relationship` above -- one is about a key, the
+   * other about a person's standing in the jurisdiction.
+   *
+   * Optional for the same additive reason: a row written before this reads through
+   * `backfilledCredentialStatus` from whatever its revocation bit says.
+   */
+  credentialStatus?: CredentialStatusRecord;
   /** Set when this resident's identifying data was erased. See core/privacy/erasure.ts. */
   erasedAt?: string;
   credentialId?: string;
@@ -79,8 +89,15 @@ export interface ResidencyStore {
   findByResidentId(residentId: string): Promise<ResidentRecord | null>;
   nextStatusIndex(countryCode: string): Promise<number>;
   save(record: ResidentRecord): Promise<ResidentRecord>;
-  loadStatusList(countryCode: string): Promise<StatusList>;
-  saveStatusList(countryCode: string, list: StatusList): Promise<void>;
+  /**
+   * The status list for a jurisdiction and purpose.
+   *
+   * Two lists, not one: ORCS §10 distinguishes SUSPENDED from REVOKED, and a verifier has to
+   * be able to tell them apart. `purpose` defaults to 'revocation' so every existing caller
+   * and stored row keeps its meaning.
+   */
+  loadStatusList(countryCode: string, purpose?: StatusPurpose): Promise<StatusList>;
+  saveStatusList(countryCode: string, list: StatusList, purpose?: StatusPurpose): Promise<void>;
   list(opts?: { countryCode?: string; limit?: number; offset?: number }): Promise<{
     total: number;
     items: ResidentRecord[];
@@ -130,16 +147,24 @@ export class InMemoryStore implements ResidencyStore {
     this.byResidentId.set(record.residentId, record);
     return record;
   }
-  async loadStatusList(countryCode: string): Promise<StatusList> {
-    let list = this.statusLists.get(countryCode);
+  async loadStatusList(
+    countryCode: string,
+    purpose: StatusPurpose = 'revocation',
+  ): Promise<StatusList> {
+    const key = `${countryCode}:${purpose}`;
+    let list = this.statusLists.get(key);
     if (!list) {
       list = new StatusList();
-      this.statusLists.set(countryCode, list);
+      this.statusLists.set(key, list);
     }
     return list;
   }
-  async saveStatusList(countryCode: string, list: StatusList): Promise<void> {
-    this.statusLists.set(countryCode, list);
+  async saveStatusList(
+    countryCode: string,
+    list: StatusList,
+    purpose: StatusPurpose = 'revocation',
+  ): Promise<void> {
+    this.statusLists.set(`${countryCode}:${purpose}`, list);
   }
   async list(opts?: { countryCode?: string; limit?: number; offset?: number }): Promise<{
     total: number;

@@ -22,6 +22,8 @@ export type AuditAction =
   // residency.revoke, which is about a credential -- keeping the two audit actions apart is
   // what lets the trail say which act was intended (ADR-0007).
   | 'residency.relationship.transition'
+  // A CREDENTIAL changed state under ORCS §10: suspended, reinstated, revoked, replaced.
+  | 'residency.credential.transition'
   | 'credential.verify'
   | 'consent.grant'
   | 'consent.revoke'

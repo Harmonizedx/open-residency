@@ -24,6 +24,13 @@ import {
   newRelationship,
   relationshipOf,
 } from './lifecycle';
+import {
+  CredentialStatus,
+  CredentialStatusRecord,
+  CredentialTransitionRequest,
+  applyCredentialTransition,
+  backfilledCredentialStatus,
+} from '../credentials/credential-lifecycle';
 import { AssuranceRegistry } from '../assurance/registry';
 import { buildDefaultAssuranceRegistry } from '../assurance/profiles';
 import { generateResidentId } from './resident-id';
@@ -41,6 +48,16 @@ import {
   evaluateResidence,
   reconcileUnit,
 } from '../proofing/residence';
+
+/**
+ * What a deployment that has declared no appeal path publishes.
+ *
+ * Deliberately not an empty string: ORCS §10 requires an appeal path, and a blank one would
+ * satisfy the check while telling a citizen nothing. This says plainly that the jurisdiction
+ * has not published one, which is a finding an operator can act on rather than a silent gap.
+ */
+export const APPEAL_PATH_UNDECLARED =
+  'No appeal path published by this deployment. Set credential.appealPath in the country config.';
 
 /** The credential formats this issuer can produce. */
 export type CredentialFormat = 'jwt_vc_json' | 'ldp_vc';
@@ -560,12 +577,68 @@ export class ResidencyService {
 
   /** Revoke a residency credential by flipping its status-list bit. */
   async revoke(cfg: CountryConfig, residentId: string): Promise<boolean> {
+    const out = await this.transitionCredential(cfg, residentId, {
+      to: 'REVOKED',
+      // ORCS §10 requires all four. The legacy two-argument call has none of them, so it is
+      // served by the deployment's declared defaults rather than by silently writing blanks:
+      // a revocation with no recorded authority is precisely what this change exists to stop.
+      reason: cfg.credential.defaultRevocationReason ?? 'Revoked by the issuing authority',
+      authority: cfg.credential.issuerName,
+      appealPath: cfg.credential.appealPath ?? APPEAL_PATH_UNDECLARED,
+    });
+    return out.ok;
+  }
+
+  /**
+   * Move a credential through its ORCS §10 lifecycle, recording what §10 requires and
+   * publishing the status bits that make the decision visible to a verifier.
+   *
+   * The record and the bitstring are updated together, from one place. Splitting them is how
+   * a register ends up believing a credential is suspended while every verifier still accepts
+   * it -- the state that is worse than either being true on its own.
+   */
+  async transitionCredential(
+    cfg: CountryConfig,
+    residentId: string,
+    req: CredentialTransitionRequest,
+  ): Promise<
+    | { ok: true; record: ResidentRecord; from: CredentialStatus; to: CredentialStatus }
+    | { ok: false; reason: string }
+  > {
     const record = await this.store.findByResidentId(residentId);
-    if (!record) return false;
-    const list = await this.store.loadStatusList(cfg.countryCode);
-    list.set(record.statusListIndex, true);
-    await this.store.saveStatusList(cfg.countryCode, list);
-    return true;
+    if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
+
+    const revocationList = await this.store.loadStatusList(cfg.countryCode, 'revocation');
+    const current =
+      record.credentialStatus ??
+      backfilledCredentialStatus(revocationList.isRevoked(record.statusListIndex), record.createdAt);
+
+    const outcome = applyCredentialTransition(current, req);
+    if (!outcome.ok) return outcome;
+
+    // Publish first, then persist. A verifier reading a stale bit is a security problem; a
+    // record that says REVOKED while the bit is already set is merely out of date.
+    for (const change of outcome.publish) {
+      const list = await this.store.loadStatusList(cfg.countryCode, change.purpose);
+      list.set(record.statusListIndex, change.set);
+      await this.store.saveStatusList(cfg.countryCode, list, change.purpose);
+    }
+
+    const updated: ResidentRecord = { ...record, credentialStatus: outcome.record };
+    await this.store.save(updated);
+    return { ok: true, record: updated, from: current.status, to: outcome.record.status };
+  }
+
+  /** The credential's ORCS §10 status, with the pre-lifecycle reading applied. */
+  async credentialStatusFor(
+    cfg: CountryConfig,
+    residentId: string,
+  ): Promise<CredentialStatusRecord | null> {
+    const record = await this.store.findByResidentId(residentId);
+    if (!record) return null;
+    if (record.credentialStatus) return record.credentialStatus;
+    const list = await this.store.loadStatusList(cfg.countryCode, 'revocation');
+    return backfilledCredentialStatus(list.isRevoked(record.statusListIndex), record.createdAt);
   }
 
   /**
