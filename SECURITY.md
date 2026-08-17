@@ -66,3 +66,12 @@ decision; until it is taken, build the image yourself from a verified source arc
 Dependencies are gated with `npm audit` at moderate, and the built container image is scanned
 with Grype at High. Anything waived is recorded in `.grype.yaml` with a reason and a review
 date, rather than by raising the threshold until the job passes.
+
+**Dependency overrides.** A transitive advisory with no upstream fix is resolved with an
+`overrides` entry in `package.json`, never by loosening the audit threshold. Each one is
+recorded here with what it pins, why, and the condition for removing it — an override nobody
+can explain is one nobody dares delete.
+
+| Override | Why | Remove when |
+| --- | --- | --- |
+| `deepmerge-ts: ^8.0.1` | [GHSA-ggr8-5vv4-36mx](https://github.com/advisories/GHSA-ggr8-5vv4-36mx) (high, stack exhaustion). `@prisma/config` pins `deepmerge-ts` to exactly `7.1.5`, and 7.9.1 was the latest Prisma when this landed, so there was no release to upgrade to. `npm audit fix --force` proposed `prisma@6.12.0` — a major downgrade. Reached only through the Prisma **CLI** config loader (`migrate`/`generate`/`validate`), never by the running app. | `@prisma/config` depends on `deepmerge-ts@>=8`. Check on a Prisma minor bump; drop the entry and confirm `npm audit --omit=dev` stays clean. |
