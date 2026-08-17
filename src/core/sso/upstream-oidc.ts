@@ -149,8 +149,17 @@ export interface UpstreamLoginStart {
 }
 
 export interface UpstreamIdentity {
-  /** HMAC of the upstream subject under the deployment pepper. Never the raw `sub`. */
-  subjectRef: string;
+  /**
+   * HMAC of the upstream subject under the deployment pepper. Never the raw `sub`.
+   *
+   * NOT a residency `subjectRef`, and deliberately not named like one (ADR-0010). The OP's
+   * `sub` is pairwise per relying party, so this answers "the same session subject at this
+   * OP as last time?" and cannot answer "the same person the register already holds?" — a
+   * pairwise subject is by construction unlinkable to anything outside the relationship
+   * that issued it. Storing it as a record's identity would produce a reference no other
+   * enrolment channel could reproduce.
+   */
+  authenticationRef: string;
   fullName?: string;
   givenName?: string;
   familyName?: string;
@@ -516,7 +525,7 @@ export class UpstreamOidcClient {
     };
 
     return {
-      subjectRef: tokenizeSubject(this.providerCode(), sub, this.pepper),
+      authenticationRef: tokenizeSubject(this.providerCode(), sub, this.pepper),
       fullName: read('fullName'),
       givenName: read('givenName'),
       familyName: read('familyName'),
