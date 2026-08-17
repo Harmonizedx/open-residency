@@ -42,6 +42,34 @@ credential:
   context:
     - https://www.w3.org/ns/credentials/v2
 
+# Who is accountable for the personal data, and under what law (ORCS §9).
+#
+# Shown here in full because Demoland is fictional. The real-jurisdiction configs in this
+# directory deliberately do NOT declare `legalBases`: a lawful basis is a citation to somebody's
+# actual statute book, and shipping an invented one for Katsina or Nairobi would put a claim
+# about their law in their config file. They fall back to `credential.issuerName` as the
+# controller and to consent as the only basis, which is true of every deployment.
+#
+# `controller` is optional and falls back to `credential.issuerName`. Declare it when the
+# accountable body is not the issuing agency -- here the state, not the authority acting for it.
+dataProtection:
+  controller: Government of Demoland
+  # A body processing on the controller's behalf. Omit it when there is none.
+  processor: Demoland Digital Services Agency
+  # Non-consent bases. `orcs:legal-basis:consent` is registered by the platform and must not be
+  # repeated here; the config is refused at load if it is, or if defaultLegalBasisReference
+  # names anything not declared.
+  legalBases:
+    - id: zz:dx:residency-register-act-2026
+      kind: public_task
+      name: Maintenance of the district residency register
+      instrument: Demoland Residency Register Act 2026, s.4(1)
+      jurisdiction: Demoland
+      version: '1.0'
+      effectiveFrom: '2026-01-01'
+  # Basis for grants that name none. Omit it and grants default to consent itself.
+  defaultLegalBasisReference: orcs:legal-basis:consent
+
 subnationalUnits:
   - { code: DX, name: Demo District, parent: ZZ, level: state }
 

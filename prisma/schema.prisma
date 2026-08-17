@@ -294,8 +294,45 @@ model ConsentRecord {
   // link the two stores drift and a withdrawn consent keeps releasing claims.
   grantId          String?
 
+  // ORCS §9 accountability. The controller and legal basis are what a regulator asks for
+  // first; the evidence is what a disputed grant is checked against.
+  controller           String  @default("")
+  processor            String?
+  dataCategories       String[]
+  legalBasisReference  String  @default("")
+  evidenceMethod       String  @default("")
+  evidenceAt           DateTime?
+  evidenceReference    String  @default("")
+  evidenceCapturedBy   String?
+  // §9 Replace: the previous record is preserved and a new version created, so the chain is
+  // explicit rather than two rows both claiming to be live.
+  version          Int       @default(1)
+  supersedesId     String?
+  supersededById   String?
+  withdrawnBy      String?
+
   @@index([residentId])
   @@index([relyingParty])
+}
+
+// A lawful basis for processing (ORCS §9). Every `legalBasisReference` on a consent record
+// resolves through the registry backed by this table plus the built-in consent basis.
+//
+// Deactivation is recorded, never a delete: a consent granted under a since-repealed by-law
+// must stay readable, and an auditor asking what authority was relied on needs the answer.
+model LegalBasis {
+  id                 String    @id
+  kind               String
+  name               String
+  instrument         String
+  jurisdiction       String
+  controller         String
+  version            String
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  deactivatedAt      DateTime?
+  deactivationReason String?
+  deactivatedBy      String?
 }
 
 // A passkey (WebAuthn credential) enrolled to a resident. The private key never leaves the

@@ -831,6 +831,24 @@ export class PrismaConsentStore implements ConsentStore {
     revokedAt: r.revokedAt ? r.revokedAt.toISOString() : undefined,
     receiptId: r.receiptId,
     grantId: r.grantId ?? undefined,
+    controller: r.controller ?? '',
+    processor: r.processor ?? undefined,
+    dataCategories: r.dataCategories ?? [],
+    legalBasisReference: r.legalBasisReference ?? '',
+    // A row written before the §9 columns existed has no evidence. It is reported as an
+    // `imported_record` with an empty reference rather than being dressed up as a consent
+    // screen nobody saw -- the absence is the honest reading, and `mayProcess` will not treat
+    // it as agreement because the legal basis will not resolve either.
+    evidence: {
+      method: (r.evidenceMethod || 'imported_record') as ConsentRecord['evidence']['method'],
+      at: r.evidenceAt ? r.evidenceAt.toISOString() : r.grantedAt.toISOString(),
+      reference: r.evidenceReference ?? '',
+      capturedBy: r.evidenceCapturedBy ?? undefined,
+    },
+    version: r.version ?? 1,
+    supersedesId: r.supersedesId ?? undefined,
+    supersededById: r.supersededById ?? undefined,
+    withdrawnBy: r.withdrawnBy ?? undefined,
   });
 
   async save(record: ConsentRecord): Promise<ConsentRecord> {
@@ -878,6 +896,18 @@ export class PrismaConsentStore implements ConsentStore {
       revokedAt: record.revokedAt ? new Date(record.revokedAt) : null,
       receiptId: record.receiptId,
       grantId: record.grantId ?? null,
+      controller: record.controller,
+      processor: record.processor ?? null,
+      dataCategories: record.dataCategories,
+      legalBasisReference: record.legalBasisReference,
+      evidenceMethod: record.evidence.method,
+      evidenceAt: new Date(record.evidence.at),
+      evidenceReference: record.evidence.reference,
+      evidenceCapturedBy: record.evidence.capturedBy ?? null,
+      version: record.version,
+      supersedesId: record.supersedesId ?? null,
+      supersededById: record.supersededById ?? null,
+      withdrawnBy: record.withdrawnBy ?? null,
     };
   }
 }

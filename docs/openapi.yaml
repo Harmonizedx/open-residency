@@ -310,6 +310,82 @@ paths:
                 properties:
                   consent: { $ref: '#/components/schemas/ConsentRecord' }
                   receipt: { type: string, description: Signed consent receipt (EdDSA JWT) }
+  /consent/legal-bases:
+    get:
+      tags: [consent]
+      summary: Every registered legal basis (ORCS §9)
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '200':
+          description: The registry contents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  legalBases:
+                    type: array
+                    items: { $ref: '#/components/schemas/LegalBasis' }
+  /consent/legal-bases/{id}:
+    get:
+      tags: [consent]
+      summary: One legal basis, whatever its state
+      description: >-
+        Served whether or not the basis is still in force: a consent citing a since-repealed
+        instrument must stay followable, so deactivating a basis never blanks the history that
+        cites it. `inForce` reports separately whether it still authorises processing.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The basis, and whether it is still in force
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  legalBasis: { $ref: '#/components/schemas/LegalBasis' }
+                  inForce: { type: boolean }
+        '404': { description: Unknown legal basis }
+  /consent/legal-bases/{id}/deactivate:
+    post:
+      tags: [consent]
+      summary: Withdraw a legal basis
+      description: >-
+        Stops every consent citing it. Requires a reason and an authority, and is refused
+        without them. There is no reactivation — a basis relied on again is a new entry with
+        its own version, so the gap during which processing was unauthorised stays visible.
+      security: [{ adminKey: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, authority]
+              properties:
+                reason: { type: string, example: By-law repealed by the 2027 consolidation }
+                authority: { type: string, example: 'operator:commissioner' }
+      responses:
+        '200':
+          description: The deactivated basis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  legalBasis: { $ref: '#/components/schemas/LegalBasis' }
+        '400': { description: Missing reason or authority, or already deactivated }
+        '404': { description: Unknown legal basis }
   /consent/{id}/revoke:
     post:
       tags: [consent]
@@ -1055,7 +1131,8 @@ components:
           additionalProperties: true
     ConsentGrantRequest:
       type: object
-      required: [residentId, relyingParty, purpose, scopes]
+      required:
+        [residentId, relyingParty, purpose, scopes, dataCategories, evidenceMethod, evidenceReference]
       properties:
         residentId: { type: string }
         subjectRef: { type: string }
@@ -1066,6 +1143,33 @@ components:
           type: array
           items: { type: string }
         validityDays: { type: integer }
+        dataCategories:
+          type: array
+          items: { type: string }
+          example: [identity, residence]
+          description: >-
+            Classes of personal data released (ORCS §9), distinct from the OIDC scopes that
+            carry them. Required: a grant with none is refused, not written blank.
+        evidenceMethod:
+          type: string
+          enum:
+            [sso_consent_screen, operator_recorded, signed_form, ussd_confirmation, imported_record]
+          description: How the citizen's agreement was captured.
+        evidenceReference:
+          type: string
+          example: 'interaction:abc123'
+          description: >-
+            Where the agreement itself is retained — an interaction id, form, document or
+            transaction reference — so a disputed grant can be checked against the artefact.
+        evidenceAt: { type: string, format: date-time }
+        evidenceCapturedBy: { type: string }
+        legalBasisReference:
+          type: string
+          example: 'orcs:legal-basis:consent'
+          description: >-
+            Must resolve through the Legal Basis Registry. An unregistered reference is
+            REFUSED (`UNKNOWN_LEGAL_BASIS`); a deactivated one is `LEGAL_BASIS_NOT_IN_FORCE`.
+            Defaults to the deployment's basis, which defaults to consent itself.
     ConsentRecord:
       type: object
       properties:
@@ -1076,11 +1180,64 @@ components:
         scopes:
           type: array
           items: { type: string }
-        status: { type: string, enum: [active, revoked, expired] }
+        status: { type: string, enum: [active, revoked, expired, replaced] }
         grantedAt: { type: string, format: date-time }
         expiresAt: { type: string, format: date-time, nullable: true }
         revokedAt: { type: string, format: date-time, nullable: true }
         receiptId: { type: string }
+        controller:
+          type: string
+          description: The body accountable for the processing (ORCS §9).
+        processor: { type: string, nullable: true }
+        dataCategories:
+          type: array
+          items: { type: string }
+        legalBasisReference: { type: string }
+        evidence: { $ref: '#/components/schemas/ConsentEvidence' }
+        version:
+          type: integer
+          description: >-
+            Re-granting with different scopes or categories replaces the previous record
+            rather than running alongside it. Exactly one consent per relying party is live.
+        supersedesId: { type: string, nullable: true }
+        supersededById: { type: string, nullable: true }
+        withdrawnBy:
+          type: string
+          nullable: true
+          description: Who withdrew it — the citizen, or an operator acting on their request.
+    ConsentEvidence:
+      type: object
+      properties:
+        method:
+          type: string
+          enum:
+            [sso_consent_screen, operator_recorded, signed_form, ussd_confirmation, imported_record]
+        at: { type: string, format: date-time }
+        reference: { type: string }
+        capturedBy: { type: string, nullable: true }
+    LegalBasis:
+      type: object
+      description: >-
+        A lawful basis for processing (ORCS §9). Bases are declared per jurisdiction in
+        `dataProtection.legalBases`; `orcs:legal-basis:consent` is registered by the platform.
+      properties:
+        id: { type: string, example: 'ng:kt:residency-register-bylaw-2026' }
+        kind:
+          type: string
+          enum:
+            [consent, contract, legal_obligation, vital_interests, public_task, legitimate_interests]
+        name: { type: string }
+        instrument:
+          type: string
+          description: The statute, regulation or by-law relied on, cited so a reader can find it.
+        jurisdiction: { type: string }
+        controller: { type: string }
+        version: { type: string }
+        effectiveFrom: { type: string, format: date }
+        effectiveTo: { type: string, format: date, nullable: true }
+        deactivatedAt: { type: string, format: date-time, nullable: true }
+        deactivationReason: { type: string, nullable: true }
+        deactivatedBy: { type: string, nullable: true }
     AuditEvent:
       type: object
       properties:

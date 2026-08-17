@@ -50,10 +50,45 @@ quick orientation.
 
 ## Consent
 
-- `GET /consent/resident/{residentId}` — list a resident's consents.
+- `GET /consent/resident/{residentId}` — list a resident's consents, including replaced
+  versions and the chain between them.
 - `POST /consent/grant` — grant consent and receive a signed receipt (also happens
   automatically during the SSO consent step).
 - `POST /consent/{id}/revoke` — withdraw a consent.
+
+A grant must carry the ORCS §9 accountability fields, and is **refused** rather than recorded
+blank without them: `dataCategories` (the classes of personal data released, distinct from the
+OIDC `scopes` carrying them), `evidenceMethod` and `evidenceReference` (where the agreement
+itself is retained — an interaction id, a form, a transaction), and optionally
+`legalBasisReference`. The controller and processor come from `dataProtection` in the
+jurisdiction config; the controller falls back to `credential.issuerName`.
+
+Re-granting with different scopes or categories **replaces** the previous consent rather than
+running alongside it: the new record is `version + 1` with `supersedesId` set, and the old one
+becomes `replaced` with `supersededById`. Exactly one consent per relying party is ever live.
+
+The signed receipt carries the controller, processor, data categories, legal basis and
+evidence, so the citizen's own copy names who is accountable without them having to ask.
+
+## Legal Basis Registry (ORCS §9)
+
+Every `legalBasisReference` resolves through this registry, which is a **closed vocabulary** —
+an unregistered reference is refused, never stored as free text. Bases are declared per
+jurisdiction in `dataProtection.legalBases`; `orcs:legal-basis:consent` is registered by the
+platform and must not be redeclared.
+
+- `GET /consent/legal-bases` — every registered basis.
+- `GET /consent/legal-bases/{id}` — one basis, **whatever its state**, plus an `inForce` flag.
+  A consent citing a since-repealed instrument stays followable; deactivating a basis must not
+  blank the history that cites it.
+- `POST /consent/legal-bases/{id}/deactivate` — withdraw a basis. Requires `reason` and
+  `authority`, and is refused without them. There is no reactivation: a basis relied on again
+  is a new entry with its own version, so the gap during which processing was unauthorised
+  stays visible. **Requires `x-admin-key`** (`admin`).
+
+Withdrawing a basis stops every consent citing it. Consent expiry or withdrawal stops
+processing **unless another valid legal basis applies** — a statutory basis survives the
+citizen's consent lapsing, which is why the two are recorded separately.
 
 ## Operator identity
 

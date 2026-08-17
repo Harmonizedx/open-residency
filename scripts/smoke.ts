@@ -14,8 +14,51 @@ import { generateResidentId, isValidResidentId, IdFormat } from '../src/core/res
 import { encodeCredentialQr } from '../src/core/offline/qr';
 import { handleUssd } from '../src/core/offline/ussd';
 import { AuditLog, InMemoryAuditStore } from '../src/core/audit/audit-log';
-import { ConsentService, InMemoryConsentStore } from '../src/core/consent/consent';
+import {
+  ConsentPolicy,
+  ConsentService,
+  GrantInput,
+  InMemoryConsentStore,
+} from '../src/core/consent/consent';
+import { LegalBasisRegistry, legalBasesForDeployment } from '../src/core/consent/legal-basis';
 import { jwtVerify } from 'jose';
+
+/**
+ * ORCS §9 requires a controller, data categories, evidence of agreement and a resolvable
+ * legal basis on every grant, and `grant()` refuses without them. This supplies defaults so
+ * the assertions below stay about what they were testing -- expiry, idempotency, receipts --
+ * and throws on refusal rather than returning it, because a refusal here is a broken test
+ * rather than a case under test. `consent-smoke.ts` covers the refusals themselves.
+ */
+async function grantOk(
+  svc: ConsentService,
+  input: Omit<GrantInput, 'dataCategories' | 'evidence'> &
+    Partial<Pick<GrantInput, 'dataCategories' | 'evidence'>>,
+) {
+  const out = await svc.grant({
+    ...input,
+    // After the spread, not before: an explicit `dataCategories: undefined` in the caller
+    // would otherwise overwrite the default with undefined and refuse every grant.
+    dataCategories: input.dataCategories ?? input.scopes,
+    evidence: input.evidence ?? {
+      method: 'operator_recorded',
+      at: new Date().toISOString(),
+      reference: `smoke:${input.residentId}:${input.relyingParty}`,
+    },
+  });
+  if (!out.ok) throw new Error(`consent grant unexpectedly refused: ${out.reason}`);
+  return out;
+}
+
+function testConsentPolicy(): ConsentPolicy {
+  const controller = 'Katsina State Residency Authority';
+  return {
+    controller,
+    legalBases: new LegalBasisRegistry(
+      legalBasesForDeployment({ jurisdiction: 'Nigeria', controller }),
+    ),
+  };
+}
 
 let pass = 0;
 let fail = 0;
@@ -195,8 +238,8 @@ async function main() {
   check('audit chain detects tampering', broken.ok === false && broken.brokenAtSeq === 0);
 
   // --- Consent framework: grant, receipt, idempotency, revoke ---
-  const consent = new ConsentService(new InMemoryConsentStore(), key, issuerDid);
-  const g1 = await consent.grant({
+  const consent = new ConsentService(new InMemoryConsentStore(), key, issuerDid, testConsentPolicy());
+  const g1 = await grantOk(consent, {
     subjectRef: 'subject-abc',
     residentId,
     relyingParty: 'health',
@@ -212,7 +255,7 @@ async function main() {
   );
   check('consent receipt verifies with issuer key', rverify === true);
 
-  const g2 = await consent.grant({
+  const g2 = await grantOk(consent, {
     subjectRef: 'subject-abc',
     residentId,
     relyingParty: 'health',
@@ -225,7 +268,7 @@ async function main() {
   // withdrawing it can revoke the session rather than only noting the withdrawal. Signing
   // in again reuses the record, and the record must then track the CURRENT grant -- a
   // stale id would revoke a dead grant and leave the live one releasing claims.
-  const gs1 = await consent.grant({
+  const gs1 = await grantOk(consent, {
     subjectRef: 'subject-sso',
     residentId: 'KT-SSO-0001-X',
     relyingParty: 'tax',
@@ -234,7 +277,7 @@ async function main() {
     grantId: 'grant-first',
   });
   check('consent records the OIDC grant it authorized', gs1.record.grantId === 'grant-first');
-  const gs2 = await consent.grant({
+  const gs2 = await grantOk(consent, {
     subjectRef: 'subject-sso',
     residentId: 'KT-SSO-0001-X',
     relyingParty: 'tax',
@@ -292,8 +335,8 @@ async function main() {
   // point: an expiry the system records but does not honour is worse than no expiry, because
   // the citizen was told it would lapse.
   const expiringStore = new InMemoryConsentStore();
-  const expiring = new ConsentService(expiringStore, key, issuerDid);
-  const shortLived = await expiring.grant({
+  const expiring = new ConsentService(expiringStore, key, issuerDid, testConsentPolicy());
+  const shortLived = await grantOk(expiring, {
     subjectRef: 'tok-expiry',
     residentId: 'NG-KT-EXPIRY',
     relyingParty: 'health',
@@ -329,7 +372,7 @@ async function main() {
   );
 
   // The resurrection path: re-granting must not revive a lapsed consent by reusing it.
-  const regrant = await expiring.grant({
+  const regrant = await grantOk(expiring, {
     subjectRef: 'tok-expiry',
     residentId: 'NG-KT-EXPIRY',
     relyingParty: 'health',
@@ -343,7 +386,7 @@ async function main() {
   );
 
   // A grant with no expiry must be unaffected by any of the above.
-  const perpetual = await expiring.grant({
+  const perpetual = await grantOk(expiring, {
     subjectRef: 'tok-perpetual',
     residentId: 'NG-KT-PERPETUAL',
     relyingParty: 'tax',
@@ -357,7 +400,7 @@ async function main() {
 
   // The sweep, on a grant nobody has read: read-path enforcement is the guarantee, but the
   // register still has to be reconcilable on demand (a subject-access request, an export).
-  const sweptGrant = await expiring.grant({
+  const sweptGrant = await grantOk(expiring, {
     subjectRef: 'tok-sweep',
     residentId: 'NG-KT-SWEEP',
     relyingParty: 'permits',

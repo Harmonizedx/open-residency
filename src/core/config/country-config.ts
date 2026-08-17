@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import { z } from 'zod';
 import { permitsAutomatedDecisions } from '../residency/decision-mode';
+import { CONSENT_LEGAL_BASIS_ID } from '../consent/legal-basis';
 import { LEGACY_SUITES } from '../credentials/ld-suites';
 
 /**
@@ -893,6 +894,53 @@ const subnationalUnitSchema = z.object({
   residentId: residentIdSchema.optional(),
 });
 
+/**
+ * Data-protection posture (ORCS §9).
+ *
+ * The controller is a deployment fact -- one subnational government runs one instance and is
+ * the body accountable for what it processes -- so it is declared once rather than passed on
+ * every grant. It is optional here and falls back to `credential.issuerName`, which is a
+ * defensible default (the body issuing the credential is processing the data to do it) but
+ * not always the right one: where an agency issues on behalf of the state, the state is the
+ * controller. A deployment SHOULD name it explicitly.
+ *
+ * `legalBases` are the non-consent bases this jurisdiction relies on. None ship by default:
+ * consent is a lawful basis everywhere this vocabulary comes from, and every other basis is
+ * somebody's specific statute. Declaring a "public task" entry on a government's behalf would
+ * be a guess about their statute book wearing a version number.
+ */
+const legalBasisSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum([
+    'consent',
+    'contract',
+    'legal_obligation',
+    'vital_interests',
+    'public_task',
+    'legitimate_interests',
+  ]),
+  name: z.string().min(1),
+  instrument: z.string().min(1),
+  jurisdiction: z.string().min(1),
+  controller: z.string().min(1).optional(),
+  version: z.string().min(1).default('1.0'),
+  effectiveFrom: z.string().min(1),
+  effectiveTo: z.string().min(1).optional(),
+});
+
+const dataProtectionSchema = z.object({
+  /** The accountable body. Falls back to `credential.issuerName`. */
+  controller: z.string().min(1).optional(),
+  /** A body processing on the controller's behalf, when one does. */
+  processor: z.string().min(1).optional(),
+  /** Non-consent lawful bases this deployment relies on. */
+  legalBases: z.array(legalBasisSchema).default([]),
+  /** Basis for grants that name none. Defaults to consent itself. */
+  defaultLegalBasisReference: z.string().min(1).optional(),
+});
+
+export type LegalBasisConfig = z.infer<typeof legalBasisSchema>;
+
 export const countryConfigSchema = z
   .object({
   countryCode: z.string().length(2),
@@ -924,9 +972,46 @@ export const countryConfigSchema = z
   // Cross-issuer trust. Deployment-wide, read from the default config. Empty by default:
   // a deployment trusts only its own issuer until it names peers here.
   federation: federationSchema.prefault({}),
+  // Who is accountable for the personal data, and under what law (ORCS §9).
+  dataProtection: dataProtectionSchema.prefault({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),
   })
   .superRefine((v, ctx) => {
+    // The Legal Basis Registry is a closed vocabulary (ORCS §9), and the default reference is
+    // the one every grant that names nothing else will cite. Catching an unknown id here
+    // turns "every consent on this deployment is refused at run time" into a refusal to
+    // start, which is the cheaper way to find out.
+    const declared = new Set([CONSENT_LEGAL_BASIS_ID, ...v.dataProtection.legalBases.map((b) => b.id)]);
+    const fallback = v.dataProtection.defaultLegalBasisReference;
+    if (fallback && !declared.has(fallback)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['dataProtection', 'defaultLegalBasisReference'],
+        message:
+          `dataProtection.defaultLegalBasisReference "${fallback}" is not declared in ` +
+          `dataProtection.legalBases, and is not the built-in "${CONSENT_LEGAL_BASIS_ID}". ` +
+          'Every legalBasisReference must resolve through the registry (ORCS §9).',
+      });
+    }
+    const seen = new Set<string>();
+    for (const b of v.dataProtection.legalBases) {
+      if (seen.has(b.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['dataProtection', 'legalBases'],
+          message: `duplicate legal basis id "${b.id}"; a replaced basis would silently change the meaning of every consent citing it`,
+        });
+      }
+      seen.add(b.id);
+      if (b.id === CONSENT_LEGAL_BASIS_ID) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['dataProtection', 'legalBases'],
+          message: `"${CONSENT_LEGAL_BASIS_ID}" is registered by the platform and must not be redeclared`,
+        });
+      }
+    }
+
     // A mode is only meaningful with the block that configures it. Catching this at load
     // time turns a silent fallback to shared-key auth into a refusal to start.
     if (v.operatorAuth.mode === 'oidc' && !v.operatorAuth.oidc) {
