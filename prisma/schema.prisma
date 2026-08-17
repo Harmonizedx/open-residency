@@ -458,3 +458,25 @@ model UpstreamAuthRequest {
   // these rows would otherwise accumulate forever.
   @@index([createdAt])
 }
+
+// A signed commitment to how long the audit chain was, and what its head was, at a moment.
+//
+// The hash chain proves nothing was edited, reordered or removed from the MIDDLE of the log.
+// It proves nothing about the END: dropping the last N rows leaves a shorter chain that
+// verifies perfectly, and the most recent entries are the ones implicating whoever just
+// obtained write access.
+//
+// Signed with the issuer key, so an attacker who can delete rows still cannot mint a shorter
+// checkpoint to match. Kept in its own table so a deployment can replicate, back up or ship
+// it somewhere the application cannot reach -- an anchor stored only where the events are is
+// worth less than one held apart from them.
+model AuditCheckpoint {
+  seq       Int      @id
+  hash      String
+  count     Int
+  createdAt DateTime @default(now())
+  signature String
+  kid       String
+
+  @@index([createdAt])
+}

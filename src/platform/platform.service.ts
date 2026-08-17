@@ -66,6 +66,7 @@ import {
   PrismaWebAuthnChallengeStore,
   PrismaWebAuthnCredentialStore,
   PrismaUpstreamAuthStore,
+  PrismaAuditCheckpointStore,
 } from '../prisma/prisma.service';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import axios from 'axios';
@@ -93,6 +94,7 @@ export class PlatformService implements OnModuleDestroy {
   private federatedPeers: FederatedIssuer[] = [];
   private federationTimer?: NodeJS.Timeout;
   private oidcPurgeTimer?: NodeJS.Timeout;
+  private auditCheckpointTimer?: NodeJS.Timeout;
 
   private readonly log = new Logger('Platform');
   private configs!: Map<string, CountryConfig>;
@@ -140,6 +142,7 @@ export class PlatformService implements OnModuleDestroy {
     private webauthnChallengeStore: PrismaWebAuthnChallengeStore,
     private webauthnCredentialStore: PrismaWebAuthnCredentialStore,
     private upstreamAuthStore: PrismaUpstreamAuthStore,
+    private auditCheckpointStore: PrismaAuditCheckpointStore,
   ) {}
 
   private initialized = false;
@@ -301,7 +304,11 @@ export class PlatformService implements OnModuleDestroy {
       process.env.PLATFORM_ISSUER_DID ??
       this.listConfigs()[0]?.credential.issuerDid ??
       'did:web:openresidency.example';
-    this.audit = new AuditLog(this.auditStore);
+    // Anchored: the chain alone cannot detect its own tail being cut, so the head is
+    // periodically committed to and SIGNED with the issuer key. See core/audit/audit-log.ts.
+    this.audit = new AuditLog(this.auditStore, this.auditCheckpointStore, this.key.signer);
+    // Scheduled only AFTER this.audit exists: the first checkpoint is written immediately.
+    this.startAuditCheckpoints();
 
     // ORCS §9: the controller and the Legal Basis Registry are deployment facts, declared
     // once. The controller falls back to the issuing authority's name -- the body issuing the
@@ -645,6 +652,7 @@ export class PlatformService implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     if (this.federationTimer) clearInterval(this.federationTimer);
     if (this.oidcPurgeTimer) clearInterval(this.oidcPurgeTimer);
+    if (this.auditCheckpointTimer) clearInterval(this.auditCheckpointTimer);
     if (!this.closeSigner) return;
     try {
       await this.closeSigner();
@@ -994,6 +1002,35 @@ export class PlatformService implements OnModuleDestroy {
         );
       }
     }
+  }
+
+  /**
+   * Commit to the audit head on an interval, and sign it.
+   *
+   * The interval IS the exposure: events appended since the last checkpoint are the ones a
+   * tail truncation could still take undetected, so a deployment answerable for its log
+   * should shorten it rather than accept the default. `AUDIT_CHECKPOINT_SECONDS=0` disables
+   * it for deployments that anchor externally on their own schedule.
+   *
+   * One is written at startup too. A process that ran, recorded events, and was restarted
+   * before its first interval elapsed would otherwise leave that whole window unanchored.
+   */
+  private startAuditCheckpoints(): void {
+    const seconds = Number(process.env.AUDIT_CHECKPOINT_SECONDS ?? 300);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      this.log.warn(
+        'Audit checkpoints are disabled: the chain can detect edits and reordering, but not ' +
+          'having its tail cut. Anchor it externally, or set AUDIT_CHECKPOINT_SECONDS.',
+      );
+      return;
+    }
+    const write = () =>
+      void this.audit
+        .checkpoint()
+        .catch((e) => this.log.warn(`Audit checkpoint failed: ${(e as Error).message}`));
+    write();
+    this.auditCheckpointTimer = setInterval(write, seconds * 1000);
+    this.auditCheckpointTimer.unref?.();
   }
 
   /**

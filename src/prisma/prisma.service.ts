@@ -20,7 +20,12 @@ import {
   PendingUpstreamAuth,
   PendingUpstreamAuthStore,
 } from '../core/sso/upstream-oidc';
-import { AuditEvent, AuditStore } from '../core/audit/audit-log';
+import {
+  AuditCheckpoint,
+  AuditCheckpointStore,
+  AuditEvent,
+  AuditStore,
+} from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
@@ -1233,5 +1238,50 @@ export class PrismaUpstreamAuthStore implements PendingUpstreamAuthStore {
       where: { createdAt: { lt: cutoff } },
     });
     return count;
+  }
+}
+
+/**
+ * Signed audit anchors.
+ *
+ * `seq` is the primary key and writes are upserts, so re-checkpointing an unchanged log is
+ * idempotent rather than a source of duplicate rows for the same head.
+ */
+@Injectable()
+export class PrismaAuditCheckpointStore implements AuditCheckpointStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toCheckpoint = (r: any): AuditCheckpoint => ({
+    seq: r.seq,
+    hash: r.hash,
+    count: r.count,
+    createdAt: r.createdAt.toISOString(),
+    signature: r.signature,
+    kid: r.kid,
+  });
+
+  async put(cp: AuditCheckpoint): Promise<void> {
+    const data = {
+      hash: cp.hash,
+      count: cp.count,
+      createdAt: new Date(cp.createdAt),
+      signature: cp.signature,
+      kid: cp.kid,
+    };
+    await this.prisma.auditCheckpoint.upsert({
+      where: { seq: cp.seq },
+      create: { seq: cp.seq, ...data },
+      update: data,
+    });
+  }
+
+  async latest(): Promise<AuditCheckpoint | null> {
+    const r = await this.prisma.auditCheckpoint.findFirst({ orderBy: { seq: 'desc' } });
+    return r ? this.toCheckpoint(r) : null;
+  }
+
+  async all(): Promise<AuditCheckpoint[]> {
+    const rows = await this.prisma.auditCheckpoint.findMany({ orderBy: { seq: 'asc' } });
+    return rows.map(this.toCheckpoint);
   }
 }

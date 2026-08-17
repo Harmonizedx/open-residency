@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, verify as cryptoVerify, createPublicKey } from 'node:crypto';
+import { JWK } from 'jose';
+import { Signer } from '../credentials/signer';
 
 /**
  * Tamper-evident audit log.
@@ -125,8 +127,144 @@ export interface AuditStore {
   all(): Promise<AuditEvent[]>;
 }
 
+/**
+ * A signed commitment to how long the chain was, and what its head was, at a moment.
+ *
+ * The hash chain proves that no event was edited, reordered or removed from the MIDDLE:
+ * every such change breaks a link. It proves nothing about the END. Lopping off the last N
+ * events leaves a shorter chain that verifies perfectly, because nothing recorded how long
+ * the chain was supposed to be — and the most recent events are exactly the ones that
+ * implicate whoever just got write access.
+ *
+ * A checkpoint closes that. It states "at this time there were `count` events and the head
+ * was `hash` at `seq`", and it is SIGNED, so an attacker who can write to the database
+ * cannot simply issue themselves a shorter one to match. Signing goes through the same
+ * `Signer` port as credentials, so a deployment holding its issuer key in an HSM or KMS
+ * anchors its audit log with a key it cannot export either.
+ */
+export interface AuditCheckpoint {
+  /** Seq of the head event this checkpoint commits to. */
+  seq: number;
+  /** That event's hash. */
+  hash: string;
+  /** Total events at checkpoint time. Catches removal anywhere, not only at the tail. */
+  count: number;
+  createdAt: string;
+  /** Base64url Ed25519 signature over `checkpointBytes`. */
+  signature: string;
+  /** Key that signed it, so a verifier can select from a rotated set. */
+  kid: string;
+}
+
+export interface AuditCheckpointStore {
+  put(checkpoint: AuditCheckpoint): Promise<void>;
+  /** Most recent by seq. The one that binds the tail. */
+  latest(): Promise<AuditCheckpoint | null>;
+  all(): Promise<AuditCheckpoint[]>;
+}
+
+/**
+ * Exactly the bytes a checkpoint signature covers.
+ *
+ * `signature` and `kid` are excluded — a signature cannot cover itself — and the field order
+ * is fixed here rather than left to object insertion order, because a verifier that
+ * serialises differently from the signer rejects every genuine checkpoint.
+ */
+export function checkpointBytes(
+  cp: Pick<AuditCheckpoint, 'seq' | 'hash' | 'count' | 'createdAt'>,
+): Uint8Array {
+  const canonical = JSON.stringify({
+    seq: cp.seq,
+    hash: cp.hash,
+    count: cp.count,
+    createdAt: cp.createdAt,
+  });
+  return new TextEncoder().encode(canonical);
+}
+
+/**
+ * Does this checkpoint verify under any key we hold for the issuer?
+ *
+ * A list rather than one key for the same reason the credential trust list holds one: an
+ * audit log outlives the key that anchored it, and a rotation must not retrospectively
+ * invalidate every checkpoint signed before it.
+ */
+export async function verifyCheckpointSignature(
+  cp: AuditCheckpoint,
+  publicJwks: JWK[],
+): Promise<boolean> {
+  const data = Buffer.from(checkpointBytes(cp));
+  const sig = Buffer.from(cp.signature, 'base64url');
+  for (const jwk of publicJwks) {
+    try {
+      const key = createPublicKey({ key: jwk as object, format: 'jwk' });
+      if (cryptoVerify(null, data, key, sig)) return true;
+    } catch {
+      // A malformed entry must not stop the good keys being tried.
+    }
+  }
+  return false;
+}
+
+/** In-memory checkpoints, for tests and single-node pilots. */
+export class InMemoryAuditCheckpointStore implements AuditCheckpointStore {
+  private items: AuditCheckpoint[] = [];
+  async put(checkpoint: AuditCheckpoint): Promise<void> {
+    this.items.push(checkpoint);
+  }
+  async latest(): Promise<AuditCheckpoint | null> {
+    if (!this.items.length) return null;
+    return this.items.reduce((a, b) => (b.seq >= a.seq ? b : a));
+  }
+  async all(): Promise<AuditCheckpoint[]> {
+    return this.items.slice();
+  }
+}
+
 export class AuditLog {
-  constructor(private store: AuditStore) {}
+  /**
+   * `checkpoints` and `signer` are optional so every existing construction keeps working and
+   * a deployment without an anchor degrades to exactly the previous behaviour — reported as
+   * `anchored: false` rather than silently passing as though the tail were protected.
+   */
+  constructor(
+    private store: AuditStore,
+    private checkpoints?: AuditCheckpointStore,
+    private signer?: Signer,
+  ) {}
+
+  /**
+   * Commit to the current head, and sign it.
+   *
+   * Called on a schedule. The window between checkpoints is the window in which a tail can
+   * still be dropped undetected, so the interval is a deployment's choice about how much
+   * exposure it accepts — not something to infer here.
+   *
+   * Returns null when the log is empty or no anchor is configured: there is nothing to
+   * commit to, and writing a checkpoint over an empty chain would assert a fact about
+   * nothing.
+   */
+  async checkpoint(): Promise<AuditCheckpoint | null> {
+    if (!this.checkpoints || !this.signer) return null;
+    const tail = await this.store.tail();
+    if (!tail) return null;
+    const count = (await this.store.all()).length;
+
+    const unsigned = {
+      seq: tail.seq,
+      hash: tail.hash,
+      count,
+      createdAt: new Date().toISOString(),
+    };
+    const signature = await this.signer.sign(checkpointBytes(unsigned));
+    const cp: AuditCheckpoint = {
+      ...unsigned,
+      signature: Buffer.from(signature).toString('base64url'),
+      kid: this.signer.kid,
+    };
+    await this.checkpoints.put(cp);
+    return cp;
+  }
 
   async record(input: AuditEventInput): Promise<AuditEvent> {
     const tail = await this.store.tail();
@@ -161,27 +299,93 @@ export class AuditLog {
    * `redacted` is returned rather than hidden. An auditor is entitled to know that the log
    * they are verifying has had material removed, and how much.
    */
-  async verifyChain(): Promise<{
+  async verifyChain(opts: { publicJwks?: JWK[] } = {}): Promise<{
     ok: boolean;
     length: number;
     redacted: number;
     brokenAtSeq?: number;
+    /** Whether a signed checkpoint was available to bind the tail. */
+    anchored: boolean;
+    checkpoints: number;
+    /** Set when a checkpoint proves events after this seq were removed. */
+    truncatedAfterSeq?: number;
+    /** Set when the anchor itself could not be trusted. */
+    anchorProblem?: 'unsigned' | 'untrusted' | 'no-checkpoint';
   }> {
     const events = await this.store.all();
     let prevHash = GENESIS;
     let redacted = 0;
     for (const e of events) {
       if (e.prevHash !== prevHash) {
-        return { ok: false, length: events.length, redacted, brokenAtSeq: e.seq };
+        return {
+          ok: false,
+          length: events.length,
+          redacted,
+          brokenAtSeq: e.seq,
+          anchored: false,
+          checkpoints: 0,
+        };
       }
       if (e.redactedAt) {
         redacted++;
       } else if (e.hash !== hashEvent({ ...e })) {
-        return { ok: false, length: events.length, redacted, brokenAtSeq: e.seq };
+        return {
+          ok: false,
+          length: events.length,
+          redacted,
+          brokenAtSeq: e.seq,
+          anchored: false,
+          checkpoints: 0,
+        };
       }
       prevHash = e.hash;
     }
-    return { ok: true, length: events.length, redacted };
+
+    // The links are intact. That says nothing about the END of the chain, which is what the
+    // anchor is for.
+    const all = (await this.checkpoints?.all()) ?? [];
+    const base = { length: events.length, redacted, checkpoints: all.length };
+    if (!all.length) {
+      // Reported, never treated as success. A chain with no anchor is exactly as truncatable
+      // as it was before checkpoints existed, and an auditor is entitled to be told so
+      // rather than shown a green tick that does not cover the tail.
+      return { ...base, ok: true, anchored: false, anchorProblem: 'no-checkpoint' };
+    }
+
+    const latest = all.reduce((a, b) => (b.seq >= a.seq ? b : a));
+
+    // Authenticate the checkpoint BEFORE believing it. An attacker who can delete events can
+    // usually also write a shorter checkpoint; the signature is the only thing they cannot
+    // produce, so an unverifiable anchor must not be read as agreement.
+    if (opts.publicJwks?.length) {
+      const trusted = await verifyCheckpointSignature(latest, opts.publicJwks);
+      if (!trusted) {
+        return { ...base, ok: false, anchored: false, anchorProblem: 'untrusted' };
+      }
+    } else {
+      return { ...base, ok: true, anchored: false, anchorProblem: 'unsigned' };
+    }
+
+    const atSeq = events.find((e) => e.seq === latest.seq);
+    if (!atSeq) {
+      // The checkpoint commits to an event the chain no longer contains: the tail was cut.
+      return {
+        ...base,
+        ok: false,
+        anchored: true,
+        truncatedAfterSeq: events.length ? events[events.length - 1].seq : -1,
+      };
+    }
+    if (atSeq.hash !== latest.hash) {
+      return { ...base, ok: false, anchored: true, brokenAtSeq: latest.seq };
+    }
+    if (events.length < latest.count) {
+      // Same head, fewer events: something was removed from the middle and the links were
+      // rebuilt around the gap.
+      return { ...base, ok: false, anchored: true, truncatedAfterSeq: latest.seq };
+    }
+
+    return { ...base, ok: true, anchored: true };
   }
 
   /**

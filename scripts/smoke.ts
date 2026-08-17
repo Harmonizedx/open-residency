@@ -13,7 +13,13 @@ import { ResidencyService } from '../src/core/residency/residency-service';
 import { generateResidentId, isValidResidentId, IdFormat } from '../src/core/residency/resident-id';
 import { encodeCredentialQr } from '../src/core/offline/qr';
 import { handleUssd } from '../src/core/offline/ussd';
-import { AuditLog, InMemoryAuditStore } from '../src/core/audit/audit-log';
+import {
+  AuditLog,
+  InMemoryAuditStore,
+  InMemoryAuditCheckpointStore,
+  AuditEvent,
+  AuditStore,
+} from '../src/core/audit/audit-log';
 import {
   ConsentPolicy,
   ConsentService,
@@ -796,6 +802,76 @@ async function main() {
     });
     const unbounded = await pSvc.expireProvisional(noPolicy, { now: later });
     check('no declared window means nothing is expired', unbounded.expired.length === 0 && unbounded.checked === 0);
+  }
+
+  // --- The audit tail is anchored, so truncation is detectable --------------
+  //
+  // The hash chain proves nothing was edited, reordered or removed from the MIDDLE. It
+  // proves nothing about the END: lopping off the last N events leaves a shorter chain that
+  // verifies perfectly, and the most recent events are exactly the ones implicating whoever
+  // just got write access. A signed checkpoint is what closes that.
+  console.log('\nAudit anchoring (tail truncation):');
+  {
+    // A store whose contents the test can cut, standing in for an attacker with write access.
+    class TruncatableStore implements AuditStore {
+      events: AuditEvent[] = [];
+      async append(e: AuditEvent) { this.events.push(e); }
+      async replace(e: AuditEvent) {
+        const i = this.events.findIndex((x) => x.seq === e.seq);
+        if (i >= 0) this.events[i] = e;
+      }
+      async tail() {
+        const last = this.events[this.events.length - 1];
+        return last ? { seq: last.seq, hash: last.hash } : null;
+      }
+      async list() { return this.events.slice().reverse(); }
+      async all() { return this.events.slice(); }
+    }
+
+    const aStore = new TruncatableStore();
+    const cpStore = new InMemoryAuditCheckpointStore();
+    const anchored = new AuditLog(aStore, cpStore, key.signer);
+    const pub = [key.publicJwk];
+
+    for (let i = 0; i < 6; i++) {
+      await anchored.record({ action: 'residency.issue', actor: 'citizen', outcome: 'success' });
+    }
+
+    // No checkpoint yet: the chain is intact but the tail is unprotected, and that is
+    // reported rather than shown as an unqualified pass.
+    const beforeAnchor = await anchored.verifyChain({ publicJwks: pub });
+    check('an unanchored chain verifies but says so', beforeAnchor.ok === true && beforeAnchor.anchored === false);
+    check('and names the reason', beforeAnchor.anchorProblem === 'no-checkpoint');
+
+    const cp = await anchored.checkpoint();
+    check('a checkpoint commits to the head', !!cp && cp.seq === 5 && cp.count === 6);
+    check('and is signed', !!cp && cp.signature.length > 0 && cp.kid === key.signer.kid);
+
+    const anchoredOk = await anchored.verifyChain({ publicJwks: pub });
+    check('an anchored, untouched chain verifies', anchoredOk.ok === true && anchoredOk.anchored === true);
+
+    // Verifying without the key cannot trust the anchor, and must not pretend otherwise.
+    const noKey = await anchored.verifyChain();
+    check('without the public key the anchor is not trusted', noKey.anchored === false && noKey.anchorProblem === 'unsigned');
+
+    // THE ATTACK: drop the last two events. Links stay perfect.
+    aStore.events = aStore.events.slice(0, 4);
+    const relinked = await anchored.verifyChain();
+    check('the truncated chain still passes the LINK check alone', relinked.ok === true);
+
+    const caught = await anchored.verifyChain({ publicJwks: pub });
+    check('but the anchor catches the truncation', caught.ok === false);
+    check('and reports where the chain now ends', caught.truncatedAfterSeq === 3);
+
+    // An attacker who can delete events can usually write a checkpoint too. Signing is the
+    // part they cannot forge, so a checkpoint under another key must not be believed.
+    const forgedKey = await KeyStore.generate('not-the-issuer');
+    const forgedStore = new InMemoryAuditCheckpointStore();
+    const forged = new AuditLog(aStore, forgedStore, forgedKey.signer);
+    await forged.checkpoint();
+    const rejected = await forged.verifyChain({ publicJwks: pub });
+    check('a checkpoint signed by an untrusted key is refused', rejected.ok === false && rejected.anchorProblem === 'untrusted');
+    check('and the same checkpoint verifies under ITS own key', (await forged.verifyChain({ publicJwks: [forgedKey.publicJwk] })).ok === true);
   }
 
   console.log(`\n== Result: ${pass} passed, ${fail} failed ==\n`);
