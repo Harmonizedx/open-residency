@@ -214,6 +214,12 @@ foundational:
 residency:
   minAssurance: verified
   proofOfResidence: attestation
+  # This fixture requires no human attestation, so a decision here is taken by software alone.
+  # loadCountryConfigs refuses to start a deployment in that shape without somewhere for an
+  # affected person to be heard (NDPA 2023 s.37, GDPR Art.22) -- including this one.
+  humanReview:
+    path: 'e2e fixture: reconsideration would be requested at the enrolment desk'
+    withinDays: 30
 credential:
   issuerDid: did:web:id.demoland.example
   issuerName: Demoland Residency Authority

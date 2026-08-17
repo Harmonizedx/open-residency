@@ -409,6 +409,13 @@ This repository is the generic public infrastructure, not a single-country app:
   through — and is refused rather than recorded blank when any of the four is missing. Suspension
   is published on its own status list, so a verifier can tell a suspended credential from a
   revoked one.
+- **Who decides is a jurisdiction's choice, and it carries an obligation.** Whether an
+  enrolment is decided by a person or by the software is not a switch — it follows from which
+  binding and residence methods a jurisdiction accepts, and each decision records which it was.
+  A deployment whose accepted methods permit a decision with nobody in the loop **must declare
+  where an affected person obtains human review, or it refuses to start**: NDPA 2023 s.37, GDPR
+  Article 22 and Convention 108+ all require human intervention, the right to be heard, and a
+  reviewer able to reach a different answer. Refusals record which of the two decided them.
 - **Enrolment capture is out of scope.** This issues a credential, not a card. There is no
   portrait capture or storage (a photo returned by a foundational source is dropped, never
   persisted), no printed ID-slip renderer, and no schema for local demographic fields — ward,

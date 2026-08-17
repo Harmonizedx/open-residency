@@ -66,6 +66,8 @@ model Resident {
   assuranceProfileId String?
   relationshipIssuer String?
   decidedBy          String?
+  // The operator who took the application, distinct from what decided it.
+  submittedBy        String?
   decidedAt          DateTime?
   endedAt            DateTime?
   endedReason        String?
@@ -380,7 +382,17 @@ model ResidencyRefusal {
   subjectRef      String?
   reason          String
   decidedBy       String
+  // The operator who took the application, distinct from what decided it.
+  submittedBy     String?
   appealPath      String
+  // Where the applicant obtains HUMAN review, set when software refused them alone
+  // (NDPA 2023 s.37, GDPR Art.22, Convention 108+).
+  humanReviewPath String?
+  // A review that cannot change the outcome is not a review, so `overturned` is a real state.
+  reviewStatus    String   @default("none")
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  reviewNote      String?
   refusedAt       DateTime @default(now())
 
   @@index([subjectRef])

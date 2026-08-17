@@ -211,7 +211,10 @@ async function main() {
     check('  evidence is referenced', rel.evidenceRefs.length > 0);
     check('  the assurance profile is named', !!rel.assuranceProfileId);
     check('  the issuer is recorded', rel.issuer === issuerDid);
-    check('  provenance names the deciding operator', rel.decidedBy === 'operator:Desk-1');
+    // No binding was attested and no authority vouched for residence, so nobody looked at
+    // this applicant: the record says the software decided, and keeps the desk separately.
+    check('  provenance says the software decided', rel.decidedBy.startsWith('automated:'), rel.decidedBy);
+    check('  and names the operator who took the application', rel.submittedBy === 'operator:Desk-1');
   }
 
   const again = await svc.issue(cfg, { countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin } });

@@ -17,7 +17,7 @@ import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vc
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
 import { OidcStore, OidcStoredItem } from '../core/sso/oidc-store';
-import { RefusalRecord, RefusalStore } from '../core/residency/refusal';
+import { RefusalRecord, RefusalStore, ReviewStatus } from '../core/residency/refusal';
 import {
   WebAuthnChallengeRecord,
   WebAuthnChallengeStore,
@@ -102,6 +102,7 @@ export class PrismaResidencyStore implements ResidencyStore {
             assuranceProfileId: r.assuranceProfileId ?? undefined,
             issuer: r.relationshipIssuer ?? '',
             decidedBy: r.decidedBy ?? '',
+            submittedBy: r.submittedBy ?? undefined,
             decidedAt: r.decidedAt.toISOString(),
             endedAt: r.endedAt ? r.endedAt.toISOString() : undefined,
             endedReason: r.endedReason ?? undefined,
@@ -242,6 +243,7 @@ export class PrismaResidencyStore implements ResidencyStore {
       assuranceProfileId: rel?.assuranceProfileId,
       relationshipIssuer: rel?.issuer,
       decidedBy: rel?.decidedBy,
+      submittedBy: rel?.submittedBy ?? null,
       decidedAt: rel?.decidedAt ? new Date(rel.decidedAt) : undefined,
       endedAt: rel?.endedAt ? new Date(rel.endedAt) : null,
       endedReason: rel?.endedReason ?? null,
@@ -688,7 +690,13 @@ export class PrismaRefusalStore implements RefusalStore {
     subjectRef: r.subjectRef ?? undefined,
     reason: r.reason,
     decidedBy: r.decidedBy,
+    submittedBy: r.submittedBy ?? undefined,
     appealPath: r.appealPath,
+    humanReviewPath: r.humanReviewPath ?? undefined,
+    reviewStatus: (r.reviewStatus ?? 'none') as ReviewStatus,
+    reviewedBy: r.reviewedBy ?? undefined,
+    reviewedAt: r.reviewedAt ? r.reviewedAt.toISOString() : undefined,
+    reviewNote: r.reviewNote ?? undefined,
     refusedAt: r.refusedAt.toISOString(),
   });
 
@@ -701,7 +709,10 @@ export class PrismaRefusalStore implements RefusalStore {
         subjectRef: record.subjectRef ?? null,
         reason: record.reason,
         decidedBy: record.decidedBy,
+        submittedBy: record.submittedBy ?? null,
         appealPath: record.appealPath,
+        humanReviewPath: record.humanReviewPath ?? null,
+        reviewStatus: record.reviewStatus,
         refusedAt: new Date(record.refusedAt),
       },
     });
@@ -719,6 +730,24 @@ export class PrismaRefusalStore implements RefusalStore {
       orderBy: { refusedAt: 'desc' },
     });
     return rows.map(this.toRecord);
+  }
+
+  async recordReview(
+    reference: string,
+    review: { status: ReviewStatus; by: string; at: string; note?: string },
+  ): Promise<RefusalRecord | null> {
+    const existing = await this.prisma.residencyRefusal.findUnique({ where: { reference } });
+    if (!existing) return null;
+    const r = await this.prisma.residencyRefusal.update({
+      where: { reference },
+      data: {
+        reviewStatus: review.status,
+        reviewedBy: review.by,
+        reviewedAt: new Date(review.at),
+        reviewNote: review.note ?? null,
+      },
+    });
+    return this.toRecord(r);
   }
 }
 

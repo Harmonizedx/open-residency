@@ -136,3 +136,21 @@ export class ReconcileDto {
   @IsStringRecord()
   identifiers!: Record<string, string>;
 }
+
+/**
+ * Request body for `POST /residency/refusals/{reference}/review`.
+ *
+ * `overturned` is a real option, not a courtesy. NDPA 2023 s.37, GDPR Art.22 and Convention
+ * 108+ all require the reviewer to hold genuine authority to reach a different outcome, so an
+ * endpoint that could only ever record "a human looked" would satisfy the letter and miss the
+ * point entirely.
+ */
+export class RecordReviewDto {
+  @IsIn(['requested', 'upheld', 'overturned'])
+  status!: 'requested' | 'upheld' | 'overturned';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  note?: string;
+}

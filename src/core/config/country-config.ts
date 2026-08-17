@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import { z } from 'zod';
+import { permitsAutomatedDecisions } from '../residency/decision-mode';
 import { LEGACY_SUITES } from '../credentials/ld-suites';
 
 /**
@@ -244,6 +245,28 @@ const residencySchema = z.object({
    * (RAL0) and never gated -- exactly today's behaviour. Opt in to enforce it.
    */
   residence: residencePolicySchema.prefault({}),
+  /**
+   * How a person obtains human review of a decision the software took alone.
+   *
+   * REQUIRED when this jurisdiction's accepted methods permit a fully automated decision --
+   * enforced below, at config load, so a deployment cannot begin deciding before it can say
+   * where an affected person goes.
+   *
+   * Not derivable, unlike the decision mode itself: only the jurisdiction knows whether that
+   * is an office, a form, a phone line or a statutory tribunal. Free text for the same reason
+   * the appeal path is.
+   */
+  humanReview: z
+    .object({
+      /** Where and how to request that a person reconsiders. Shown to the applicant. */
+      path: z.string().min(1),
+      /**
+       * How long the jurisdiction undertakes to take. Recorded because an unbounded right to
+       * review is not much of a right; omitted where the law sets no period.
+       */
+      withinDays: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 const credentialSchema = z.object({
@@ -984,7 +1007,48 @@ export function loadCountryConfigs(dir: string): Map<string, CountryConfig> {
     if (!/\.(ya?ml)$/i.test(file)) continue;
     const raw = loadYaml(readFileSync(join(dir, file), 'utf8'));
     const cfg = parseCountryConfig(raw);
+    assertHumanReviewDeclared(cfg, file);
     map.set(cfg.countryCode.toUpperCase(), cfg);
   }
   return map;
+}
+
+
+/**
+ * A jurisdiction that can decide alone must say where a person goes to be heard.
+ *
+ * Nigeria's NDPA 2023 §37, GDPR Article 22 and Convention 108+ all give a person subject to a
+ * solely-automated decision with legal effect the right to obtain HUMAN INTERVENTION, to put
+ * their case, and to have it reconsidered by somebody able to reach a different answer. The
+ * statutory exceptions -- contract, authorised by law, consent -- permit such decisions being
+ * taken; they do not remove that safeguard.
+ *
+ * Refused at load rather than warned about. There is no safe degraded mode: a deployment that
+ * automates residency decisions with nowhere to appeal leaves somebody refused by software with
+ * nobody to ask, and that failure stays invisible until it is a person's problem. Same posture
+ * as the secrets that refuse to boot rather than fall back to a guessable default.
+ *
+ * Checked HERE rather than inside the schema, deliberately. The obligation falls on a
+ * DEPLOYMENT, and a deployment is what this function builds -- YAML, read from disk, at boot.
+ * A test assembling a config object in memory is not one, and putting the rule in the schema
+ * made every fixture in the tree carry a compliance declaration on behalf of a jurisdiction
+ * that does not exist. The rule is no weaker for sitting at the boundary; it is aimed at the
+ * thing it actually governs.
+ */
+export function assertHumanReviewDeclared(cfg: CountryConfig, source = 'config'): void {
+  const automatable = permitsAutomatedDecisions({
+    bindingRequired: cfg.residency.applicantBinding.required,
+    acceptedBindingMethods: cfg.residency.applicantBinding.acceptedMethods,
+    acceptedResidenceMethods: cfg.residency.residence.acceptedMethods,
+  });
+  if (automatable && !cfg.residency.humanReview) {
+    throw new Error(
+      `${source}: this jurisdiction accepts methods that permit a residency decision to be ` +
+        'taken with no person involved, so residency.humanReview.path MUST declare where an ' +
+        'affected person obtains human review (NDPA 2023 s.37, GDPR Art.22, Convention 108+). ' +
+        'Either declare it, or require a human method: applicantBinding.acceptedMethods ' +
+        '[attended_comparison] with required true, or residence.acceptedMethods ' +
+        '[authority_attestation].',
+    );
+  }
 }

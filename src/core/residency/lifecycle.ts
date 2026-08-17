@@ -120,8 +120,22 @@ export interface RelationshipAttributes {
   assuranceProfileId?: string;
   /** §4.3 issuer: the authority that decided, as a DID. */
   issuer: string;
-  /** §4.3 decision provenance. */
+  /**
+   * §4.3 decision provenance: what took the decision.
+   *
+   * An operator identity when a person attested something, or `automated:<policyVersion>` when
+   * none did. A record must not name an operator as having decided what the software decided
+   * on its own -- that is the misattribution NDPA 2023 §37 and GDPR Art.22 exist to prevent.
+   */
   decidedBy: string;
+  /**
+   * The operator who took the application, kept separately from what decided it.
+   *
+   * Both facts matter and they are not the same fact. The software may have decided, but a
+   * person was at the desk, and collapsing the two would leave nobody able to say where an
+   * enrolment was handled.
+   */
+  submittedBy?: string;
   decidedAt: string;
   /** Set when the relationship reached a terminal state. */
   endedAt?: string;
@@ -205,6 +219,7 @@ export function newRelationship(input: {
   assuranceProfileId?: string;
   issuer: string;
   decidedBy: string;
+  submittedBy?: string;
   at: string;
 }): RelationshipAttributes {
   const attrs: RelationshipAttributes = {
@@ -219,6 +234,7 @@ export function newRelationship(input: {
     decidedBy: input.decidedBy,
     decidedAt: input.at,
   };
+  if (input.submittedBy) attrs.submittedBy = input.submittedBy;
   if (input.assuranceProfileId) attrs.assuranceProfileId = input.assuranceProfileId;
   return attrs;
 }
