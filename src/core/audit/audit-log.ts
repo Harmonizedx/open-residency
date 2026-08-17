@@ -35,6 +35,10 @@ export type AuditAction =
   | 'credential.verify'
   | 'consent.grant'
   | 'consent.revoke'
+  // A lawful basis was withdrawn (ORCS §9). Every consent citing it stops authorising
+  // processing from that moment, so the act needs its own trail entry rather than being
+  // inferred from the consents that went quiet.
+  | 'legalBasis.deactivate'
   | 'sso.login'
   // A resident enrolled a WebAuthn passkey (authorized by an existing factor).
   | 'webauthn.register'

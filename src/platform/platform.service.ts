@@ -40,6 +40,7 @@ import {
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
+import { LegalBasisRegistry, legalBasesForDeployment } from '../core/consent/legal-basis';
 import { AssuranceRegistry } from '../core/assurance/registry';
 import { buildDefaultAssuranceRegistry } from '../core/assurance/profiles';
 import {
@@ -103,6 +104,7 @@ export class PlatformService implements OnModuleDestroy {
   private biometric!: BiometricMatcher | null;
   private audit!: AuditLog;
   private consent!: ConsentService;
+  private legalBasisRegistry!: LegalBasisRegistry;
   private platformIssuerDid!: string;
   private trust = new Map<string, TrustedIssuer>();
   private operatorAuth!: OperatorAuthContext;
@@ -277,7 +279,32 @@ export class PlatformService implements OnModuleDestroy {
       this.listConfigs()[0]?.credential.issuerDid ??
       'did:web:openresidency.example';
     this.audit = new AuditLog(this.auditStore);
-    this.consent = new ConsentService(this.consentStore, this.key, this.platformIssuerDid);
+
+    // ORCS §9: the controller and the Legal Basis Registry are deployment facts, declared
+    // once. The controller falls back to the issuing authority's name -- the body issuing the
+    // credential is processing the data to do it -- but a deployment where an agency issues
+    // on the state's behalf should name the state in `dataProtection.controller`.
+    const dpCfg = this.listConfigs()[0];
+    const controller =
+      dpCfg?.dataProtection.controller ?? dpCfg?.credential.issuerName ?? 'OpenResidency';
+    this.legalBasisRegistry = new LegalBasisRegistry(
+      legalBasesForDeployment({
+        jurisdiction: dpCfg?.countryName ?? 'unspecified',
+        controller,
+        declared: dpCfg?.dataProtection.legalBases,
+      }),
+    );
+    this.consent = new ConsentService(this.consentStore, this.key, this.platformIssuerDid, {
+      controller,
+      processor: dpCfg?.dataProtection.processor,
+      legalBases: this.legalBasisRegistry,
+      defaultLegalBasisReference: dpCfg?.dataProtection.defaultLegalBasisReference,
+    });
+  }
+
+  /** The Legal Basis Registry (ORCS §9), for the consent and legal-basis APIs. */
+  getLegalBases(): LegalBasisRegistry {
+    return this.legalBasisRegistry;
   }
 
   // ---- messaging ----------------------------------------------------------

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -12,7 +13,7 @@ import {
 import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
-import { GrantConsentDto } from './dto/grant-consent.dto';
+import { DeactivateLegalBasisDto, GrantConsentDto } from './dto/grant-consent.dto';
 
 /**
  * Consent API for the citizen-facing side.
@@ -51,7 +52,7 @@ export class ConsentController {
   async grant(@Body() body: GrantConsentDto) {
     const resident = await this.platform.getStore().findByResidentId(body.residentId);
     if (!resident) throw new NotFoundException('Unknown residentId');
-    const { record, receipt } = await this.platform.getConsent().grant({
+    const outcome = await this.platform.getConsent().grant({
       residentId: body.residentId,
       subjectRef: body.subjectRef ?? resident.subjectRef,
       relyingParty: body.relyingParty,
@@ -59,15 +60,73 @@ export class ConsentController {
       purpose: body.purpose,
       scopes: body.scopes,
       validityDays: body.validityDays,
+      dataCategories: body.dataCategories,
+      legalBasisReference: body.legalBasisReference,
+      evidence: {
+        method: body.evidenceMethod as 'operator_recorded',
+        at: body.evidenceAt ?? new Date().toISOString(),
+        reference: body.evidenceReference,
+        capturedBy: body.evidenceCapturedBy,
+      },
     });
+
+    // A refused grant is audited too. A register that logs only the consents it accepted
+    // cannot answer "was this person's permission ever sought", which is the question a
+    // complaint starts with.
     await this.platform.getAudit().record({
       action: 'consent.grant',
       actor: body.residentId,
       target: body.relyingParty,
-      outcome: 'success',
-      metadata: { scopes: body.scopes, purpose: body.purpose },
+      outcome: outcome.ok ? 'success' : 'failure',
+      metadata: outcome.ok
+        ? { scopes: body.scopes, purpose: body.purpose, consentId: outcome.record.id }
+        : { scopes: body.scopes, purpose: body.purpose, reason: outcome.reason },
     });
-    return { consent: record, receipt };
+    if (!outcome.ok) throw new BadRequestException(outcome.reason);
+    return { consent: outcome.record, receipt: outcome.receipt };
+  }
+
+  // ---- Legal Basis Registry (ORCS §9) --------------------------------------
+
+  @Get('legal-bases')
+  listLegalBases() {
+    return { legalBases: this.platform.getLegalBases().list() };
+  }
+
+  /**
+   * A single basis, whatever its state.
+   *
+   * Deliberately served from `get` rather than `resolve`: a consent granted under a
+   * since-withdrawn by-law cites this id, and an auditor following that citation needs the
+   * record. `inForce` is reported separately so a caller cannot mistake "it exists" for "it
+   * still authorises processing".
+   */
+  @Get('legal-bases/:id')
+  getLegalBasis(@Param('id') id: string) {
+    const basis = this.platform.getLegalBases().get(id);
+    if (!basis) throw new NotFoundException('Unknown legal basis');
+    return { legalBasis: basis, inForce: this.platform.getLegalBases().resolve(id) !== null };
+  }
+
+  @Post('legal-bases/:id/deactivate')
+  @RequireRoles('admin')
+  async deactivateLegalBasis(@Param('id') id: string, @Body() body: DeactivateLegalBasisDto) {
+    const outcome = this.platform.getLegalBases().deactivate(id, {
+      reason: body.reason,
+      authority: body.authority,
+    });
+    await this.platform.getAudit().record({
+      action: 'legalBasis.deactivate',
+      actor: body.authority,
+      target: id,
+      outcome: outcome.ok ? 'success' : 'failure',
+      metadata: outcome.ok ? { reason: body.reason } : { reason: outcome.reason },
+    });
+    if (!outcome.ok) {
+      if (outcome.reason === 'UNKNOWN_LEGAL_BASIS') throw new NotFoundException(outcome.reason);
+      throw new BadRequestException(outcome.reason);
+    }
+    return { legalBasis: outcome.basis };
   }
 
   @Post(':id/revoke')

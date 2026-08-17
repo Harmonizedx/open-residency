@@ -33,6 +33,7 @@ import { ProviderRegistry } from '../src/core/foundational/registry';
 import { VcIssuer } from '../src/core/credentials/vc-issuer';
 import { parseCountryConfig } from '../src/core/config/country-config';
 import { ConsentService, InMemoryConsentStore, isExpired } from '../src/core/consent/consent';
+import { LegalBasisRegistry, legalBasesForDeployment } from '../src/core/consent/legal-basis';
 import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
 import { StatusList } from '../src/core/credentials/status-list';
@@ -325,46 +326,176 @@ async function main() {
   // ---------------------------------------------------------------------------
   // 4. Consent can be granted, inspected, withdrawn, expired and audited.
   // ---------------------------------------------------------------------------
-  const consent = new ConsentService(new InMemoryConsentStore(), key, issuerDid);
-  const granted = await consent.grant({
+  const CONTROLLER = 'Katsina State Residency Authority';
+  const STATUTORY_BASIS = 'ng:kt:residency-register-bylaw-2026';
+  const legalBases = new LegalBasisRegistry(
+    legalBasesForDeployment({
+      jurisdiction: 'Nigeria',
+      controller: CONTROLLER,
+      declared: [
+        {
+          id: STATUTORY_BASIS,
+          kind: 'public_task',
+          name: 'Maintenance of the state residency register',
+          instrument: 'Katsina State Residency Register By-law 2026, s.4',
+          jurisdiction: 'Nigeria',
+          effectiveFrom: '2026-01-01',
+        },
+      ],
+    }),
+  );
+  const consent = new ConsentService(new InMemoryConsentStore(), key, issuerDid, {
+    controller: CONTROLLER,
+    processor: 'HarmonizedX Limited (hosting)',
+    legalBases,
+  });
+  const evidence = {
+    method: 'sso_consent_screen' as const,
+    at: new Date().toISOString(),
+    reference: 'interaction:conformance',
+  };
+  const grantInput = {
     subjectRef: 'tok_consent',
     residentId: 'NG-KT-0001',
     relyingParty: 'health',
     purpose: 'Eligibility check',
     scopes: ['openid', 'health'],
+    dataCategories: ['identity', 'residence'],
     validityDays: 30,
-  });
+    evidence,
+  };
+  const granted = await consent.grant(grantInput);
+  const rec = granted.ok ? granted.record : null;
   const inspected = await consent.listByResident('NG-KT-0001');
 
-  // Withdrawal is checked before expiry, on its own grant: revoke() is a no-op on anything
-  // already non-active, so expiring this record first would report a false negative.
-  const withdrawn = (await consent.revoke(granted.record.id))?.status === 'revoked';
+  // §9 Grant: "Capture subject, controller, processor, purpose, data categories, scope,
+  // expiry and evidence of agreement." All eight, on the record.
+  const captured =
+    !!rec &&
+    !!rec.subjectRef &&
+    rec.controller === CONTROLLER &&
+    rec.processor === 'HarmonizedX Limited (hosting)' &&
+    !!rec.purpose &&
+    rec.dataCategories.length > 0 &&
+    rec.scopes.length > 0 &&
+    !!rec.expiresAt &&
+    !!rec.evidence?.reference;
+
+  // §9 Legal basis: "Resolve every legalBasisReference through the Legal Basis Registry."
+  // Which means a reference that does NOT resolve must be refused, not stored.
+  const resolvesThroughRegistry =
+    !!rec && legalBases.resolve(rec.legalBasisReference) !== null;
+  const unknownBasisRefused = await consent.grant({
+    ...grantInput,
+    residentId: 'NG-KT-UNKNOWN',
+    legalBasisReference: 'whatever-the-law-says',
+  });
+  const closedBasisVocabulary =
+    !unknownBasisRefused.ok && unknownBasisRefused.reason === 'UNKNOWN_LEGAL_BASIS';
+
+  // The accountability fields are REQUIRED, not optional-with-a-blank.
+  const blankRefused = await consent.grant({
+    ...grantInput,
+    residentId: 'NG-KT-BLANK',
+    dataCategories: [],
+  });
+  const evidenceRefused = await consent.grant({
+    ...grantInput,
+    residentId: 'NG-KT-NOEVIDENCE',
+    evidence: { ...evidence, reference: '  ' },
+  });
+  const refusesBlanks = !blankRefused.ok && !evidenceRefused.ok;
+
+  // §9 Replace: "Preserve the previous record and create a new version."
+  const replaced = await consent.grant({
+    ...grantInput,
+    scopes: ['openid', 'health', 'immunisation'],
+  });
+  const priorAfterReplace = rec ? await consent.listByResident('NG-KT-0001') : [];
+  const versioned =
+    replaced.ok &&
+    replaced.record.version === 2 &&
+    replaced.record.supersedesId === rec?.id &&
+    priorAfterReplace.some((c) => c.id === rec?.id && c.status === 'replaced');
+
+  // Withdrawal is checked on its own grant: revoke() is a no-op on anything already
+  // non-active, so expiring or replacing this record first would report a false negative.
+  const forWithdrawal = await consent.grant({
+    ...grantInput,
+    residentId: 'NG-KT-WITHDRAW',
+    relyingParty: 'welfare',
+  });
+  const withdrawnRec = forWithdrawal.ok
+    ? await consent.revoke(forWithdrawal.record.id, 'citizen')
+    : null;
+  const withdrawn = withdrawnRec?.status === 'revoked' && withdrawnRec.withdrawnBy === 'citizen';
 
   const lapsing = await consent.grant({
+    ...grantInput,
     subjectRef: 'tok_consent_expiry',
     residentId: 'NG-KT-0002',
     relyingParty: 'tax',
     purpose: 'Assessment',
     scopes: ['openid', 'tax'],
-    validityDays: 30,
   });
-  const lapsed = new Date(Date.parse(lapsing.record.expiresAt!) + 1000);
+  const lapsingRec = lapsing.ok ? lapsing.record : null;
+  const lapsed = new Date(Date.parse(lapsingRec!.expiresAt!) + 1000);
   const expiryEnforced =
     (await consent.findActive('NG-KT-0002', 'tax', lapsed)) === null &&
-    isExpired(lapsing.record, lapsed);
+    isExpired(lapsingRec!, lapsed) &&
+    consent.mayProcess(lapsingRec!, lapsed).permitted === false;
 
-  // Granted, inspected, withdrawn and expired all work. What ORCS §9 additionally requires on
-  // the record — controller, processor, dataCategories, evidence of agreement, and a
-  // legalBasisReference resolving through a Legal Basis Registry — is absent.
-  const hasLegalBasis = 'legalBasisReference' in granted.record;
+  // §9 Expire: "...UNLESS another valid legal basis applies." A statutory basis survives the
+  // consent lapsing; if it did not, the exception would be decorative.
+  const statutory = await consent.grant({
+    ...grantInput,
+    residentId: 'NG-KT-STATUTORY',
+    relyingParty: 'registry',
+    legalBasisReference: STATUTORY_BASIS,
+  });
+  const otherBasisSurvives =
+    statutory.ok && consent.mayProcess(statutory.record, lapsed).permitted === true;
+
+  // ...and withdrawing the BASIS itself stops it, which is why deactivation is recorded.
+  const deactivated = legalBases.deactivate(STATUTORY_BASIS, {
+    reason: 'By-law repealed',
+    authority: 'operator:commissioner',
+  });
+  const basisWithdrawalStops =
+    deactivated.ok &&
+    statutory.ok &&
+    consent.mayProcess(statutory.record, lapsed).permitted === false &&
+    // ...while the record itself stays readable for the auditor following the citation.
+    legalBases.get(STATUTORY_BASIS)?.deactivationReason === 'By-law repealed';
+
+  const criterion4 =
+    captured &&
+    resolvesThroughRegistry &&
+    closedBasisVocabulary &&
+    refusesBlanks &&
+    versioned &&
+    withdrawn &&
+    expiryEnforced &&
+    otherBasisSurvives &&
+    basisWithdrawalStops &&
+    inspected.length > 0;
   record(
     4,
     'Consent granted, inspected, withdrawn, expired and audited',
-    hasLegalBasis ? 'PASS' : 'PARTIAL',
-    `lifecycle works (granted=${!!granted.record.id}, inspected=${inspected.length > 0}, ` +
-      `withdrawn=${withdrawn}, expiry enforced=${expiryEnforced}); missing ORCS §9 fields — ` +
-      'controller, processor, dataCategories, evidence of agreement, legalBasisReference',
-    'G-09',
+    criterion4 ? 'PASS' : 'PARTIAL',
+    criterion4
+      ? 'the record captures all eight §9 grant attributes including controller, processor, ' +
+        'data categories and evidence of agreement; legalBasisReference resolves through the ' +
+        'Legal Basis Registry and an unregistered reference is REFUSED rather than stored; a ' +
+        'grant missing data categories or evidence is refused rather than written blank; ' +
+        'replacement versions the record and preserves the previous one; withdrawal records ' +
+        'who acted; expiry stops processing, unless another valid legal basis applies -- and ' +
+        'withdrawing that basis stops it too, while the repealed entry stays readable'
+      : `§9 incomplete (captured=${captured}, resolves=${resolvesThroughRegistry}, ` +
+        `closed vocabulary=${closedBasisVocabulary}, refuses blanks=${refusesBlanks}, ` +
+        `versioned=${versioned}, withdrawn=${withdrawn}, expiry=${expiryEnforced}, ` +
+        `other basis survives=${otherBasisSurvives}, basis withdrawal stops=${basisWithdrawalStops})`,
+    criterion4 ? undefined : 'G-09',
   );
 
   // ---------------------------------------------------------------------------

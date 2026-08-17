@@ -144,6 +144,13 @@ jobs:
       - name: Erasure and retention (chain survives redaction)
         run: npm run smoke:privacy
 
+      # Consent accountability (ORCS §9). Gated because almost every assertion is a REFUSAL --
+      # a grant naming no controller, citing an unregistered legal basis, or holding no
+      # evidence of agreement must not be written. Those are the paths that silently start
+      # accepting blanks when a caller is "fixed" to stop erroring.
+      - name: Consent and the Legal Basis Registry (refusals, replacement, expiry exception)
+        run: npm run smoke:consent
+
       - name: Foundational sources (XML/SOAP and imported dataset adapters)
         run: npm run smoke:sources
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Body, Controller, Get, Inject, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Inject, Post, Query, Req, Res } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
@@ -276,21 +276,40 @@ export class InteractionController {
 
     if (resident) {
       const scopes = requested.split(' ').filter((s) => s !== 'openid');
-      const { record: consent } = await this.platform.getConsent().grant({
+      // The consent screen IS the evidence of agreement (ORCS §9), and the interaction uid is
+      // where it is retained: it identifies the session the resident approved in, so a
+      // disputed grant can be checked against the interaction rather than against the
+      // assertion that one happened. Data categories are the scopes granted -- at this layer
+      // a scope names the claim group released, which is the category.
+      const outcome = await this.platform.getConsent().grant({
         residentId: resident.residentId,
         subjectRef: resident.subjectRef,
         relyingParty: clientId,
         purpose: `Cross-sector access requested by ${clientId}`,
         scopes,
+        dataCategories: scopes,
+        evidence: {
+          method: 'sso_consent_screen',
+          at: new Date().toISOString(),
+          reference: `interaction:${this.uidFromReq(req) || String((details as any).jti ?? '')}`,
+        },
         grantId,
       });
       await this.platform.getAudit().record({
         action: 'consent.grant',
         actor: resident.residentId,
         target: clientId,
-        outcome: 'success',
-        metadata: { scopes, consentId: consent.id, via: 'sso' },
+        outcome: outcome.ok ? 'success' : 'failure',
+        metadata: outcome.ok
+          ? { scopes, consentId: outcome.record.id, via: 'sso' }
+          : { scopes, via: 'sso', reason: outcome.reason },
       });
+      // A refused grant must not finish the interaction as though consent were recorded.
+      // Releasing claims on a consent the register declined to write is the exact gap §9
+      // closes: the relying party would read the resident with nothing accountable behind it.
+      if (!outcome.ok) {
+        throw new BadRequestException(`Consent could not be recorded: ${outcome.reason}`);
+      }
     }
 
     await this.provider.interactionFinished(
