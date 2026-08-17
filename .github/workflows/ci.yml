@@ -38,6 +38,11 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # The layering rules this repo states in prose, enforced. Discipline holds until the
+      # day someone in a hurry imports the convenient thing and nothing fails.
+      - name: Architectural fence (core stays framework-agnostic, no cycles)
+        run: npm run lint:arch
+
       - name: Typecheck
         run: npm run typecheck
 

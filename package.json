@@ -1,7 +1,7 @@
 {
   "name": "open-residency",
   "version": "0.1.0",
-  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions \u2014 giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
+  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
   "author": "Chinonso Williams <nonso@harmonizedx.com>",
   "contributors": [
@@ -40,6 +40,7 @@
     "smoke:oid4vp": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vp-smoke.js",
     "test:conformance": "tsc -p tsconfig.core.json && node dist-core/scripts/conformance.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint:arch": "depcruise src scripts --config .dependency-cruiser.cjs",
     "test:w3c": "bash scripts/run-w3c-suite.sh",
     "smoke:sso": "tsc -p tsconfig.core.json && node dist-core/scripts/sso-smoke.js",
     "smoke:federation": "tsc -p tsconfig.core.json && node dist-core/scripts/federation-smoke.js",
@@ -97,6 +98,7 @@
     "@types/oidc-provider": "^9.11.0",
     "@types/pg": "^8.21.0",
     "@types/qrcode": "^1.5.6",
+    "dependency-cruiser": "^17.4.3",
     "prisma": "^7.9.1",
     "typescript": "^6.0.3"
   },
