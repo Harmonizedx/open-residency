@@ -160,7 +160,24 @@ export class PlatformService implements OnModuleDestroy {
     // Subject pepper: the HMAC key that makes a subjectRef non-reversible and
     // non-correlatable across deployments. Falling back silently is the worst case -- the
     // default is in the public source, so every subjectRef becomes reproducible by anyone
-    // and the whole tokenization design is void. Warn as loudly as the issuer key does.
+    // and the whole tokenization design is void. Fail exactly as the issuer key does.
+    //
+    // A warning is not enough here. Foundational identifiers are low-entropy (an 11-digit
+    // NIN is ~10^11 candidates), so a known pepper does not merely weaken the tokenization,
+    // it makes every subjectRef in the register enumerable offline -- and the same pepper
+    // derives pairwise OIDC subjects, so recovering it also collapses the cross-service
+    // correlation defence. Both guarantees are ones a relying party is told they can depend
+    // on, and neither can be restored after the fact: rotating the pepper invalidates every
+    // stored subjectRef, so the register cannot recognise its own residents.
+    if (!process.env.SUBJECT_PEPPER && process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'Refusing to start: NODE_ENV=production with no SUBJECT_PEPPER set. The fallback ' +
+          'pepper is published in this source, so every subjectRef would be reproducible by ' +
+          'anyone and pairwise OIDC subjects would no longer be unlinkable. Set ' +
+          'SUBJECT_PEPPER to a high-entropy deployment secret, and keep it: rotating it ' +
+          'invalidates every subjectRef already stored.',
+      );
+    }
     const pepper = process.env.SUBJECT_PEPPER ?? 'dev-pepper';
     if (!process.env.SUBJECT_PEPPER) {
       this.log.warn(

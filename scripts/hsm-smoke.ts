@@ -106,26 +106,47 @@ function ensureToken(pin: string): { ok: true; label: string } | { ok: false; wh
   return { ok: true, label };
 }
 
+/**
+ * Skipping is right on a developer laptop with no SoftHSM, and wrong in CI.
+ *
+ * This suite proves the one property that, if it were false, would invalidate every
+ * credential a deployment ever issued -- so a run that quietly exits 0 without asserting
+ * anything is worse than no run at all: the job goes green and reports custody it never
+ * tested. `REQUIRE_HSM=1` turns every skip below into a failure, and CI sets it.
+ */
+const REQUIRED = process.env.REQUIRE_HSM === '1';
+
+function skip(why: string): never {
+  if (REQUIRED) {
+    console.log(`\n  ✗ FAILED: ${why}\n`);
+    console.log(
+      '  REQUIRE_HSM=1 is set, so this suite must actually run. Install SoftHSM\n' +
+        '  (`apt-get install -y softhsm2` / `brew install softhsm`) and make sure the\n' +
+        '  optional `pkcs11js` dependency built, or unset REQUIRE_HSM to allow a skip.\n',
+    );
+    process.exit(1);
+  }
+  console.log(`  - SKIPPED: ${why}\n`);
+  process.exit(0);
+}
+
 async function main() {
   console.log('\n== OpenResidency HSM issuance smoke test ==\n');
 
   const libraryPath = findLibrary();
   if (!libraryPath) {
-    console.log('  - SKIPPED: no PKCS#11 library found (install softhsm, or set PKCS11_LIBRARY)\n');
-    process.exit(0);
+    skip('no PKCS#11 library found (install softhsm, or set PKCS11_LIBRARY)');
   }
   try {
     require('pkcs11js');
   } catch {
-    console.log('  - SKIPPED: the optional `pkcs11js` dependency is not installed\n');
-    process.exit(0);
+    skip('the optional `pkcs11js` dependency is not installed');
   }
 
   const pin = process.env.PKCS11_PIN ?? '1234';
   const token = ensureToken(pin);
   if (!token.ok) {
-    console.log(`  - SKIPPED: ${token.why}\n`);
-    process.exit(0);
+    skip(token.why!);
   }
 
   const cfg = {
