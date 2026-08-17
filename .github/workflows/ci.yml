@@ -168,10 +168,21 @@ jobs:
 
       # Issuer-key custody. A deployment signing with a key it does not hold in an HSM or KMS
       # is the single failure that invalidates every credential it ever issued, so the
-      # custody adapters are gated rather than trusted. All three are hermetic: they drive
-      # simulated PKCS#11 / cloud-KMS backends and need no credentials.
+      # custody adapters are gated rather than trusted. All three are hermetic: the KMS
+      # suites drive mock cloud services, and the PKCS#11 suite drives a real SoftHSM token
+      # created below. None needs credentials.
+      #
+      # SoftHSM must be installed explicitly. The runner does not ship it, and the suite is
+      # written to skip cleanly when it is absent -- correct on a laptop, silently green in
+      # CI, which is how this step passed for weeks without asserting anything. REQUIRE_HSM=1
+      # below turns any skip into a failure, so it cannot regress to a no-op unnoticed.
+      - name: Install SoftHSM (PKCS#11 token for the custody suite)
+        run: sudo apt-get update && sudo apt-get install -y softhsm2
+
       - name: Issuer key custody — PKCS#11 HSM
         run: npm run smoke:hsm
+        env:
+          REQUIRE_HSM: '1'
 
       - name: Issuer key custody — Google Cloud KMS
         run: npm run smoke:gcpkms
