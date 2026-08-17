@@ -28,8 +28,22 @@ export class AuditController {
     return { count: events.length, events };
   }
 
+  /**
+   * Verify the chain, and the anchor that binds its tail.
+   *
+   * The deployment's own public keys are passed in so the signed checkpoint is actually
+   * CHECKED rather than taken on trust. Without them the result reports `anchored: false`,
+   * which is the honest answer: an unverified anchor proves nothing, and returning a green
+   * tick that covers only the links would tell an auditor the tail was protected when the
+   * one attack the links cannot see is the tail being cut.
+   *
+   * Retired keys are included, because a log outlives the key that anchored it and a
+   * rotation must not retrospectively invalidate every checkpoint signed before it.
+   */
   @Get('verify')
   async verify() {
-    return this.platform.getAudit().verifyChain();
+    return this.platform
+      .getAudit()
+      .verifyChain({ publicJwks: this.platform.issuerPublicJwks() });
   }
 }

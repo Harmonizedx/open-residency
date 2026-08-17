@@ -1,0 +1,105 @@
+# Release artifacts: an SBOM, a source archive, signatures, and build provenance.
+#
+# DPG Standard indicators 8 and 9a ask for adherence to security best practice and for the
+# supply chain to be inspectable. An SBOM that exists only as a CI build artifact is not that:
+# it expires with the workflow run and a deploying government cannot reach it. This attaches
+# one to the release itself, and signs what it attaches.
+#
+# Signing is KEYLESS (Sigstore/Fulcio). There is no private key to store, rotate, or leak: the
+# signature is bound to this workflow's OIDC identity, so what a verifier checks is "produced
+# by this repository's release workflow", which is the claim that actually matters and is
+# stronger than "signed by whoever holds a secret in repository settings".
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs are allowed so the workflow can be exercised before it first matters. A
+  # release that only ever runs on a tag is a release that first runs when it is least
+  # convenient for it to fail.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or ref to package
+        required: false
+
+permissions:
+  contents: write # attach assets to the release
+  id-token: write # OIDC identity for keyless signing and provenance
+  attestations: write
+
+jobs:
+  release:
+    name: SBOM, signatures, and provenance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Generated from the installed tree rather than the manifest, so it records the
+      # versions actually resolved rather than the ranges requested.
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cyclonedx.json
+
+      - name: Package the source archive
+        run: |
+          VERSION="${GITHUB_REF_NAME:-untagged}"
+          git archive --format=tar.gz --prefix="open-residency-${VERSION}/" \
+            -o "open-residency-${VERSION}.tar.gz" HEAD
+          echo "ARCHIVE=open-residency-${VERSION}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Checksums
+        run: sha256sum sbom.cyclonedx.json "$ARCHIVE" > SHA256SUMS
+
+      - uses: sigstore/cosign-installer@v3
+
+      # sign-blob rather than sign: the container image is built in CI but never pushed to a
+      # registry, and cosign signs images by digest IN a registry. Publishing images is a
+      # separate decision with its own consequences, so this signs what the release actually
+      # ships. See the note in SECURITY.md.
+      - name: Sign the release artifacts
+        run: |
+          for f in sbom.cyclonedx.json "$ARCHIVE" SHA256SUMS; do
+            cosign sign-blob --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.pem" \
+              "$f"
+          done
+
+      # Provenance is the machine-checkable half: it records which workflow, at which commit,
+      # produced these bytes. A signature says who; provenance says how.
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            sbom.cyclonedx.json
+            ${{ env.ARCHIVE }}
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" \
+            sbom.cyclonedx.json sbom.cyclonedx.json.sig sbom.cyclonedx.json.pem \
+            "$ARCHIVE" "${ARCHIVE}.sig" "${ARCHIVE}.pem" \
+            SHA256SUMS SHA256SUMS.sig SHA256SUMS.pem \
+            --clobber
+
+      # Kept when the run was manual, so a dry run is inspectable without a tag existing.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts
+          path: |
+            sbom.cyclonedx.json*
+            SHA256SUMS*
+            *.tar.gz*
+          if-no-files-found: error

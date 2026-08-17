@@ -38,6 +38,11 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      # The layering rules this repo states in prose, enforced. Discipline holds until the
+      # day someone in a hurry imports the convenient thing and nothing fails.
+      - name: Architectural fence (core stays framework-agnostic, no cycles)
+        run: npm run lint:arch
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -289,3 +294,35 @@ jobs:
       # from regressing.
       - name: Build container image
         run: docker build -t open-residency:ci .
+
+      # The npm audit gate above covers our dependencies. It says nothing about the base
+      # image -- the OS packages a deploying government actually runs. Scanning the built
+      # image is what makes the supply-chain claim cover the whole artifact rather than the
+      # half of it written in JavaScript.
+      #
+      # REPORT-ONLY for now, and that is a deliberate, tracked state rather than a quiet
+      # one. Switching the scan on revealed a backlog: Debian packages the distribution has
+      # marked "won't fix", and Node 20 binary advisories that need a runtime bump. Waiving
+      # twenty findings with boilerplate to make the gate green would be worse than no gate,
+      # because it would assert an assessment nobody performed.
+      #
+      # The findings are uploaded on every run, so the backlog is visible rather than
+      # invisible, and #120 tracks driving it to zero and flipping fail-build to true. Do not
+      # raise severity-cutoff to make this pass -- that waives everything at once and explains
+      # none of it.
+      - name: Scan the image for vulnerabilities
+        id: grype
+        uses: anchore/scan-action@v6
+        with:
+          image: open-residency:ci
+          fail-build: false
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Publish the scan findings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-vulnerability-scan
+          path: ${{ steps.grype.outputs.sarif }}
+          if-no-files-found: warn

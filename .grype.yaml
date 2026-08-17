@@ -1,0 +1,11 @@
+# Vulnerability triage for the container image scan (CI: "Docker image builds").
+#
+# Empty on purpose. The scan is currently REPORT-ONLY (see #120) precisely so that this file
+# does not fill up with waivers nobody assessed: an entry here should mean somebody checked
+# whether the vulnerable code path is reachable in this image and concluded it is not, with a
+# date to re-check. Twenty boilerplate entries added to turn a job green would assert an
+# assessment that never happened, which is worse than no gate at all.
+#
+# When the backlog in #120 is worked down, `fail-build` becomes true and whatever genuinely
+# survives assessment is recorded below with a reason and an `until` date.
+ignore: []
