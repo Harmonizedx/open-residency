@@ -104,5 +104,8 @@
   },
   "optionalDependencies": {
     "pkcs11js": "^2.1.7"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.1"
   }
 }
