@@ -87,6 +87,34 @@ consent status, and it turns on the **kind** of basis rather than on one being p
 Treating any resolvable basis as sufficient would let a withdrawn consent keep authorising the
 read, which is the failure §9 is written to prevent.
 
+### The record is enforced on the release path, not merely stored
+
+§9 requires expiry to *"prevent further processing automatically"*, and a rule enforced nowhere
+is not a rule. Claim release therefore consults the consent record: `claims()` resolves the
+governing consent for the relying party and calls `mayProcess` before returning anything beyond
+`sub`.
+
+Refusal **degrades to `sub` alone** rather than failing the request. The relying party already
+holds the pairwise subject identifier, so returning it discloses nothing further, and
+authentication keeps working while the personal data stops flowing — withdrawing consent and
+being locked out of the login are different things. Already-issued ID tokens cannot be recalled;
+this takes effect on every userinfo read and every subsequent token, and `POST /consent/:id/revoke`
+additionally destroys the OIDC grant for immediate session termination.
+
+This was not the first implementation. The first recorded consent state and read it nowhere on
+the release path, so a withdrawn consent kept releasing the full claim set for the life of its
+tokens — and the conformance criterion was flipped to PASS on assertions made directly against
+the domain object. That is precisely the "capability exists but no code path exercises it end to
+end" case this repo's rules say must stay PARTIAL.
+
+### Which bases exist is config; which are withdrawn is state
+
+The registry is rebuilt from configuration at every boot, so a withdrawal held only in memory
+would be undone by the next restart, and in a multi-instance deployment only the process that
+served the request would stop honouring the basis. Withdrawals are persisted and replayed at
+boot. **Only** withdrawals: persisting the definitions too would create a second source of truth
+able to disagree with the config file a reviewer actually reads.
+
 ## Consequences
 
 - The `grant()` contract changed from returning `{ record, receipt }` to a discriminated
@@ -105,9 +133,13 @@ read, which is the failure §9 is written to prevent.
 
 ## How this is verified
 
-- `npm run smoke:consent` — 39 assertions, most of them refusals: the required fields, the
+- `npm run smoke:consent` — 47 assertions, most of them refusals: the required fields, the
   closed vocabulary, the effective window, duplicate registration, deactivation attribution,
   the replacement chain, and the expiry exception in both directions.
+- `npm run smoke:sso-oidc` — the enforcement, through the **real** oidc-provider: the same
+  bearer token is replayed after withdrawal and no longer releases the residency claim, while
+  `sub` still resolves so authentication is unaffected. Asserting this against the domain object
+  alone is what let the gap exist in the first place.
 - `npm run conformance:orcs` — criterion 4 asserts all eight §9 grant attributes, that an
   unregistered reference is refused rather than stored, that a repealed basis stays readable
   while no longer resolving, and that withdrawing a basis stops the grants relying on it.
