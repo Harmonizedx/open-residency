@@ -66,7 +66,13 @@ export interface ConsentEvidence {
     | 'operator_recorded'
     | 'signed_form'
     | 'ussd_confirmation'
-    | 'imported_record';
+    | 'imported_record'
+    /**
+     * Only ever produced by READING a row written before §9 evidence existed. Refused on
+     * write: a grant may not claim its evidence is unrecorded, and the value exists so that
+     * the absence stays legible instead of being dressed up as some method nobody used.
+     */
+    | 'unrecorded';
   /** When agreement was given, which is not always when the record was written. */
   at: string;
   /** Where the agreement is retained: a session id, form id, document or transaction ref. */
@@ -195,7 +201,11 @@ export class ConsentService {
     if (!input.dataCategories?.some((c) => c.trim())) {
       return { ok: false, reason: 'DATA_CATEGORIES_REQUIRED' };
     }
-    if (!input.evidence?.reference?.trim() || !input.evidence?.method) {
+    if (
+      !input.evidence?.reference?.trim() ||
+      !input.evidence?.method ||
+      input.evidence.method === 'unrecorded'
+    ) {
       return { ok: false, reason: 'EVIDENCE_OF_AGREEMENT_REQUIRED' };
     }
     if (!Number.isFinite(Date.parse(input.evidence.at ?? ''))) {
@@ -278,11 +288,15 @@ export class ConsentService {
     // two live consents for one relying party is not a history, it is an ambiguity, and the
     // revocation path would only have found one of them.
     if (existing) {
+      // `revokedAt` is deliberately NOT set. The citizen did not withdraw anything -- they
+      // broadened or narrowed what they share -- and this record is returned verbatim to the
+      // citizen-facing listing and to a subject-access export, where a `revokedAt` would read
+      // as a withdrawal that never happened. When the supersession occurred is the successor's
+      // `grantedAt`, reachable through `supersededById`, so nothing is lost by leaving it unset.
       await this.store.update({
         ...existing,
         status: 'replaced',
         supersededById: record.id,
-        revokedAt: now.toISOString(),
       });
     }
 
@@ -362,6 +376,24 @@ export class ConsentService {
   }
 
   /**
+   * The permission that governs this relying party's reads, whatever its status.
+   *
+   * Not `findActive`: a lapsed consent is exactly the record `mayProcess` has to see, because
+   * whether the lapse stops processing depends on the legal basis it cites. Filtering it out
+   * here would decide the question before asking it, and a statutory basis would be silently
+   * ignored the moment the consent expired. Replaced records are excluded -- they have been
+   * superseded by a live one, and the successor is what governs.
+   */
+  async governing(residentId: string, relyingParty: string): Promise<ConsentRecord | null> {
+    const all = await this.store.listByResident(residentId);
+    const candidates = all.filter((r) => r.relyingParty === relyingParty && r.status !== 'replaced');
+    if (candidates.length === 0) return null;
+    return candidates.reduce((newest, r) =>
+      Date.parse(r.grantedAt) > Date.parse(newest.grantedAt) ? r : newest,
+    );
+  }
+
+  /**
    * May this relying party still be given the claims, and on what authority?
    *
    * ORCS §9 Expire: "Prevent further processing automatically, UNLESS another valid legal
@@ -380,12 +412,19 @@ export class ConsentService {
     now: Date = new Date(),
   ): { permitted: boolean; basis: LegalBasis | null; reason: string } {
     const basis = this.policy.legalBases.resolve(record.legalBasisReference, now);
-    if (basis && basis.kind !== 'consent') {
+    if (!basis) return { permitted: false, basis: null, reason: 'LEGAL_BASIS_NOT_IN_FORCE' };
+
+    // Replacement is checked BEFORE the other-basis exception, and withdrawal and expiry are
+    // checked after. The exception exists because a citizen's consent lapsing does not repeal a
+    // statute -- but a superseded record is not a lapsed permission, it is the wrong version of
+    // one. Its scopes have been restated by its successor, so honouring it under a statutory
+    // basis would authorise the OLD, often wider, scope set that the citizen has since narrowed.
+    if (record.status === 'replaced') return { permitted: false, basis, reason: 'CONSENT_REPLACED' };
+
+    if (basis.kind !== 'consent') {
       return { permitted: true, basis, reason: `OTHER_LEGAL_BASIS_${basis.kind.toUpperCase()}` };
     }
-    if (!basis) return { permitted: false, basis: null, reason: 'LEGAL_BASIS_NOT_IN_FORCE' };
     if (record.status === 'revoked') return { permitted: false, basis, reason: 'CONSENT_WITHDRAWN' };
-    if (record.status === 'replaced') return { permitted: false, basis, reason: 'CONSENT_REPLACED' };
     if (record.status !== 'active' || isExpired(record, now)) {
       return { permitted: false, basis, reason: 'CONSENT_EXPIRED' };
     }

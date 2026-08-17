@@ -50,25 +50,34 @@ credential:
 # about their law in their config file. They fall back to `credential.issuerName` as the
 # controller and to consent as the only basis, which is true of every deployment.
 #
+# LEFT COMMENTED ON PURPOSE. The deployment-wide settings are read from the first config
+# loaded, and `readdirSync().sort()` puts `demo.yaml` first in this directory -- so live values
+# here would stamp "Government of Demoland" into the controller field of every consent record
+# and every signed receipt a citizen keeps, on a deployment that merely forgot to delete the
+# demo file. A fictional legal citation is not a safe default for an accountability field.
+#
 # `controller` is optional and falls back to `credential.issuerName`. Declare it when the
-# accountable body is not the issuing agency -- here the state, not the authority acting for it.
-dataProtection:
-  controller: Government of Demoland
-  # A body processing on the controller's behalf. Omit it when there is none.
-  processor: Demoland Digital Services Agency
-  # Non-consent bases. `orcs:legal-basis:consent` is registered by the platform and must not be
-  # repeated here; the config is refused at load if it is, or if defaultLegalBasisReference
-  # names anything not declared.
-  legalBases:
-    - id: zz:dx:residency-register-act-2026
-      kind: public_task
-      name: Maintenance of the district residency register
-      instrument: Demoland Residency Register Act 2026, s.4(1)
-      jurisdiction: Demoland
-      version: '1.0'
-      effectiveFrom: '2026-01-01'
-  # Basis for grants that name none. Omit it and grants default to consent itself.
-  defaultLegalBasisReference: orcs:legal-basis:consent
+# accountable body is not the issuing agency -- the state, say, rather than the authority
+# acting for it.
+#
+# dataProtection:
+#   controller: Government of Demoland
+#   # A body processing on the controller's behalf. Omit it when there is none.
+#   processor: Demoland Digital Services Agency
+#   # Non-consent bases. `orcs:legal-basis:consent` is registered by the platform and must not
+#   # be repeated here; the config is refused at load if it is, or if
+#   # defaultLegalBasisReference names anything not declared.
+#   legalBases:
+#     - id: zz:dx:residency-register-act-2026
+#       kind: public_task
+#       name: Maintenance of the district residency register
+#       instrument: Demoland Residency Register Act 2026, s.4(1)
+#       jurisdiction: Demoland
+#       version: '1.0'
+#       effectiveFrom: '2026-01-01'
+#       # effectiveTo: '2031-01-01'   # refused at load if unparseable
+#   # Basis for grants that name none. Omit it and grants default to consent itself.
+#   defaultLegalBasisReference: orcs:legal-basis:consent
 
 subnationalUnits:
   - { code: DX, name: Demo District, parent: ZZ, level: state }

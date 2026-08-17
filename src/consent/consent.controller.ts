@@ -8,10 +8,16 @@ import {
   NotFoundException,
   Param,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
-import { OperatorGuard, RequireRoles } from '../common/operator.guard';
+import {
+  OperatorGuard,
+  RequireRoles,
+  RequestWithOperator,
+  requireOperator,
+} from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
 import { DeactivateLegalBasisDto, GrantConsentDto } from './dto/grant-consent.dto';
 
@@ -108,16 +114,30 @@ export class ConsentController {
     return { legalBasis: basis, inForce: this.platform.getLegalBases().resolve(id) !== null };
   }
 
+  /**
+   * The authority is the AUTHENTICATED OPERATOR, not a string from the body.
+   *
+   * Withdrawing a lawful basis stops every consent citing it. Taking the attributed actor from
+   * the request would let any admin perform that act and type a colleague's name into the
+   * record -- so the one route whose stated purpose is attribution would be the one that does
+   * not attribute. The body carries the reason only.
+   */
   @Post('legal-bases/:id/deactivate')
   @RequireRoles('admin')
-  async deactivateLegalBasis(@Param('id') id: string, @Body() body: DeactivateLegalBasisDto) {
+  async deactivateLegalBasis(
+    @Req() req: RequestWithOperator,
+    @Param('id') id: string,
+    @Body() body: DeactivateLegalBasisDto,
+  ) {
+    const operator = requireOperator(req);
+    const authority = `operator:${operator.id}`;
     const outcome = this.platform.getLegalBases().deactivate(id, {
       reason: body.reason,
-      authority: body.authority,
+      authority,
     });
     await this.platform.getAudit().record({
       action: 'legalBasis.deactivate',
-      actor: body.authority,
+      actor: authority,
       target: id,
       outcome: outcome.ok ? 'success' : 'failure',
       metadata: outcome.ok ? { reason: body.reason } : { reason: outcome.reason },
@@ -126,6 +146,11 @@ export class ConsentController {
       if (outcome.reason === 'UNKNOWN_LEGAL_BASIS') throw new NotFoundException(outcome.reason);
       throw new BadRequestException(outcome.reason);
     }
+    // Persist AFTER the in-memory transition succeeds, and before returning. The registry is
+    // rebuilt from config at every boot, so a withdrawal that is not written here survives only
+    // until the next restart -- and in a multi-instance deployment, only in the one process
+    // that served this request.
+    await this.platform.persistLegalBasisWithdrawal(outcome.basis);
     return { legalBasis: outcome.basis };
   }
 

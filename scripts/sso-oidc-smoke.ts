@@ -28,6 +28,10 @@ import { buildOidcConfiguration } from '../src/sso/oidc.provider';
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { pairwiseSubject } from '../src/core/sso/pairwise';
 import { InMemoryOidcStore, OidcStore } from '../src/core/sso/oidc-store';
+import { ConsentService, InMemoryConsentStore } from '../src/core/consent/consent';
+import { LegalBasisRegistry, legalBasesForDeployment } from '../src/core/consent/legal-basis';
+import { KeyStore } from '../src/core/credentials/keystore';
+import { didKeyFromJwk } from '../src/core/credentials/did';
 
 let pass = 0;
 let fail = 0;
@@ -95,7 +99,11 @@ const RESIDENT_RECORD = {
  * `oidcStore` is a parameter so two replicas can be given the SAME store, which is what
  * a shared database is from the provider's point of view.
  */
-function stubPlatform(oidcJwk: JWK, oidcStore: OidcStore = new InMemoryOidcStore()): any {
+function stubPlatform(
+  oidcJwk: JWK,
+  oidcStore: OidcStore = new InMemoryOidcStore(),
+  consent?: ConsentService,
+): any {
   return {
     listConfigs: () => [CONFIG],
     getSubjectPepper: () => PEPPER,
@@ -104,7 +112,38 @@ function stubPlatform(oidcJwk: JWK, oidcStore: OidcStore = new InMemoryOidcStore
     getStore: () => ({
       findByResidentId: async (id: string) => (id === RESIDENT_ID ? RESIDENT_RECORD : null),
     }),
+    // Claim release is gated on the consent record (ORCS §9), so the provider needs a real
+    // consent service here rather than a stub that always says yes. The whole point of the
+    // gate is that it can say no, and a double that cannot is not testing it.
+    getConsent: () => consent,
   };
+}
+
+/** A consent service with one active grant for the resident and the test relying party. */
+async function consentServiceWithGrant(): Promise<{ svc: ConsentService; consentId: string }> {
+  const key = await KeyStore.generate('sso-oidc-consent-key');
+  const controller = 'Katsina State Residency Authority';
+  const svc = new ConsentService(new InMemoryConsentStore(), key, didKeyFromJwk(key.publicJwk), {
+    controller,
+    legalBases: new LegalBasisRegistry(
+      legalBasesForDeployment({ jurisdiction: 'Nigeria', controller }),
+    ),
+  });
+  const granted = await svc.grant({
+    subjectRef: 'tok_sso_oidc',
+    residentId: RESIDENT_ID,
+    relyingParty: CLIENT_ID,
+    purpose: 'Cross-sector access',
+    scopes: ['residency'],
+    dataCategories: ['subject_identifier', 'residency'],
+    evidence: {
+      method: 'sso_consent_screen',
+      at: new Date().toISOString(),
+      reference: 'interaction:sso-oidc-smoke',
+    },
+  });
+  if (!granted.ok) throw new Error(`could not seed consent: ${granted.reason}`);
+  return { svc, consentId: granted.record.id };
 }
 
 /**
@@ -268,7 +307,8 @@ async function main() {
   const kp = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
   const oidcJwk: JWK = { ...(await exportJWK(kp.privateKey)), kid: 'oidc-key-1', alg: 'EdDSA', use: 'sig' };
 
-  const config = await buildOidcConfiguration(stubPlatform(oidcJwk));
+  const { svc: consentSvc, consentId } = await consentServiceWithGrant();
+  const config = await buildOidcConfiguration(stubPlatform(oidcJwk, undefined, consentSvc));
   check('buildOidcConfiguration produced a config', !!config);
   check('it registered the relying party as a client', (config.clients as unknown[]).length === 1);
   check('the config carries the OIDC signing key so the provider can sign', (config.jwks as any).keys[0].kid === 'oidc-key-1');
@@ -365,6 +405,34 @@ async function main() {
   check('userinfo releases the consented residency claim', claims.resident_id === RESIDENT_ID);
   check('userinfo sub matches the id_token sub (consistent pairwise id)', claims.sub === payload?.sub);
 
+  // --- Withdrawing consent stops the claims, through the real provider ------
+  //
+  // ORCS §9 requires withdrawal and expiry to "prevent further processing automatically".
+  // Recording consent state and never reading it on the release path is the failure mode this
+  // asserts against: before the gate existed, the access token minted above went on returning
+  // the full claim set for its whole lifetime no matter what the register said. The token is
+  // deliberately NOT re-issued here -- the same bearer token is replayed, because that is the
+  // case that used to leak.
+  await consentSvc.revoke(consentId, 'citizen');
+  const afterWithdrawal = await req('GET', `${base}/oidc/me`, jar, {
+    headers: { authorization: `Bearer ${tokens.access_token}` },
+  });
+  const withdrawnClaims = JSON.parse(afterWithdrawal.body || '{}');
+  check(
+    'after withdrawal the SAME access token no longer releases the residency claim',
+    withdrawnClaims.resident_id === undefined,
+    `resident_id=${withdrawnClaims.resident_id}`,
+  );
+  check(
+    'and the personal-data claims are gone with it',
+    withdrawnClaims.given_name === undefined && withdrawnClaims.subnational_unit === undefined,
+  );
+  check(
+    'but the subject identifier still resolves, so authentication is not broken by withdrawal',
+    afterWithdrawal.status === 200 && withdrawnClaims.sub === payload?.sub,
+    `status ${afterWithdrawal.status}`,
+  );
+
   // --- Two replicas, one store ---------------------------------------------
   //
   // Everything above runs in one process, which is precisely why it passed while sign-in
@@ -379,8 +447,8 @@ async function main() {
   check('the config configures a storage adapter (not in-process memory)', typeof (config as any).adapter === 'function');
 
   const sharedStore = new InMemoryOidcStore();
-  const a = await bootReplica(await buildOidcConfiguration(stubPlatform(oidcJwk, sharedStore)));
-  const b = await bootReplica(await buildOidcConfiguration(stubPlatform(oidcJwk, sharedStore)));
+  const a = await bootReplica(await buildOidcConfiguration(stubPlatform(oidcJwk, sharedStore, (await consentServiceWithGrant()).svc)));
+  const b = await bootReplica(await buildOidcConfiguration(stubPlatform(oidcJwk, sharedStore, (await consentServiceWithGrant()).svc)));
 
   const jar3 = new CookieJar();
   const verifier3 = b64url(randomBytes(32));
