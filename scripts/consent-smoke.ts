@@ -340,6 +340,91 @@ async function main() {
     );
   }
 
+  console.log('\nAn authentication-only sign-in can still record consent:');
+  //
+  // `openid` alone is what a relying party sends when it wants authentication and no claims.
+  // Deriving the data categories from the non-openid scopes made the list empty, the grant was
+  // refused, and the SSO interaction 400'd -- a plain sign-in could not complete. The e2e suite
+  // requests four scopes, so nothing caught it. `openid` releases the pairwise subject
+  // identifier, which IS a category of personal data, and is asserted as such here.
+  const authOnly = await svc.grant({
+    ...baseGrant(),
+    residentId: 'NG-KT-AUTHONLY',
+    relyingParty: 'portal',
+    scopes: [],
+    dataCategories: ['subject_identifier'],
+  });
+  check('a grant releasing only the subject identifier is accepted', authOnly.ok === true);
+  check(
+    'and it records that category rather than nothing',
+    authOnly.ok && authOnly.record.dataCategories.join() === 'subject_identifier',
+  );
+
+  console.log('\nA superseded record is not reported as withdrawn:');
+  if (v2.ok && granted.ok) {
+    const all = await svc.listByResident('NG-KT-0001');
+    const prior = all.find((c) => c.id === granted.record.id);
+    check(
+      'a replaced consent carries no revokedAt -- the citizen restated it, they did not withdraw it',
+      prior?.status === 'replaced' && prior?.revokedAt === undefined,
+    );
+    check('and no withdrawnBy either', prior?.withdrawnBy === undefined);
+  }
+
+  console.log('\nA superseded record does not ride on a statutory basis:');
+  const wideV1 = await svc.grant({
+    ...baseGrant(),
+    residentId: 'NG-KT-SUPERSEDE',
+    relyingParty: 'registry2',
+    scopes: ['openid', 'health', 'tax'],
+    legalBasisReference: CONSENT_LEGAL_BASIS_ID,
+  });
+  const narrowV2 = await svc.grant({
+    ...baseGrant(),
+    residentId: 'NG-KT-SUPERSEDE',
+    relyingParty: 'registry2',
+    scopes: ['openid'],
+    dataCategories: ['subject_identifier'],
+    legalBasisReference: CONSENT_LEGAL_BASIS_ID,
+  });
+  if (wideV1.ok && narrowV2.ok) {
+    const superseded = (await svc.listByResident('NG-KT-SUPERSEDE')).find(
+      (c) => c.id === wideV1.record.id,
+    );
+    check(
+      'the narrowed version supersedes the wider one',
+      superseded?.status === 'replaced' && narrowV2.record.version === 2,
+    );
+    check(
+      'and the superseded, wider grant reports CONSENT_REPLACED rather than being honoured',
+      !!superseded && svc.mayProcess(superseded).permitted === false,
+    );
+  }
+
+  console.log('\nA time-limited basis that cannot say when it ends is refused:');
+  let badEndRejected = false;
+  try {
+    new LegalBasisRegistry([
+      {
+        id: 'ng:kt:bad-end',
+        kind: 'legal_obligation',
+        name: 'Unreadable end date',
+        instrument: 'Some Act 2026, s.2',
+        jurisdiction: 'Nigeria',
+        controller: CONTROLLER,
+        version: '1.0',
+        effectiveFrom: '2026-01-01',
+        effectiveTo: '2027-13-45',
+      },
+    ]);
+  } catch {
+    badEndRejected = true;
+  }
+  check(
+    'an unparseable effectiveTo is refused (NaN comparisons would make it perpetual)',
+    badEndRejected,
+  );
+
   console.log('\nConfig declares the registry, and is refused when it cannot be resolved:');
   const configBase = {
     countryCode: 'NG',
@@ -394,6 +479,31 @@ async function main() {
     redeclarationRefused = true;
   }
   check('redeclaring the built-in consent basis is refused at load', redeclarationRefused);
+  let badDateRefused = false;
+  try {
+    parseCountryConfig({
+      ...configBase,
+      dataProtection: {
+        legalBases: [
+          {
+            id: 'ng:kt:bad',
+            kind: 'public_task',
+            name: 'Unreadable',
+            instrument: 'Act',
+            jurisdiction: 'Nigeria',
+            effectiveFrom: '2026-01-01',
+            effectiveTo: 'whenever',
+          },
+        ],
+      },
+    });
+  } catch {
+    badDateRefused = true;
+  }
+  check(
+    'an unparseable date is a CONFIG error naming the file, not a registry throw at boot',
+    badDateRefused,
+  );
   const okCfg = parseCountryConfig({
     ...configBase,
     dataProtection: {

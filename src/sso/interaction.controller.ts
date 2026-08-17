@@ -267,27 +267,37 @@ export class InteractionController {
     const priorConsent = resident
       ? await this.platform.getConsent().findActive(resident.residentId, clientId)
       : null;
-    const grant =
-      (priorConsent?.grantId
-        ? await this.provider.Grant.find(priorConsent.grantId)
-        : undefined) ?? new this.provider.Grant({ accountId, clientId });
+    const reusedGrant = priorConsent?.grantId
+      ? await this.provider.Grant.find(priorConsent.grantId)
+      : undefined;
+    const grant = reusedGrant ?? new this.provider.Grant({ accountId, clientId });
     grant.addOIDCScope(requested);
     const grantId = await grant.save();
 
     if (resident) {
-      const scopes = requested.split(' ').filter((s) => s !== 'openid');
+      const requestedScopes = requested.split(' ').filter(Boolean);
+      const scopes = requestedScopes.filter((s) => s !== 'openid');
       // The consent screen IS the evidence of agreement (ORCS §9), and the interaction uid is
       // where it is retained: it identifies the session the resident approved in, so a
       // disputed grant can be checked against the interaction rather than against the
-      // assertion that one happened. Data categories are the scopes granted -- at this layer
-      // a scope names the claim group released, which is the category.
+      // assertion that one happened.
+      //
+      // `openid` is a data category, not an absence of one. It releases the pairwise subject
+      // identifier -- which is personal data, and for an authentication-only sign-in it is the
+      // ONLY category released. Deriving the categories from the non-openid scopes alone left
+      // them empty for `scope=openid`, and an empty category list is refused, so a plain
+      // sign-in could not complete at all. The e2e suite requests four scopes and never caught it.
+      const dataCategories = [
+        ...(requestedScopes.includes('openid') ? ['subject_identifier'] : []),
+        ...scopes,
+      ];
       const outcome = await this.platform.getConsent().grant({
         residentId: resident.residentId,
         subjectRef: resident.subjectRef,
         relyingParty: clientId,
         purpose: `Cross-sector access requested by ${clientId}`,
         scopes,
-        dataCategories: scopes,
+        dataCategories,
         evidence: {
           method: 'sso_consent_screen',
           at: new Date().toISOString(),
@@ -308,6 +318,14 @@ export class InteractionController {
       // Releasing claims on a consent the register declined to write is the exact gap §9
       // closes: the relying party would read the resident with nothing accountable behind it.
       if (!outcome.ok) {
+        // Destroy the grant this request minted. Leaving it saved would strand an authorization
+        // nothing points at -- and, worse, a later sign-in could find and reuse it, so the
+        // refusal would be silently undone. A REUSED grant is left alone: it belongs to an
+        // earlier consent that is still valid, and destroying it would revoke that one's session.
+        if (!reusedGrant) {
+          const minted = await this.provider.Grant.find(grantId);
+          if (minted) await minted.destroy();
+        }
         throw new BadRequestException(`Consent could not be recorded: ${outcome.reason}`);
       }
     }

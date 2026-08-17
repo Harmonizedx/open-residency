@@ -76,6 +76,27 @@ export interface LegalBasis {
 export type DeactivateOutcome = { ok: true; basis: LegalBasis } | { ok: false; reason: string };
 
 /**
+ * Durable record of a withdrawal.
+ *
+ * Which bases EXIST is declared in configuration and rebuilt at every boot. Which have been
+ * WITHDRAWN cannot be, because withdrawal is an operational act taken at run time: held only
+ * in memory it would be undone by the next restart, and in a multi-instance deployment only
+ * the process that served the request would stop honouring the basis. So the registry stays a
+ * pure in-memory structure and the delivery layer persists this and replays it on boot.
+ */
+export interface LegalBasisDeactivation {
+  id: string;
+  deactivatedAt: string;
+  deactivationReason: string;
+  deactivatedBy: string;
+}
+
+export interface LegalBasisStore {
+  listDeactivations(): Promise<LegalBasisDeactivation[]>;
+  saveDeactivation(record: LegalBasisDeactivation): Promise<void>;
+}
+
+/**
  * The one basis every deployment can rely on without declaring local law.
  *
  * Consent is a lawful basis in each of the regimes this vocabulary is drawn from, so shipping
@@ -156,8 +177,19 @@ export class LegalBasisRegistry {
           'unattributed basis is not something a regulator can check.',
       );
     }
+    // BOTH dates are validated, and the second one matters more than it looks. `resolve`
+    // compares with `Date.parse(effectiveTo) <= now`, and NaN fails every comparison -- so an
+    // unparseable end date does not shorten the window, it removes it, and a time-limited
+    // instrument goes on authorising processing for ever after it expired. A basis that cannot
+    // say when it stops is refused at registration rather than silently becoming perpetual.
     if (!Number.isFinite(Date.parse(basis.effectiveFrom))) {
       throw new Error(`Legal basis "${basis.id}" has an unparseable effectiveFrom`);
+    }
+    if (basis.effectiveTo !== undefined && !Number.isFinite(Date.parse(basis.effectiveTo))) {
+      throw new Error(
+        `Legal basis "${basis.id}" has an unparseable effectiveTo ("${basis.effectiveTo}"); ` +
+          'an unreadable end date would make the basis perpetual rather than time-limited.',
+      );
     }
     this.bases.set(basis.id, basis);
   }

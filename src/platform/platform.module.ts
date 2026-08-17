@@ -3,6 +3,7 @@ import { Global, Module, OnModuleInit } from '@nestjs/common';
 import {
   PrismaAuditStore,
   PrismaConsentStore,
+  PrismaLegalBasisStore,
   PrismaOid4vciStore,
   PrismaOid4vpStore,
   PrismaOidcStore,
@@ -23,6 +24,7 @@ import { PlatformService } from './platform.service';
     PrismaResidencyStore,
     PrismaAuditStore,
     PrismaConsentStore,
+    PrismaLegalBasisStore,
     PrismaOid4vciStore,
     PrismaOid4vpStore,
     PrismaOidcStore,
@@ -38,6 +40,7 @@ import { PlatformService } from './platform.service';
     PrismaResidencyStore,
     PrismaAuditStore,
     PrismaConsentStore,
+    PrismaLegalBasisStore,
     PrismaOid4vciStore,
     PrismaOid4vpStore,
     PrismaOidcStore,

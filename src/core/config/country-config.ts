@@ -1003,6 +1003,19 @@ export const countryConfigSchema = z
         });
       }
       seen.add(b.id);
+      // Validated here as well as in the registry, so an unreadable date is a config error at
+      // load rather than a registry exception thrown out of platform init -- same failure,
+      // but one of them names the file and the field.
+      for (const field of ['effectiveFrom', 'effectiveTo'] as const) {
+        const value = b[field];
+        if (value !== undefined && !Number.isFinite(Date.parse(value))) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['dataProtection', 'legalBases'],
+            message: `legal basis "${b.id}" has an unparseable ${field} ("${value}")`,
+          });
+        }
+      }
       if (b.id === CONSENT_LEGAL_BASIS_ID) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
