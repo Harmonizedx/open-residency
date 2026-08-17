@@ -1,7 +1,7 @@
 {
   "name": "open-residency",
   "version": "0.1.0",
-  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
+  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions \u2014 giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
   "author": "Chinonso Williams <nonso@harmonizedx.com>",
   "contributors": [
@@ -104,5 +104,8 @@
   },
   "optionalDependencies": {
     "pkcs11js": "^2.1.7"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.1"
   }
 }
