@@ -282,10 +282,10 @@ async function main() {
   );
   check(
     'the raw upstream subject is never stored: the reference is tokenized',
-    !!result.identity?.subjectRef &&
-      !result.identity.subjectRef.includes(SUBJECT) &&
-      result.identity.subjectRef.startsWith('oidc_'),
-    result.identity?.subjectRef,
+    !!result.identity?.authenticationRef &&
+      !result.identity.authenticationRef.includes(SUBJECT) &&
+      result.identity.authenticationRef.startsWith('oidc_'),
+    result.identity?.authenticationRef,
   );
 
   // The same subject at the same provider is stable; the pepper keeps it uncorrelatable.
@@ -294,7 +294,10 @@ async function main() {
     code: authorize(start2, ACR_OTP),
     state: start2.state,
   });
-  check('the same upstream subject yields the same reference', second.identity?.subjectRef === result.identity?.subjectRef);
+  // ADR-0010: this is an AUTHENTICATION reference, not a residency identity. The assertion
+  // below is about session-subject stability at one OP, which is all a pairwise sub can
+  // support -- it is not, and must never be read as, "the same person the register holds".
+  check('the same upstream subject yields the same reference', second.identity?.authenticationRef === result.identity?.authenticationRef);
   check('a different acr yields the assurance mapped to it', second.assurance === 'verified');
 
   const otherPepper = new UpstreamOidcClient(config, store, 'a-different-deployment');
@@ -305,7 +308,7 @@ async function main() {
   });
   check(
     'another deployment derives a DIFFERENT reference for the same person',
-    otherResult.identity?.subjectRef !== result.identity?.subjectRef,
+    otherResult.identity?.authenticationRef !== result.identity?.authenticationRef,
   );
 
   // ---- Failing closed ------------------------------------------------------

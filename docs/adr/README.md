@@ -14,6 +14,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0007](0007-residency-status-is-lifecycle.md) | Residency status is lifecycle, not multiplicity: a record carries `status` and validity, records type and purpose, and never reads either. Permanent until ended | Accepted |
 | [0008](0008-assurance-registry-maps-existing-vocabularies.md) | The Assurance Registry is a closed vocabulary; ORCS §8 dimensions derive from the existing `RAL*` and `BindingMethod` rather than replacing them | Accepted |
 | [0009](0009-legal-basis-registry-closed-vocabulary.md) | The Legal Basis Registry is a closed vocabulary; a consent that cannot name its controller, categories, evidence and basis is refused rather than written blank | Accepted |
+| [0010](0010-authentication-refs-are-not-residency-identities.md) | An upstream authentication reference is not a residency identity: `subjectRef` is always the foundational provider's, and a pairwise OP subject cannot substitute | Accepted |
 
 ## Pending
 
