@@ -40,6 +40,12 @@ export type AuditAction =
   // inferred from the consents that went quiet.
   | 'legalBasis.deactivate'
   | 'sso.login'
+  // A resident was sent to an EXTERNAL OpenID Provider to authenticate, and came back.
+  // Both halves are recorded: the start names the operator who began the enrolment, the
+  // callback names none, because the resident's browser arrives there and attributing it
+  // to staff who are not present would put a name in the trail that did not act.
+  | 'sso.upstream.start'
+  | 'sso.upstream.callback'
   // A resident enrolled a WebAuthn passkey (authorized by an existing factor).
   | 'webauthn.register'
   | 'admin.read'

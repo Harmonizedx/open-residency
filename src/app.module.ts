@@ -15,6 +15,7 @@ import { Oid4vpModule } from './oid4vp/oid4vp.module';
 import { VcApiModule } from './vcapi/vcapi.module';
 import { MetaModule } from './meta/meta.module';
 import { OperatorModule } from './operator/operator.module';
+import { UpstreamModule } from './upstream/upstream.module';
 import { AssuranceModule } from './assurance/assurance.module';
 
 @Module({

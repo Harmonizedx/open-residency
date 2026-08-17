@@ -24,27 +24,27 @@ datasource db {
 // deployments and reach this one as credentials to verify through the federation trust
 // list -- never as rows in this table.
 model Resident {
-  id                 String    @id @default(uuid())
-  residentId         String    @unique
-  subjectRef         String    @unique
-  countryCode        String
-  subnationalUnit    String
-  providerCode       String
-  assuranceLevel     String
+  id                  String    @id @default(uuid())
+  residentId          String    @unique
+  subjectRef          String    @unique
+  countryCode         String
+  subnationalUnit     String
+  providerCode        String
+  assuranceLevel      String
   // Applicant -> identity binding: HOW the applicant was proven to own this identity.
   // A foundational match alone is not owner proof, so the method is recorded explicitly.
-  bindingMethod      String    @default("none")
-  bindingRef         String? // opaque: auth txn, biometric match id, or enrolment operator id
-  bindingAt          DateTime?
-  bindingScore       Float? // biometric match score, when the subsystem reports one
+  bindingMethod       String    @default("none")
+  bindingRef          String? // opaque: auth txn, biometric match id, or enrolment operator id
+  bindingAt           DateTime?
+  bindingScore        Float? // biometric match score, when the subsystem reports one
   // Proof of residence: the assurance level achieved for this resident in their unit, how
   // it was established, and the unit it is anchored to. A foundational residence field is
   // recorded as register_declared_residence, never as origin.
-  residenceAssurance String    @default("RAL0")
-  residenceMethod    String    @default("self_declared")
-  residenceUnit      String?
-  residenceAsOf      DateTime?
-  provisional        Boolean   @default(false)
+  residenceAssurance  String    @default("RAL0")
+  residenceMethod     String    @default("self_declared")
+  residenceUnit       String?
+  residenceAsOf       DateTime?
+  provisional         Boolean   @default(false)
   // ORCS §4.3: what this relationship states about itself over time. Added additively under
   // ORRA §15 -- every column either defaults or is nullable, so rows written before the
   // lifecycle existed read as an ACTIVE general residency rather than as having no status.
@@ -54,54 +54,54 @@ model Resident {
   // are never read in a decision path: the reason a person resides somewhere must not
   // determine what they can reach. No index on either, deliberately -- an index is an
   // invitation to filter by it.
-  relationshipType   String    @default("GENERAL_RESIDENCY")
-  relationshipPurpose String   @default("")
-  relationshipStatus String    @default("ACTIVE")
+  relationshipType    String    @default("GENERAL_RESIDENCY")
+  relationshipPurpose String    @default("")
+  relationshipStatus  String    @default("ACTIVE")
   // Validity is recorded because §4.3 requires it. NOTHING expires on its own: a record past
   // validTo is still ACTIVE until somebody ends it (ADR-0007, Amendment 2).
-  validFrom          DateTime?
-  validTo            DateTime?
-  policyVersion      String?
-  evidenceRefs       String[]
-  assuranceProfileId String?
-  relationshipIssuer String?
-  decidedBy          String?
+  validFrom           DateTime?
+  validTo             DateTime?
+  policyVersion       String?
+  evidenceRefs        String[]
+  assuranceProfileId  String?
+  relationshipIssuer  String?
+  decidedBy           String?
   // The operator who took the application, distinct from what decided it.
-  submittedBy        String?
-  decidedAt          DateTime?
-  endedAt            DateTime?
-  endedReason        String?
-  endedBy            String?
+  submittedBy         String?
+  decidedAt           DateTime?
+  endedAt             DateTime?
+  endedReason         String?
+  endedBy             String?
   // ORCS §10 credential lifecycle: what a status decision preserved. Distinct from the
   // relationship columns above -- this is about the key, those are about the person.
-  credentialStatus   String    @default("ACTIVE")
-  credentialReason   String?
+  credentialStatus    String    @default("ACTIVE")
+  credentialReason    String?
   credentialAuthority String?
-  credentialStatusAt DateTime?
+  credentialStatusAt  DateTime?
   // Required for REVOKED by §10: a revocation a citizen cannot contest is a decision with no
   // remedy attached.
-  appealPath         String?
+  appealPath          String?
   // Required for REPLACED by §10.
-  supersededBy       String?
-  credentialId       String?
-  statusListIndex    Int
+  supersededBy        String?
+  credentialId        String?
+  statusListIndex     Int
   // Minimized demographic attributes carried into the credential.
-  fullName           String?
-  givenName          String?
-  familyName         String?
-  dateOfBirth        String?
-  gender             String?
-  phoneHash          String? // for USSD/OTP binding and matching; one-way, cannot be dialled
+  fullName            String?
+  givenName           String?
+  familyName          String?
+  dateOfBirth         String?
+  gender              String?
+  phoneHash           String? // for USSD/OTP binding and matching; one-way, cannot be dialled
   // AES-256-GCM ciphertext of the E.164 number, under a key held outside the database
   // (CONTACT_ENCRYPTION_KEY). Present only when contactDirectory.mode is `encrypted`:
   // a one-way hash cannot be dialled, so actually delivering a one-time code needs the
   // number back in a recoverable form. A database dump yields ciphertext only.
-  phoneEnc           String?
-  createdAt          DateTime  @default(now())
+  phoneEnc            String?
+  createdAt           DateTime  @default(now())
   // Set when this resident's personal data was erased. The row survives so the credential
   // stays revocable and its status-list index is never reused; what is gone is everything
   // that identifies a person.
-  erasedAt           DateTime?
+  erasedAt            DateTime?
 
   @@index([countryCode, subnationalUnit])
 }
@@ -203,8 +203,8 @@ model OtpChallenge {
 // Tamper-evident audit log. Each row is hash-chained to the previous (prevHash),
 // so any later edit or deletion is detectable by recomputing the chain.
 model AuditEvent {
-  seq         Int      @id
-  eventId     String   @unique
+  seq         Int       @id
+  eventId     String    @unique
   timestamp   DateTime
   action      String
   actor       String
@@ -296,20 +296,20 @@ model ConsentRecord {
 
   // ORCS §9 accountability. The controller and legal basis are what a regulator asks for
   // first; the evidence is what a disputed grant is checked against.
-  controller           String  @default("")
-  processor            String?
-  dataCategories       String[]
-  legalBasisReference  String  @default("")
-  evidenceMethod       String  @default("")
-  evidenceAt           DateTime?
-  evidenceReference    String  @default("")
-  evidenceCapturedBy   String?
+  controller          String    @default("")
+  processor           String?
+  dataCategories      String[]
+  legalBasisReference String    @default("")
+  evidenceMethod      String    @default("")
+  evidenceAt          DateTime?
+  evidenceReference   String    @default("")
+  evidenceCapturedBy  String?
   // §9 Replace: the previous record is preserved and a new version created, so the chain is
   // explicit rather than two rows both claiming to be live.
-  version          Int       @default(1)
-  supersedesId     String?
-  supersededById   String?
-  withdrawnBy      String?
+  version             Int       @default(1)
+  supersedesId        String?
+  supersededById      String?
+  withdrawnBy         String?
 
   @@index([residentId])
   @@index([relyingParty])
@@ -413,7 +413,7 @@ model OidcStoredItem {
 model ResidencyRefusal {
   // The reference handed to the applicant. Unguessable, because knowing it is what proves
   // they are the person refused.
-  reference       String   @id
+  reference       String    @id
   countryCode     String
   subnationalUnit String
   subjectRef      String?
@@ -426,12 +426,35 @@ model ResidencyRefusal {
   // (NDPA 2023 s.37, GDPR Art.22, Convention 108+).
   humanReviewPath String?
   // A review that cannot change the outcome is not a review, so `overturned` is a real state.
-  reviewStatus    String   @default("none")
+  reviewStatus    String    @default("none")
   reviewedBy      String?
   reviewedAt      DateTime?
   reviewNote      String?
-  refusedAt       DateTime @default(now())
+  refusedAt       DateTime  @default(now())
 
   @@index([subjectRef])
   @@index([countryCode, refusedAt])
+}
+
+// One in-flight authorization at an EXTERNAL OpenID Provider (eSignet, a national eID,
+// any conformant OP), held between sending the resident's browser away and the callback
+// coming back.
+//
+// A table rather than a map in memory, for the same reason PresentationRequest is one: the
+// two halves are separate HTTP requests that will not land on the same replica. Held in
+// memory, a resident redirected out by one pod and returned to another finds no pending
+// state and the sign-in fails for reasons nobody can reproduce.
+//
+// `state` is the primary key and rows are consumed by DELETE ... RETURNING, which is what
+// makes it a real CSRF defence rather than decoration: a replayed callback finds nothing.
+// codeVerifier is the PKCE secret and never leaves the server.
+model UpstreamAuthRequest {
+  state        String   @id
+  nonce        String
+  codeVerifier String
+  createdAt    DateTime @default(now())
+
+  // Swept by age: an authorization the resident abandoned at the OP never comes back, and
+  // these rows would otherwise accumulate forever.
+  @@index([createdAt])
 }

@@ -424,7 +424,26 @@ Everything above has this deployment as the provider. It can also be the relying
 A jurisdiction whose residents already have a national identity provider — a MOSIP eSignet
 instance, a national eID, any conformant OP — should not make them prove themselves twice.
 `upstreamOidc` in the deployment config points at that provider, and a resident signs in
-there before a residency record is created for them.
+there before a residency record is created for them:
+
+| Step | Endpoint |
+| --- | --- |
+| A registrar begins the sign-in | `POST /enrolment/upstream/start` → `authorizationUrl` |
+| The provider redirects the resident back | `GET /enrolment/upstream/callback` |
+| The callback returns the identity and an `ApplicantBinding` | hand it to `POST /residency/issue` as `binding` |
+
+The flow ends in a binding rather than in a residency. Enrolment stays one decision made in
+one place, and folding issuance into an endpoint the provider redirects into would mean a
+record could be created by a request no operator ever made. `start` is registrar-guarded;
+`callback` cannot be, because the provider redirects a browser into it, so it is protected by
+`state` instead — generated server-side, unguessable, and consumed by a single atomic delete,
+so a caller cannot complete a flow they did not start nor replay one that finished.
+
+A deployment that declares `upstreamOidc` but has not set the key named by
+`clientAssertionKeyEnv` **fails to boot**, naming the variable. private_key_jwt is the only
+client authentication eSignet accepts, so that key missing means no resident could ever sign
+in — and config that is accepted and then silently does nothing is worse than config that is
+refused.
 
 The result is worth more than a registry lookup, and that is the reason to do it. A lookup
 establishes that an identity record exists; anyone holding the number passes it. An upstream

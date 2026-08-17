@@ -24,6 +24,11 @@ import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
 import { Oid4vpService } from '../core/oid4vp/oid4vp-service';
 import { OtpService, OtpSender } from '../core/sso/otp';
 import { SsoAuthService } from '../core/sso/sso-auth';
+import {
+  UpstreamOidcClient,
+  UpstreamOidcConfig,
+  assertUpstreamOidcUsable,
+} from '../core/sso/upstream-oidc';
 import { WebAuthnService } from '../core/sso/webauthn-service';
 import { BiometricMatcher, buildBiometricMatcher } from '../core/proofing/biometric';
 import { OperatorService } from '../core/operator/operator';
@@ -60,6 +65,7 @@ import {
   PrismaResidencyStore,
   PrismaWebAuthnChallengeStore,
   PrismaWebAuthnCredentialStore,
+  PrismaUpstreamAuthStore,
 } from '../prisma/prisma.service';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import axios from 'axios';
@@ -115,6 +121,8 @@ export class PlatformService implements OnModuleDestroy {
   private operatorAuth!: OperatorAuthContext;
   private messaging?: MessagingProvider;
   private contacts!: ContactDirectory;
+  /** Set only when the deployment configures an external OpenID Provider. */
+  private upstreamOidc?: UpstreamOidcClient;
   private pepper!: string;
   private assurance: AssuranceRegistry = buildDefaultAssuranceRegistry();
 
@@ -131,6 +139,7 @@ export class PlatformService implements OnModuleDestroy {
     private operatorStore: PrismaOperatorStore,
     private webauthnChallengeStore: PrismaWebAuthnChallengeStore,
     private webauthnCredentialStore: PrismaWebAuthnCredentialStore,
+    private upstreamAuthStore: PrismaUpstreamAuthStore,
   ) {}
 
   private initialized = false;
@@ -222,6 +231,14 @@ export class PlatformService implements OnModuleDestroy {
     // OpenID4VP is deployment-wide (a presentation request names no country), so its
     // profile is read from the default -- that is, the first -- country config.
     const defaultCfg = this.listConfigs()[0];
+    // Sign-in at an EXTERNAL OpenID Provider (eSignet, a national eID, any conformant OP).
+    //
+    // Constructed only when the deployment declares one. Until this existed the config was
+    // parsed and discarded: a jurisdiction could point `upstreamOidc` at its national IdP,
+    // watch it validate at boot, and find no route had ever been mounted. Config that is
+    // accepted and then ignored is worse than config that is refused.
+    this.upstreamOidc = this.buildUpstreamOidc(defaultCfg);
+
     this.oid4vp = new Oid4vpService(
       {
         baseUrl: this.publicBaseUrl(),
@@ -902,6 +919,33 @@ export class PlatformService implements OnModuleDestroy {
             'src/core/credentials/signer.ts and register it here.',
         );
     }
+  }
+
+  /**
+   * Build the upstream OIDC client, or refuse to boot if the config cannot work.
+   *
+   * The private key is read HERE rather than at first use, so a deployment that names a
+   * missing environment variable fails at startup with the variable's name -- not months
+   * later, in front of the first resident who tries to sign in. That is the same posture
+   * the issuer key and the foundational `mtls` mode already take: a declared capability
+   * that cannot function is a configuration error, not a runtime surprise.
+   */
+  private buildUpstreamOidc(cfg?: CountryConfig): UpstreamOidcClient | undefined {
+    const profile = cfg?.upstreamOidc as UpstreamOidcConfig | undefined;
+    if (!profile) return undefined;
+
+    assertUpstreamOidcUsable(profile);
+
+    // The client constructor enforces the rest (at least one acr mapping, at least one
+    // pinned key) and throws with its own reasons.
+    const client = new UpstreamOidcClient(profile, this.upstreamAuthStore, this.pepper);
+    this.log.log(`Upstream OIDC: residents may sign in at ${profile.issuer}`);
+    return client;
+  }
+
+  /** The external-OP client, when the deployment declares one. */
+  getUpstreamOidc(): UpstreamOidcClient | undefined {
+    return this.upstreamOidc;
   }
 
   didDocument(countryCode: string): Record<string, unknown> | undefined {

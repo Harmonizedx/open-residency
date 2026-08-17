@@ -184,6 +184,39 @@ function safeEqual(a: string, b: string): boolean {
 
 const base64url = (b: Buffer): string => b.toString('base64url');
 
+/**
+ * Refuse a declared-but-unusable upstream provider, at boot.
+ *
+ * Config that is accepted and then quietly does nothing is the failure this guards against:
+ * a jurisdiction points `upstreamOidc` at its national IdP, watches it validate, and learns
+ * months later — from the first resident who cannot sign in — that a key was never set. The
+ * keys are named as environment variables rather than inlined, so their presence cannot be
+ * checked by the schema and has to be checked here.
+ *
+ * Throws with the variable's own name, because "set OIDC_CLIENT_KEY" is actionable and
+ * "upstream misconfigured" is not.
+ */
+export function assertUpstreamOidcUsable(
+  cfg: UpstreamOidcConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (!env[cfg.clientAssertionKeyEnv]) {
+    throw new Error(
+      `upstreamOidc is configured but ${cfg.clientAssertionKeyEnv} is not set. ` +
+        'private_key_jwt is the only client authentication eSignet accepts, so without that ' +
+        'key no token request can be signed and no resident could ever sign in. Set it, or ' +
+        'remove the upstreamOidc block.',
+    );
+  }
+  if (cfg.userinfoDecryptionKeyEnv && !env[cfg.userinfoDecryptionKeyEnv]) {
+    throw new Error(
+      `upstreamOidc declares userinfoDecryptionKeyEnv=${cfg.userinfoDecryptionKeyEnv} but it ` +
+        'is not set. Declaring it says the provider encrypts userinfo; without the key that ' +
+        'response cannot be opened.',
+    );
+  }
+}
+
 export class UpstreamOidcClient {
   constructor(
     private cfg: UpstreamOidcConfig,
