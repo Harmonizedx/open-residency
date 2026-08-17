@@ -26,6 +26,7 @@ import {
   UpstreamOidcClient,
   InMemoryPendingUpstreamAuthStore,
   UpstreamOidcConfig,
+  assertUpstreamOidcUsable,
 } from '../src/core/sso/upstream-oidc';
 import { parseCountryConfig } from '../src/core/config/country-config';
 
@@ -505,6 +506,48 @@ async function main() {
     refusedBySchema = true;
   }
   check('a config with an empty acr mapping is refused at load', refusedBySchema);
+
+  // --- Declared but unusable config is refused at BOOT, not at first sign-in ----
+  //
+  // The keys are named as environment variables, so the schema cannot check they exist.
+  // Until this guard, a deployment could point upstreamOidc at its national IdP, watch it
+  // validate, and discover months later -- from the first resident who could not sign in --
+  // that a key was never set.
+  console.log('\nBoot guard on declared-but-unusable config:');
+  {
+    // userinfoDecryptionKeyEnv cleared: the base config declares one (it exercises the
+    // nested-JWT path), and leaving it would make every case below fail on that branch
+    // instead of the one under test.
+    const usable = {
+      ...config,
+      clientAssertionKeyEnv: 'UP_KEY',
+      userinfoDecryptionKeyEnv: undefined,
+    };
+    const threwFor = (env: NodeJS.ProcessEnv): string | null => {
+      try {
+        assertUpstreamOidcUsable(usable as UpstreamOidcConfig, env);
+        return null;
+      } catch (e) {
+        return (e as Error).message;
+      }
+    };
+
+    const missing = threwFor({});
+    check('a missing client-assertion key refuses to boot', missing !== null);
+    check('and the error names the variable to set', !!missing && missing.includes('UP_KEY'));
+
+    check('a config whose key IS set boots', threwFor({ UP_KEY: 'pem' }) === null);
+
+    const withDecrypt = { ...usable, userinfoDecryptionKeyEnv: 'UP_DEC' };
+    let decMsg: string | null = null;
+    try {
+      assertUpstreamOidcUsable(withDecrypt as UpstreamOidcConfig, { UP_KEY: 'pem' });
+    } catch (e) {
+      decMsg = (e as Error).message;
+    }
+    check('declaring userinfo decryption without the key refuses to boot', decMsg !== null);
+    check('and names that variable too', !!decMsg && decMsg.includes('UP_DEC'));
+  }
 
   server.close();
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);

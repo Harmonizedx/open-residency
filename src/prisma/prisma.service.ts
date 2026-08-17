@@ -16,6 +16,10 @@ import {
 } from '../core/credentials/credential-lifecycle';
 import { BindingMethod } from '../core/proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
+import {
+  PendingUpstreamAuth,
+  PendingUpstreamAuthStore,
+} from '../core/sso/upstream-oidc';
 import { AuditEvent, AuditStore } from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
@@ -1180,5 +1184,54 @@ export class PrismaWebAuthnCredentialStore implements WebAuthnCredentialStore {
       where: { credentialId },
       data: { signCount, lastUsedAt: new Date(lastUsedAt) },
     });
+  }
+}
+
+/**
+ * Pending authorizations at an external OpenID Provider.
+ *
+ * Backed by a table because the two halves of the redirect are separate HTTP requests that
+ * will not land on the same replica. `take` is a DELETE ... RETURNING rather than a read
+ * followed by a write, which is what the port asks for: read-then-delete has a window in
+ * which two concurrent callbacks both read the same row and both succeed, and single use is
+ * the entire reason `state` defends anything.
+ */
+@Injectable()
+export class PrismaUpstreamAuthStore implements PendingUpstreamAuthStore {
+  constructor(private prisma: PrismaService) {}
+
+  async put(auth: PendingUpstreamAuth): Promise<void> {
+    await this.prisma.upstreamAuthRequest.create({
+      data: {
+        state: auth.state,
+        nonce: auth.nonce,
+        codeVerifier: auth.codeVerifier,
+        createdAt: new Date(auth.createdAt),
+      },
+    });
+  }
+
+  async take(state: string): Promise<PendingUpstreamAuth | null> {
+    try {
+      const r = await this.prisma.upstreamAuthRequest.delete({ where: { state } });
+      return {
+        state: r.state,
+        nonce: r.nonce,
+        codeVerifier: r.codeVerifier,
+        createdAt: r.createdAt.toISOString(),
+      };
+    } catch {
+      // Prisma throws when the row is absent, which is the ordinary case for a replayed or
+      // forged callback. That is a miss, not a fault.
+      return null;
+    }
+  }
+
+  /** Drop authorizations the resident abandoned at the OP. */
+  async purgeOlderThan(cutoff: Date): Promise<number> {
+    const { count } = await this.prisma.upstreamAuthRequest.deleteMany({
+      where: { createdAt: { lt: cutoff } },
+    });
+    return count;
   }
 }
