@@ -4,6 +4,11 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
+import {
+  LegalBasis,
+  LegalBasisDeactivation,
+  LegalBasisStore,
+} from '../core/consent/legal-basis';
 import { RelationshipStatus, RelationshipType } from '../core/residency/lifecycle';
 import {
   CredentialStatus,
@@ -812,6 +817,53 @@ export class PrismaOtpStore implements OtpStore {
   }
 }
 
+/**
+ * Prisma-backed record of which legal bases have been withdrawn.
+ *
+ * Only withdrawals are stored. Which bases exist is declared in the jurisdiction config and
+ * rebuilt at boot, so persisting the definitions too would create a second source of truth
+ * able to disagree with the config -- and the config is the one a reviewer reads.
+ */
+@Injectable()
+export class PrismaLegalBasisStore implements LegalBasisStore {
+  constructor(private prisma: PrismaService) {}
+
+  async listDeactivations(): Promise<LegalBasisDeactivation[]> {
+    const rows = await this.prisma.legalBasis.findMany({ where: { NOT: { deactivatedAt: null } } });
+    return rows.map((r) => ({
+      id: r.id,
+      deactivatedAt: r.deactivatedAt!.toISOString(),
+      deactivationReason: r.deactivationReason ?? '',
+      deactivatedBy: r.deactivatedBy ?? '',
+    }));
+  }
+
+  async saveDeactivation(record: LegalBasisDeactivation & Partial<LegalBasis>): Promise<void> {
+    const definition = {
+      kind: record.kind ?? '',
+      name: record.name ?? '',
+      instrument: record.instrument ?? '',
+      jurisdiction: record.jurisdiction ?? '',
+      controller: record.controller ?? '',
+      version: record.version ?? '',
+      effectiveFrom: record.effectiveFrom ? new Date(record.effectiveFrom) : new Date(0),
+      effectiveTo: record.effectiveTo ? new Date(record.effectiveTo) : null,
+    };
+    const withdrawal = {
+      deactivatedAt: new Date(record.deactivatedAt),
+      deactivationReason: record.deactivationReason,
+      deactivatedBy: record.deactivatedBy,
+    };
+    await this.prisma.legalBasis.upsert({
+      where: { id: record.id },
+      create: { id: record.id, ...definition, ...withdrawal },
+      // The definition is not rewritten on update: it came from the config at boot, and the
+      // config is authoritative for what the basis says. Only the withdrawal is ours to record.
+      update: withdrawal,
+    });
+  }
+}
+
 /** Prisma-backed consent store. */
 @Injectable()
 export class PrismaConsentStore implements ConsentStore {
@@ -835,12 +887,14 @@ export class PrismaConsentStore implements ConsentStore {
     processor: r.processor ?? undefined,
     dataCategories: r.dataCategories ?? [],
     legalBasisReference: r.legalBasisReference ?? '',
-    // A row written before the §9 columns existed has no evidence. It is reported as an
-    // `imported_record` with an empty reference rather than being dressed up as a consent
-    // screen nobody saw -- the absence is the honest reading, and `mayProcess` will not treat
-    // it as agreement because the legal basis will not resolve either.
+    // A row written before the §9 columns existed has no evidence, and is reported as
+    // `unrecorded` rather than as some method nobody used. The distinction matters because
+    // `toData` writes this record straight back on the ordinary read paths that transition a
+    // lapsed grant -- so any placeholder chosen here would be PERSISTED, backfilling exactly
+    // the evidence the migration deliberately declined to invent. `unrecorded` round-trips to
+    // an empty column, so reading a legacy row never turns it into a claim.
     evidence: {
-      method: (r.evidenceMethod || 'imported_record') as ConsentRecord['evidence']['method'],
+      method: (r.evidenceMethod || 'unrecorded') as ConsentRecord['evidence']['method'],
       at: r.evidenceAt ? r.evidenceAt.toISOString() : r.grantedAt.toISOString(),
       reference: r.evidenceReference ?? '',
       capturedBy: r.evidenceCapturedBy ?? undefined,
@@ -900,8 +954,10 @@ export class PrismaConsentStore implements ConsentStore {
       processor: record.processor ?? null,
       dataCategories: record.dataCategories,
       legalBasisReference: record.legalBasisReference,
-      evidenceMethod: record.evidence.method,
-      evidenceAt: new Date(record.evidence.at),
+      // `unrecorded` is the read-side marker for a legacy row and must not become a stored
+      // value: writing it back would turn "we never captured this" into a recorded method.
+      evidenceMethod: record.evidence.method === 'unrecorded' ? '' : record.evidence.method,
+      evidenceAt: record.evidence.method === 'unrecorded' ? null : new Date(record.evidence.at),
       evidenceReference: record.evidence.reference,
       evidenceCapturedBy: record.evidence.capturedBy ?? null,
       version: record.version,

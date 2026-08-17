@@ -40,12 +40,17 @@ import {
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
-import { LegalBasisRegistry, legalBasesForDeployment } from '../core/consent/legal-basis';
+import {
+  LegalBasis,
+  LegalBasisRegistry,
+  legalBasesForDeployment,
+} from '../core/consent/legal-basis';
 import { AssuranceRegistry } from '../core/assurance/registry';
 import { buildDefaultAssuranceRegistry } from '../core/assurance/profiles';
 import {
   PrismaAuditStore,
   PrismaConsentStore,
+  PrismaLegalBasisStore,
   PrismaOid4vciStore,
   PrismaOid4vpStore,
   PrismaOidcStore,
@@ -117,6 +122,7 @@ export class PlatformService implements OnModuleDestroy {
     private store: PrismaResidencyStore,
     private auditStore: PrismaAuditStore,
     private consentStore: PrismaConsentStore,
+    private legalBasisStore: PrismaLegalBasisStore,
     private oid4vciStore: PrismaOid4vciStore,
     private oid4vpStore: PrismaOid4vpStore,
     private oidcStore: PrismaOidcStore,
@@ -294,6 +300,23 @@ export class PlatformService implements OnModuleDestroy {
         declared: dpCfg?.dataProtection.legalBases,
       }),
     );
+
+    // Replay withdrawals. The registry is rebuilt from config on every boot, so without this a
+    // repealed by-law would come back in force at the next restart and every consent citing it
+    // would start authorising processing again.
+    for (const d of await this.legalBasisStore.listDeactivations()) {
+      const outcome = this.legalBasisRegistry.deactivate(d.id, {
+        reason: d.deactivationReason,
+        authority: d.deactivatedBy,
+        at: d.deactivatedAt,
+      });
+      // A withdrawal for a basis the config no longer declares is not an error: the deployment
+      // removed it, which is a stronger form of the same act. Anything else is worth saying out
+      // loud, because it means a recorded withdrawal did not take effect.
+      if (!outcome.ok && outcome.reason !== 'UNKNOWN_LEGAL_BASIS') {
+        this.log.warn(`Could not replay withdrawal of legal basis ${d.id}: ${outcome.reason}`);
+      }
+    }
     this.consent = new ConsentService(this.consentStore, this.key, this.platformIssuerDid, {
       controller,
       processor: dpCfg?.dataProtection.processor,
@@ -305,6 +328,16 @@ export class PlatformService implements OnModuleDestroy {
   /** The Legal Basis Registry (ORCS §9), for the consent and legal-basis APIs. */
   getLegalBases(): LegalBasisRegistry {
     return this.legalBasisRegistry;
+  }
+
+  /** Make a withdrawal durable, so it survives a restart and reaches other instances. */
+  async persistLegalBasisWithdrawal(basis: LegalBasis): Promise<void> {
+    await this.legalBasisStore.saveDeactivation({
+      ...basis,
+      deactivatedAt: basis.deactivatedAt!,
+      deactivationReason: basis.deactivationReason ?? '',
+      deactivatedBy: basis.deactivatedBy ?? '',
+    });
   }
 
   // ---- messaging ----------------------------------------------------------

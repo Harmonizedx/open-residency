@@ -162,13 +162,42 @@ export async function buildOidcConfiguration(
      * Resolve a resident (by residentId as the OIDC subject) to claims, sourced from
      * the residency store. Sector scopes gate which RP may request the residency
      * assertion but do not add PII beyond the residency claim set.
+     *
+     * CLAIM RELEASE IS GATED ON THE CONSENT RECORD (ORCS §9). Consent status, expiry and the
+     * legal basis were all recorded and then read nowhere on this path: a withdrawn consent, a
+     * lapsed one, or one whose lawful basis had been repealed went on releasing the full claim
+     * set for the life of the tokens, because `claims()` only ever consulted the residency
+     * store. §9 requires expiry to "prevent further processing automatically", and a rule
+     * enforced nowhere is not a rule.
+     *
+     * Refusal degrades to `sub` alone rather than failing the request. `sub` is the pairwise
+     * subject identifier the relying party already holds, so returning it discloses nothing
+     * further, and authentication keeps working while the personal data stops flowing --
+     * which is the distinction between withdrawing consent and being locked out of the login.
+     *
+     * Already-issued ID tokens cannot be recalled; this takes effect on every userinfo read and
+     * every subsequent token. Immediate revocation of the session is what `POST /consent/:id/revoke`
+     * does in addition, by destroying the grant.
      */
-    async findAccount(_ctx, id) {
+    async findAccount(ctx, id) {
       const record = await platform.getStore().findByResidentId(id);
       if (!record) return undefined;
+      const clientId = (ctx as any)?.oidc?.client?.clientId as string | undefined;
       return {
         accountId: id,
         async claims() {
+          const minimal = { sub: id };
+          // No client in context means this is not a claim release to a relying party (the
+          // interaction itself resolves the account before a client is bound). Nothing is
+          // disclosed here, so there is nothing to gate.
+          if (!clientId) return minimal;
+
+          const consent = platform.getConsent();
+          const governing = await consent.governing(id, clientId);
+          if (!governing) return minimal;
+          const decision = consent.mayProcess(governing);
+          if (!decision.permitted) return minimal;
+
           return {
             sub: id,
             name: record.person.fullName,
