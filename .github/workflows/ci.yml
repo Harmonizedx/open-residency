@@ -289,3 +289,19 @@ jobs:
       # from regressing.
       - name: Build container image
         run: docker build -t open-residency:ci .
+
+      # The npm audit gate above covers our dependencies. It says nothing about the base
+      # image -- the OS packages a deploying government actually runs. Scanning the built
+      # image is what makes the supply-chain claim cover the whole artifact rather than the
+      # half of it written in JavaScript.
+      #
+      # Gated at High, with the ignore list kept in .grype.yaml so that anything waived is
+      # waived in the open, with a reason, in a reviewable file -- rather than by widening
+      # the threshold until the job passes.
+      - name: Scan the image for vulnerabilities
+        uses: anchore/scan-action@v6
+        with:
+          image: open-residency:ci
+          fail-build: true
+          severity-cutoff: high
+          output-format: table

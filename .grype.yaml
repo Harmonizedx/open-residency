@@ -1,0 +1,8 @@
+# Vulnerability triage for the container image scan (CI: "Docker image builds").
+#
+# Everything waived here is waived in the open, with a reason and a date, because the
+# alternative -- raising the severity cutoff until the job passes -- waives everything at
+# once and says nothing about why. An entry with no justification is a bug in this file.
+#
+# Review each entry when its `until` date passes.
+ignore: []
