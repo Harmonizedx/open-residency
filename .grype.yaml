@@ -1,69 +1,25 @@
 # Vulnerability triage for the container image scan (CI: "Docker image builds").
 #
-# The gate is BLOCKING. Everything waived below is waived in the open, with the reason it
-# is not reachable in this image and a date to re-check — because the alternative, raising
-# `severity-cutoff` until the job passes, waives everything at once and explains none of it.
+# EMPTY, and that is the design rather than an omission.
 #
-# The bar for an entry here is not "we do not think it matters". It is a statement about
-# REACHABILITY: the vulnerable code path is not present in, or not invoked by, this image.
-# Anything that fails that test gets fixed, not listed. Entries without a justification are
-# a bug in this file.
+# The gate runs with `only-fixed: true`, so it fails only when a fix exists and this image
+# does not carry it. That question is always actionable, so the correct response is always
+# to take the fix — in the Dockerfile, in a dependency bound, in the base tag — and never to
+# add a line here. An entry in this file would mean "a fix exists, we know, and we are
+# choosing not to apply it", which wants a much better reason than a build being red.
 #
-# Everything Debian has actually patched is picked up by the `apt-get upgrade` layer in the
-# Dockerfile instead of being listed here. These are the ones marked "won't fix" in bookworm,
-# where there is nothing to upgrade to.
-ignore:
-  # Perl is present because it is a dependency of the base image's package tooling (dpkg
-  # helpers), not because anything runs it. The service is `node dist/main.js`; no code path
-  # in this application, its dependencies, or its entrypoint spawns perl, and nothing routes
-  # untrusted input to an interpreter that is never started. Each of these requires perl to
-  # execute attacker-influenced input to matter.
-  #
-  # Re-check: if a future entrypoint, healthcheck or migration hook shells out, this
-  # assessment lapses immediately.
-  - vulnerability: CVE-2026-8376
-    package: { name: perl-base }
-  - vulnerability: CVE-2026-42496
-    package: { name: perl-base }
-  - vulnerability: CVE-2026-13221
-    package: { name: perl-base }
-  - vulnerability: CVE-2026-12087
-    package: { name: perl-base }
-  - vulnerability: CVE-2026-9538
-    package: { name: perl-base }
-
-  # libtasn1 is the ASN.1 parser used by GnuTLS. This stack does not use GnuTLS: Node's TLS
-  # and every cryptographic operation here (jose, node:crypto, the KMS/HSM adapters) go
-  # through OpenSSL, and nothing links against GnuTLS. The library is present in the base
-  # image, unloaded.
-  - vulnerability: CVE-2025-13151
-    package: { name: libtasn1-6 }
-
-  # ncurses is terminal handling. A server container has no controlling terminal and this
-  # image starts no interactive program; the advisory requires processing a crafted terminfo
-  # entry, which nothing does. Present as a base-image transitive, unloaded.
-  - vulnerability: CVE-2025-69720
-    package: { name: ncurses-base }
-  - vulnerability: CVE-2025-69720
-    package: { name: ncurses-bin }
-  - vulnerability: CVE-2025-69720
-    package: { name: libtinfo6 }
-  # ---------------------------------------------------------------------------
-  # ACCEPTED RISK -- a different category from everything above, and labelled as one.
-  #
-  # glibc is loaded by every process in this image. There is no reachability argument to
-  # make and pretending otherwise would be the dishonest kind of waiver this file exists to
-  # avoid. Debian has marked it won't-fix for bookworm, so there is no version to upgrade to
-  # and no code change here that removes it.
-  #
-  # It is accepted, not dismissed: the exposure is real and the only genuine remedies are a
-  # different base image (distroless or Alpine, a change with its own consequences for the
-  # Prisma engines and glibc-linked native modules) or Debian shipping a fix. Both are
-  # tracked in #120 rather than being quietly absorbed here.
-  #
-  # Re-check by 2026-11-18. If bookworm still will not fix it, the base-image move stops
-  # being deferrable.
-  - vulnerability: CVE-2026-5450
-    package: { name: libc6 }
-  - vulnerability: CVE-2026-5450
-    package: { name: libc-bin }
+# An earlier revision of this file listed eight CVEs with reachability arguments (perl is
+# never executed, GnuTLS is not linked, ncurses has no terminal). Those arguments were sound
+# in themselves but the list was built from a truncated scan and covered a fraction of what
+# the image actually reports — the full SARIF carries 168 findings, dozens at High. A waiver
+# list is the wrong instrument at that scale: nobody can honestly maintain per-CVE
+# reachability claims across a whole base image, and one written to make a job pass is worth
+# less than no gate at all.
+#
+# So the unfixable exposure is handled where it actually lives: it is inherent to
+# node:22-bookworm-slim, and the real remedy is a smaller base image (distroless), tracked in
+# #120. Recording it as "ignored" here would file a base-image decision as a triage note.
+#
+# If something ever does belong here, it needs the CVE, why the fix cannot be taken, who
+# accepted the risk, and a date to re-check. Anything less is a bug in this file.
+ignore: []

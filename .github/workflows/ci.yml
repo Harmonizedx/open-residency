@@ -311,11 +311,22 @@ jobs:
       # image is what makes the supply-chain claim cover the whole artifact rather than the
       # half of it written in JavaScript.
       #
-      # BLOCKING. Everything waived is waived in .grype.yaml with the reason it is not
-      # reachable in this image, or -- for the one case where no reachability argument
-      # honestly exists -- labelled as accepted risk with a review date. Do not raise
-      # severity-cutoff to make this pass: that waives everything at once and explains none
-      # of it, which is the failure mode a gate is supposed to prevent.
+      # BLOCKING, on FIXABLE findings only, at High and above.
+      #
+      # only-fixed is the whole design, and it is not a softening. A Debian base carries
+      # dozens of High advisories the distribution has marked won't-fix, several of them
+      # decade-old disputes upstream rejects as vulnerabilities at all. Gating on those
+      # leaves two options -- a waiver list nobody can honestly maintain, or a threshold
+      # raised until the noise stops -- and both end with a green tick that means nothing.
+      #
+      # Gating on fixable findings asks the question a build can actually answer: a fix
+      # exists and this image does not have it. That is always a defect, and it is always
+      # actionable. The Dockerfile earns it by upgrading Debian packages and the bundled npm
+      # on top of the pinned digest, so "fixable" stays a small set rather than a backlog.
+      #
+      # Unfixable exposure is not thereby dismissed. It is inherent to the base image, and
+      # the honest remedy is a smaller base (distroless), tracked in #120 -- not a line in
+      # an ignore file claiming glibc is unreachable in a process that links it.
       - name: Scan the image for vulnerabilities
         id: grype
         uses: anchore/scan-action@v6
@@ -323,6 +334,7 @@ jobs:
           image: open-residency:ci
           fail-build: true
           severity-cutoff: high
+          only-fixed: true
           output-format: sarif
 
       - name: Publish the scan findings

@@ -30,6 +30,16 @@ RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Update the bundled npm.
+#
+# The base image ships npm with its own vendored dependency tree (tar, brace-expansion,
+# picomatch, sigstore and friends live under /usr/local/lib/node_modules/npm, not under
+# /app). Pruning our dependencies cannot touch them, so advisories against them persist no
+# matter how clean the application tree is. npm is needed in the image regardless -- the
+# migration init container runs `npx prisma migrate deploy` -- so the fix is to carry a
+# current one rather than the one frozen into the base tag.
+RUN npm install -g npm@latest && npm cache clean --force
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
