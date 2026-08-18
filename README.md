@@ -1,8 +1,12 @@
 # OpenResidency
 
-OpenResidency is an open-source **subnational trust infrastructure** that lets governments
-establish, manage and exchange verified relationships between residents and their jurisdictions —
-giving citizens inclusive, privacy-preserving access to public services.
+**Millions can't prove where they live — and lose access to services because of it.**
+
+OpenResidency lets any state, province or county verify residents against their national ID,
+issue a W3C credential that works offline and over USSD, and run one secure login across every
+sector service. It is open-source **subnational trust infrastructure**: governments establish,
+manage and exchange verified relationships between residents and their jurisdictions, giving
+citizens inclusive, privacy-preserving access to public services.
 
 **One deployment, one jurisdiction.** Each subnational government runs its own instance, owning
 its data, keys and policies. A person holding a family home in one state, employment in another
