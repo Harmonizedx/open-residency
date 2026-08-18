@@ -2,6 +2,7 @@
 import { Oid4vpService } from '../oid4vp/oid4vp-service';
 import { ResidencyStore } from '../residency/ports';
 import { OtpService } from './otp';
+import { asResidentId } from '../kernel/branded';
 
 /**
  * Authentication for the residency IdP.
@@ -77,7 +78,7 @@ export class SsoAuthService {
     // The presentation verified, but confirm the resident still exists in this register:
     // a credential can outlive the record it was issued from (a different deployment, a
     // purged register). Sign-in must reflect the register, not just the credential.
-    const record = await this.residents.findByResidentId(residentId);
+    const record = await this.residents.findByResidentId(asResidentId(residentId));
     if (!record) return { status: 'failed', reason: 'UNKNOWN_RESIDENT' };
 
     return { status: 'authenticated', residentId };
@@ -94,7 +95,11 @@ export class SsoAuthService {
    * contact the deployment has on file) can proceed.
    */
   async beginOtpLogin(residentId: string): Promise<void> {
-    const record = await this.residents.findByResidentId(residentId);
+    // An empty id is simply an unknown one, and must take the same silent path: throwing
+    // here would answer differently for "" than for a well-formed id that does not exist,
+    // which is the enumeration signal this method exists to withhold.
+    if (!residentId) return;
+    const record = await this.residents.findByResidentId(asResidentId(residentId));
     if (!record) return; // silently no-op: do not confirm or deny existence
     await this.otp.issue(residentId);
   }

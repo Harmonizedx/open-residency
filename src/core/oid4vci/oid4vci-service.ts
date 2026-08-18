@@ -9,6 +9,7 @@ import { verifyHolderProof, HolderProofError } from './holder-proof';
 import { CredentialFormat, MintedCredential, ResidencyService } from '../residency/residency-service';
 import { ResidencyStore } from '../residency/ports';
 import { CredentialOfferRecord, Oid4vciStore } from './ports';
+import { asResidentId } from '../kernel/branded';
 
 /**
  * OpenID for Verifiable Credential Issuance.
@@ -250,7 +251,7 @@ export class Oid4vciService {
    * credential.
    */
   async createOffer(residentId: string): Promise<CreatedOffer> {
-    const record = await this.residents.findByResidentId(residentId);
+    const record = await this.residents.findByResidentId(asResidentId(residentId));
     if (!record) throw new Oid4vciError('invalid_request', `unknown residentId ${residentId}`, 404);
 
     const cfg = this.getConfig(record.countryCode);
@@ -610,7 +611,7 @@ export class Oid4vciService {
       }
     }
 
-    const record = await this.residents.findByResidentId(token.residentId);
+    const record = await this.residents.findByResidentId(asResidentId(token.residentId));
     if (!record) {
       throw new Oid4vciError('credential_request_denied', 'resident record no longer exists', 404);
     }
