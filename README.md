@@ -377,19 +377,20 @@ This repository is the generic public infrastructure, not a single-country app:
   it. The correlatable `resident_id` claim is granted per relying party via `scopes`, not to
   everyone by default — both halves are needed, since a universally readable `resident_id` would
   defeat pairwise subjects entirely.
-- **`assurance_level` is not a governed value yet.** The claim released over SSO is a bare string
-  from a small fixed vocabulary (`none` / `basic` / `verified` / `high`). A provider config must now
-  state its level explicitly — `foundational.assuranceOnSuccess` is required, and a config omitting
-  it is refused at load rather than silently defaulting to a high rung — but stating it is not the
-  same as governing it. There is
-  no registry a relying party can resolve the value against, no published statement of what a given
-  authority's verification actually establishes, and no separation of identity assurance from
-  authentication assurance. **Do not write access policy against it.** The authenticator strength of
-  the sign-in itself *is* real and is reported separately as the standard OIDC `acr` claim
-  (`urn:openresidency:aal1`–`aal3`, with `amr` naming the factors used); it is derived from the
-  factors actually presented, always released with the `openid` scope, and is what a relying party
-  should step up on. An assurance registry — canonical profiles plus per-authority mappings with
-  version, issuer, method and limitations — is the planned replacement.
+- **`assurance_level` resolves to a registry, and still is not an authentication signal.** The
+  value released over SSO now resolves through the Assurance Registry (`src/core/assurance/`)
+  rather than being a bare string: each canonical profile is versioned and attributed to the
+  authority that governs it, and each provider publishes an ORCS §8.1 mapping stating which
+  profile its verification reaches, at what version, by what method, and what it does not cover.
+  A provider config must state its level explicitly — `foundational.assuranceOnSuccess` is
+  required, and a config omitting it is refused at load rather than defaulting to a high rung.
+  What remains true is the separation, and it is deliberate: the registry describes **identity**
+  assurance only, and carries no authentication dimension, because folding one into the other is
+  the conflation ORCS §8 exists to prevent. So **step up on the standard OIDC `acr` claim**
+  (`urn:openresidency:aal1`–`aal3`, with `amr` naming the factors used) — it is derived from the
+  factors actually presented, always released with the `openid` scope, and is the only one of the
+  two that says anything about *this* sign-in. `assurance_level` tells a relying party how well
+  the person was identified, never how strongly they just authenticated.
 - **Proof of residence.** Establishing that a verified person actually resides in a given ward is a
   policy problem this system evaluates but does not settle on its own: `residency.residence`
   configures which evidence methods are accepted, the level each can reach, whether the evidence

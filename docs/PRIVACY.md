@@ -141,13 +141,9 @@ is why the redaction record names them.
 
 Stated because a privacy notice that omits them is worth less than one that does not.
 
-- **No Legal Basis Registry.** Every disclosure should resolve to a registered, versioned
-  legal basis; today `purpose` is free text on the consent record and statutory bases are not
-  modelled. Tracked as G-09.
-- **Audit events do not carry purpose or legal basis.** Tracked as G-10.
-- **Assurance values are not governed.** `assuranceLevel` is a bare string from a fixed
-  vocabulary with no registry to resolve it against. It is released over SSO, so relying
-  parties should gate on the standard `acr` claim instead. Tracked as G-02.
+- **Audit events do not carry purpose or legal basis.** The log establishes that a disclosure
+  happened and that the record of it has not been altered, but not the basis it was made
+  under. Tracked as G-10.
 - **A federated peer publishing an unsigned status list will not sync**, so presentations of
   its credentials fail closed until it publishes a signed one or the deployment explicitly
   opts in per peer. This is deliberate — see `docs/INTEROP.md`.

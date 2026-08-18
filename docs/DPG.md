@@ -107,7 +107,7 @@ Against the six privacy requirements the DPGA added to the Standard in 2024:
 | Requirement | Status |
 | --- | --- |
 | Data minimisation | **Met.** Raw national IDs are never stored; only an HMAC-tokenised `subjectRef` is persisted. The national ID is never shared with relying parties. Phone numbers are stored encrypted, off the residency port, so the core service cannot reach them. |
-| User consent mechanisms | **Met.** First-class, revocable consent records with signed, portable receipts, plus per-client OIDC consent. |
+| User consent mechanisms | **Met.** First-class, revocable consent records with signed, portable receipts, plus per-client OIDC consent. Each grant states the ORCS §9 attributes — controller, processor, data categories, evidence of agreement — and its `legalBasisReference` resolves through the Legal Basis Registry: an unregistered reference is refused rather than stored, and a grant missing data categories or evidence is refused rather than written blank. Withdrawing a basis stops processing under it, while the repealed entry stays readable. |
 | Data usage transparency | **Met.** `docs/PRIVACY.md` states what is collected, what is deliberately not, who receives it, and the known gaps. |
 | Privacy by design (PII deletion) | **Met.** `POST /residency/{id}/erase` destroys every identifying field and redacts the subject from the audit log. The credential is revoked first, so what the citizen holds is dead before its subject becomes unidentifiable. |
 | Data retention transparency | **Met.** Per-jurisdiction periods under `residency.retention`, enforced by `POST /residency/retention/sweep` — dry-run unless `confirm: true`, so the scope of a bulk irreversible operation is seen before it runs. A legal hold suspends it entirely. The shipped default expires nothing: retention is a controller's decision against their own law. Residency records only; consent and audit have no automatic expiry, and no scheduler runs the sweep. |
@@ -122,11 +122,17 @@ appended as its own chained event naming who did it and under what authority. Th
 verifies afterwards and reports how many events were redacted rather than concealing it;
 editing an event without redacting it is still detected as tampering.
 
-**Remaining gaps, stated rather than omitted.** No Legal Basis Registry, so `purpose` is free
-text and statutory bases are not modelled (G-09). Audit events do not carry purpose or legal
-basis (G-10). Assurance values are not governed by a registry (G-02). Retention covers
-residency records only and nothing schedules the sweep. All four are recorded in
-`docs/PRIVACY.md` §8.
+**Remaining gaps, stated rather than omitted.** Audit events do not carry purpose or legal
+basis, so the log shows that a disclosure happened but not the basis it was made under
+(G-10). Retention covers residency records only: consent records and audit events have no
+automatic expiry, and nothing schedules the sweep — an operator triggers it. Both are
+recorded in `docs/PRIVACY.md` §8.
+
+Two gaps previously listed here have since closed, and the evidence is the acceptance suite
+rather than this page: statutory bases now resolve through the Legal Basis Registry
+(criterion 4), and assurance values resolve through a governed registry with per-authority
+mappings (criterion 3). Run `npm run conformance:orcs` for the current position — where that
+output and this document disagree, the output is right.
 
 A DPIA assesses a deployment processing real people's data; this repository is software and
 processes none. The adopter completes the DPIA and the records of processing against their
