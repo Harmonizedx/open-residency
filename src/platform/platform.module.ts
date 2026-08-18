@@ -18,6 +18,7 @@ import {
   PrismaService,
 } from '../prisma/prisma.service';
 import { KeyCustody } from './key-custody';
+import { OperatorIdentity } from './operator-identity';
 import { PlatformService } from './platform.service';
 
 @Global()
@@ -25,6 +26,7 @@ import { PlatformService } from './platform.service';
   providers: [
     PrismaService,
     KeyCustody,
+    OperatorIdentity,
     PrismaResidencyStore,
     PrismaAuditStore,
     PrismaAuditCheckpointStore,

@@ -8,6 +8,7 @@ import { IssuerKey } from '../core/credentials/keystore';
 import { KeyCustody } from './key-custody';
 import { BackgroundJobs } from './background-jobs';
 import { ResidentMessaging } from './resident-messaging';
+import { OperatorIdentity, OperatorAuthContext } from './operator-identity';
 import { VcIssuer } from '../core/credentials/vc-issuer';
 import { LdpIssuer } from '../core/credentials/ldp-issuer';
 import { StatusListPublisher } from '../core/credentials/status-list-publisher';
@@ -31,9 +32,6 @@ import {
 } from '../core/sso/upstream-oidc';
 import { WebAuthnService } from '../core/sso/webauthn-service';
 import { BiometricMatcher, buildBiometricMatcher } from '../core/proofing/biometric';
-import { OperatorService } from '../core/operator/operator';
-import { FederatedOperatorVerifier } from '../core/operator/federated';
-import { OperatorSessions } from '../core/operator/session';
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
@@ -63,17 +61,6 @@ import {
 import { createHash, timingSafeEqual } from 'node:crypto';
 import axios from 'axios';
 
-/**
- * Everything the OperatorGuard needs to authenticate a member of staff, assembled once at
- * boot from `operatorAuth` in the default country config.
- */
-export interface OperatorAuthContext {
-  mode: 'oidc' | 'local' | 'sharedKey';
-  operators: OperatorService;
-  federated?: FederatedOperatorVerifier;
-  sessions?: OperatorSessions;
-  sharedKeyMatches(presented: string): boolean;
-}
 
 /**
  * Central wiring for the framework-agnostic core. Holds the loaded country configs,
@@ -87,6 +74,7 @@ export class PlatformService implements OnModuleDestroy {
 
   private jobs?: BackgroundJobs;
   private msg!: ResidentMessaging;
+  private operators!: OperatorIdentity;
   private readonly log = new Logger('Platform');
   private configs!: Map<string, CountryConfig>;
   private key!: IssuerKey;
@@ -107,7 +95,6 @@ export class PlatformService implements OnModuleDestroy {
   private legalBasisRegistry!: LegalBasisRegistry;
   private platformIssuerDid!: string;
   private trust = new Map<string, TrustedIssuer>();
-  private operatorAuth!: OperatorAuthContext;
   /** Set only when the deployment configures an external OpenID Provider. */
   private upstreamOidc?: UpstreamOidcClient;
   private pepper!: string;
@@ -300,8 +287,11 @@ export class PlatformService implements OnModuleDestroy {
 
 
     // Operator identity for privileged routes.
-    this.operatorAuth = this.buildOperatorAuth(defaultCfg);
-    await this.bootstrapOperator();
+    this.operators = new OperatorIdentity(this.operatorStore);
+    await this.operators.init(defaultCfg, {
+      issuerKey: this.key,
+      publicBaseUrl: () => this.publicBaseUrl(),
+    });
 
     // Audit and consent frameworks.
     this.platformIssuerDid =
@@ -392,93 +382,12 @@ export class PlatformService implements OnModuleDestroy {
   }
 
 
-  // ---- operator identity --------------------------------------------------
-
-  private buildOperatorAuth(cfg?: CountryConfig): OperatorAuthContext {
-    const conf = cfg?.operatorAuth ?? {
-      mode: 'sharedKey' as const,
-      issuerName: 'OpenResidency',
-      local: { requireMfa: true, sessionTtlSeconds: 8 * 3600 },
-    };
-    const operators = new OperatorService(this.operatorStore, {
-      requireMfa: conf.local.requireMfa,
-      issuerName: conf.issuerName,
-    });
-
-    const ctx: OperatorAuthContext = {
-      mode: conf.mode,
-      operators,
-      sharedKeyMatches: (presented: string) => {
-        const required = process.env.ADMIN_API_KEY;
-        if (!required) return false;
-        // Hash both sides to a fixed length first: timingSafeEqual throws on a length
-        // mismatch, which would itself leak the key's length.
-        const a = createHash('sha256').update(presented).digest();
-        const b = createHash('sha256').update(required).digest();
-        return timingSafeEqual(a, b);
-      },
-    };
-
-    if (conf.mode === 'oidc') {
-      ctx.federated = new FederatedOperatorVerifier({
-        issuer: conf.oidc!.issuer,
-        audience: conf.oidc!.audience,
-        roleClaim: conf.oidc!.roleClaim,
-        nameClaim: conf.oidc!.nameClaim,
-        roleMap: conf.oidc!.roleMap,
-        jwksUri: conf.oidc!.jwksUri,
-      });
-      this.log.log(`Operator auth: OIDC (issuer ${conf.oidc!.issuer})`);
-    } else if (conf.mode === 'local') {
-      ctx.sessions = new OperatorSessions(
-        this.key.signer,
-        this.key.publicKey,
-        this.publicBaseUrl(),
-        conf.local.sessionTtlSeconds,
-      );
-      this.log.log(
-        `Operator auth: local accounts (MFA ${conf.local.requireMfa ? 'required' : 'optional'})`,
-      );
-    } else {
-      this.log.warn(
-        'Operator auth: shared ADMIN_API_KEY. This carries no operator identity, so every ' +
-          'privileged action audits to the same actor, there are no roles, and rotation ' +
-          'requires a restart. Set operatorAuth.mode to `oidc` before government staff use ' +
-          'this deployment.',
-      );
-    }
-    return ctx;
-  }
-
-  /**
-   * Create the first admin from the environment, once, if no operators exist.
-   *
-   * Without this there is no way into a `local` deployment: every operator-management
-   * route requires an operator. The TOTP secret is logged exactly once, on the boot that
-   * creates the account, because there is nowhere else for it to go -- and the account is
-   * useless without it.
-   */
-  private async bootstrapOperator(): Promise<void> {
-    const email = process.env.OPERATOR_BOOTSTRAP_EMAIL;
-    const password = process.env.OPERATOR_BOOTSTRAP_PASSWORD;
-    if (!email || !password) return;
-    if ((await this.operatorAuth.operators.count()) > 0) return;
-    const { totpSecret, totpUri } = await this.operatorAuth.operators.createOperator({
-      email,
-      displayName: email,
-      roles: ['admin'],
-      password,
-    });
-    this.log.warn(
-      `Bootstrapped the first operator account ${email} with the admin role. ` +
-        `Enrol this TOTP secret in an authenticator app now -- it is not shown again: ${totpSecret}`,
-    );
-    this.log.warn(`Enrolment URI: ${totpUri}`);
-  }
+  // ---- operator identity (delegated to OperatorIdentity) ------------------
 
   getOperatorAuth(): OperatorAuthContext {
-    return this.operatorAuth;
+    return this.operators.getContext();
   }
+
 
   /**
    * The HMAC key behind every pseudonym this deployment issues -- foundational subject
