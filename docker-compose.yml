@@ -37,7 +37,11 @@ services:
       SUBSIDY_CLIENT_SECRET: change-me-subsidy-secret
     ports:
       - "3000:3000"
-    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+    # Direct CLI entry point, not npx: the runtime image ships no package manager
+    # (see the Dockerfile). Compose has no init container, so unlike the Kubernetes
+    # and Helm paths this single container migrates and then serves -- which is safe
+    # here precisely because compose runs one of it.
+    command: sh -c "./node_modules/.bin/prisma migrate deploy && node dist/main.js"
 
 volumes:
   openres_pg:
