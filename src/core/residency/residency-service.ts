@@ -15,6 +15,7 @@ import {
 } from '../credentials/vc-issuer';
 import { LdpIssuer, LdpCredential, RESIDENCY_LDP_CONTEXT } from '../credentials/ldp-issuer';
 import { ResidencyStore, ResidentRecord } from './ports';
+import { ResidentId, asResidentId } from '../kernel/branded';
 import {
   RelationshipAttributes,
   RelationshipStatus,
@@ -592,13 +593,23 @@ export class ResidencyService {
    * chance of a collision. The store's `residentId` is unique, so this closes the gap a
    * low-entropy custom format could otherwise open.
    */
-  private async generateUniqueResidentId(cfg: CountryConfig, unitCode: string): Promise<string> {
+  /**
+   * Mint a resident id, and be the one place a plain string becomes a ResidentId.
+   *
+   * Returning the branded type here rather than casting at the record literal keeps the
+   * conversion at the point where the value is actually created and checked for
+   * uniqueness. A cast further down would brand whatever happened to be in scope.
+   */
+  private async generateUniqueResidentId(
+    cfg: CountryConfig,
+    unitCode: string,
+  ): Promise<ResidentId> {
     // The unit's own format wins; absent one, it inherits the country default.
     const unit = cfg.subnationalUnits.find((u) => u.code === unitCode);
     const format = unit?.residentId ?? cfg.residentId;
     for (let attempt = 0; attempt < 5; attempt++) {
       const id = generateResidentId(unitCode, format, cfg.countryCode);
-      if (!(await this.store.findByResidentId(id))) return id;
+      if (!(await this.store.findByResidentId(asResidentId(id)))) return asResidentId(id);
     }
     throw new Error(
       'exhausted attempts generating a unique resident id; increase residentId entropy in config',
@@ -642,7 +653,7 @@ export class ResidencyService {
     | { ok: true; record: ResidentRecord; from: RelationshipStatus; to: RelationshipStatus }
     | { ok: false; reason: string }
   > {
-    const record = await this.store.findByResidentId(residentId);
+    const record = await this.store.findByResidentId(asResidentId(residentId));
     if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
 
     const current = relationshipOf(record);
@@ -656,7 +667,7 @@ export class ResidencyService {
 
   /** The relationship attributes for a resident, with the pre-lifecycle backfill applied. */
   async relationshipFor(residentId: string): Promise<RelationshipAttributes | null> {
-    const record = await this.store.findByResidentId(residentId);
+    const record = await this.store.findByResidentId(asResidentId(residentId));
     return record ? relationshipOf(record) : null;
   }
 
@@ -701,7 +712,7 @@ export class ResidencyService {
     residentId: string,
     identifiers: Record<string, string>,
   ): Promise<ReconcileResult> {
-    const record = await this.store.findByResidentId(residentId);
+    const record = await this.store.findByResidentId(asResidentId(residentId));
     if (!record || record.erasedAt) return { status: 'unknown' };
     // Idempotent: re-running a sweep, or two operators confirming at once, must not fail.
     if (!record.provisional) return { status: 'already-confirmed', record };
@@ -798,7 +809,7 @@ export class ResidencyService {
     | { ok: true; record: ResidentRecord; from: CredentialStatus; to: CredentialStatus }
     | { ok: false; reason: string }
   > {
-    const record = await this.store.findByResidentId(residentId);
+    const record = await this.store.findByResidentId(asResidentId(residentId));
     if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
 
     const revocationList = await this.store.loadStatusList(cfg.countryCode, 'revocation');
@@ -827,7 +838,7 @@ export class ResidencyService {
     cfg: CountryConfig,
     residentId: string,
   ): Promise<CredentialStatusRecord | null> {
-    const record = await this.store.findByResidentId(residentId);
+    const record = await this.store.findByResidentId(asResidentId(residentId));
     if (!record) return null;
     if (record.credentialStatus) return record.credentialStatus;
     const list = await this.store.loadStatusList(cfg.countryCode, 'revocation');
@@ -851,12 +862,12 @@ export class ResidencyService {
     residentId: string,
     at: Date = new Date(),
   ): Promise<{ status: 'erased' | 'already-erased' | 'unknown'; record?: ResidentRecord }> {
-    const record = await this.store.findByResidentId(residentId);
+    const record = await this.store.findByResidentId(asResidentId(residentId));
     if (!record) return { status: 'unknown' };
     if (record.erasedAt) return { status: 'already-erased', record };
 
     await this.revoke(cfg, residentId);
-    const erased = await this.store.erase(residentId, erasureTombstone(), at);
+    const erased = await this.store.erase(asResidentId(residentId), erasureTombstone(), at);
     return { status: 'erased', record: erased ?? undefined };
   }
 

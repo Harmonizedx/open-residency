@@ -1,21 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
-import { createHash, timingSafeEqual } from 'node:crypto';
 
 /**
- * Compare two secrets without leaking their contents through timing.
- *
- * `a !== b` returns as soon as it finds a differing byte, so how long it takes is a
- * function of how much of the key the caller got right -- enough, over many requests, to
- * recover the key a byte at a time. Hashing first gives both sides a fixed 32-byte length
- * (timingSafeEqual throws on a length mismatch, which would itself be an oracle) and the
- * comparison is then constant-time regardless of input.
+ * Re-exported so existing importers keep working. The construction lives in
+ * core/kernel/secrets.ts, alongside the reasoning for why it is an HMAC under a
+ * per-process key rather than a bare digest.
  */
-export function secretsEqual(presented: string, required: string): boolean {
-  const a = createHash('sha256').update(presented).digest();
-  const b = createHash('sha256').update(required).digest();
-  return timingSafeEqual(a, b);
-}
+import { secretsEqual } from '../core/kernel/secrets';
+export { secretsEqual };
 
 /**
  * Minimal bearer/api-key guard for privileged endpoints (admin listing, audit read).

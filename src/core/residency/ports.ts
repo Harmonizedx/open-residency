@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { StatusList } from '../credentials/status-list';
+import { ResidentId } from '../kernel/branded';
 import { RelationshipAttributes } from './lifecycle';
 import { CredentialStatusRecord, StatusPurpose } from '../credentials/credential-lifecycle';
 import { ApplicantBinding } from '../proofing/binding';
@@ -15,7 +16,7 @@ import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/re
  */
 export interface ResidentRecord {
   id: string; // internal uuid
-  residentId: string; // human-facing id
+  residentId: ResidentId; // human-facing id, branded so it cannot be swapped for another
   subjectRef: string; // tokenized foundational reference (unique per person+provider)
   countryCode: string;
   subnationalUnit: string;
@@ -85,8 +86,8 @@ export interface ResidencyStore {
    * value that cannot collide with another erased row and cannot match a future foundational
    * lookup. Returns null if the resident is unknown.
    */
-  erase(residentId: string, tombstone: string, at: Date): Promise<ResidentRecord | null>;
-  findByResidentId(residentId: string): Promise<ResidentRecord | null>;
+  erase(residentId: ResidentId, tombstone: string, at: Date): Promise<ResidentRecord | null>;
+  findByResidentId(residentId: ResidentId): Promise<ResidentRecord | null>;
   nextStatusIndex(countryCode: string): Promise<number>;
   save(record: ResidentRecord): Promise<ResidentRecord>;
   /**

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Injectable, Logger } from '@nestjs/common';
-import { JWK, exportJWK, generateKeyPair, importJWK } from 'jose';
+import { JWK, exportJWK } from 'jose';
 import { KeyStore, IssuerKey } from '../core/credentials/keystore';
 import { Pkcs11Signer } from '../core/credentials/signers/pkcs11-signer';
 import { GcpKmsSigner } from '../core/credentials/signers/gcp-kms-signer';
