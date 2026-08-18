@@ -19,10 +19,21 @@ docker build -t openresidency:local .
 docker compose up --build
 ```
 
-The image's entrypoint is the server alone (`node dist/main.js`). Migrations are run
-**separately, from the same image**: the Kubernetes manifests and the Helm chart both
-declare an init container that runs `./node_modules/.bin/prisma migrate deploy` before the
-server starts — invoking the Prisma CLI directly, because the runtime image ships no npm.
+The image's own entrypoint is the server alone (`node dist/main.js`). **Who runs the
+migration depends on the deploy path**, and the difference is not cosmetic:
+
+| Path | How migrations run |
+| --- | --- |
+| Kubernetes / Helm | An **init container**, from the same image, before the server starts |
+| Docker Compose | The container's `command` migrates, then serves — compose has no init containers |
+
+Both invoke the Prisma CLI directly (`./node_modules/.bin/prisma migrate deploy`) rather
+than through `npx`, because the runtime image ships no package manager.
+
+The init container is the right shape wherever replicas exist: several of them racing to
+migrate one database is a failure mode you only see under load, and separating the steps
+lets a migration be rolled back as a deploy decision. Compose is exempt because it runs a
+single container — the race it protects against cannot occur.
 
 The image carries no package manager. npm vendors its own dependency tree, which nothing
 in the application can prune and which keeps appearing in image scans; it was only present

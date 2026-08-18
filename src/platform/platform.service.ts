@@ -6,6 +6,8 @@ import { CountryConfig, loadCountryConfigs } from '../core/config/country-config
 import { ProviderRegistry } from '../core/foundational/registry';
 import { IssuerKey } from '../core/credentials/keystore';
 import { KeyCustody } from './key-custody';
+import { BackgroundJobs } from './background-jobs';
+import { ResidentMessaging } from './resident-messaging';
 import { VcIssuer } from '../core/credentials/vc-issuer';
 import { LdpIssuer } from '../core/credentials/ldp-issuer';
 import { StatusListPublisher } from '../core/credentials/status-list-publisher';
@@ -32,14 +34,6 @@ import { BiometricMatcher, buildBiometricMatcher } from '../core/proofing/biomet
 import { OperatorService } from '../core/operator/operator';
 import { FederatedOperatorVerifier } from '../core/operator/federated';
 import { OperatorSessions } from '../core/operator/session';
-import { buildMessagingProvider } from '../core/messaging/providers';
-import { MessagingOtpSender } from '../core/messaging/otp-sender';
-import { ContactDirectory, MessagingProvider } from '../core/messaging/types';
-import {
-  EncryptedColumnContactDirectory,
-  ExternalContactDirectory,
-  NullContactDirectory,
-} from '../core/messaging/contact-directory';
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
 import { AuditLog } from '../core/audit/audit-log';
 import { ConsentService } from '../core/consent/consent';
@@ -90,10 +84,9 @@ export interface OperatorAuthContext {
 export class PlatformService implements OnModuleDestroy {
   /** Federated peers, kept so their status lists can be re-synced after boot. */
   private federatedPeers: FederatedIssuer[] = [];
-  private federationTimer?: NodeJS.Timeout;
-  private oidcPurgeTimer?: NodeJS.Timeout;
-  private auditCheckpointTimer?: NodeJS.Timeout;
 
+  private jobs?: BackgroundJobs;
+  private msg!: ResidentMessaging;
   private readonly log = new Logger('Platform');
   private configs!: Map<string, CountryConfig>;
   private key!: IssuerKey;
@@ -115,8 +108,6 @@ export class PlatformService implements OnModuleDestroy {
   private platformIssuerDid!: string;
   private trust = new Map<string, TrustedIssuer>();
   private operatorAuth!: OperatorAuthContext;
-  private messaging?: MessagingProvider;
-  private contacts!: ContactDirectory;
   /** Set only when the deployment configures an external OpenID Provider. */
   private upstreamOidc?: UpstreamOidcClient;
   private pepper!: string;
@@ -275,9 +266,9 @@ export class PlatformService implements OnModuleDestroy {
     // code as the fallback. Both halves of the fallback are configured, not stubbed --
     // the aggregator that carries the message, and the directory that turns a residentId
     // into a number to carry it to.
-    this.contacts = this.buildContactDirectory(defaultCfg);
-    this.messaging = this.buildMessaging(defaultCfg);
-    const otp = new OtpService(this.otpStore, this.buildOtpSender(defaultCfg), () =>
+    this.msg = new ResidentMessaging(this.store);
+    this.msg.init(defaultCfg);
+    const otp = new OtpService(this.otpStore, this.msg.buildOtpSender(defaultCfg), () =>
       crypto.randomUUID(),
     );
     this.ssoAuth = new SsoAuthService(this.oid4vp, otp, this.store);
@@ -306,8 +297,7 @@ export class PlatformService implements OnModuleDestroy {
     void this.syncFederatedStatusLists().catch((e) =>
       this.log.warn(`Federation: initial status sync failed: ${(e as Error).message}`),
     );
-    this.startFederationRefresh();
-    this.startOidcPurge();
+
 
     // Operator identity for privileged routes.
     this.operatorAuth = this.buildOperatorAuth(defaultCfg);
@@ -321,8 +311,15 @@ export class PlatformService implements OnModuleDestroy {
     // Anchored: the chain alone cannot detect its own tail being cut, so the head is
     // periodically committed to and SIGNED with the issuer key. See core/audit/audit-log.ts.
     this.audit = new AuditLog(this.auditStore, this.auditCheckpointStore, this.key.signer);
-    // Scheduled only AFTER this.audit exists: the first checkpoint is written immediately.
-    this.startAuditCheckpoints();
+    // Timers start only after everything they touch exists. Collected in one object so
+    // shutdown is one call rather than three scattered clearIntervals.
+    this.jobs = new BackgroundJobs({
+      audit: this.audit,
+      oidcStore: this.oidcStore,
+      federatedPeers: () => this.federatedPeers,
+      syncFederatedStatusLists: () => this.syncFederatedStatusLists(),
+    });
+    this.jobs.start();
 
     // ORCS §9: the controller and the Legal Basis Registry are deployment facts, declared
     // once. The controller falls back to the issuing authority's name -- the body issuing the
@@ -378,108 +375,22 @@ export class PlatformService implements OnModuleDestroy {
     });
   }
 
-  // ---- messaging ----------------------------------------------------------
+  // ---- messaging (delegated to ResidentMessaging) -------------------------
 
-  /**
-   * Where a resident's phone number comes from at send time.
-   *
-   * `none` is the default and disables OTP delivery outright. That is deliberate: the
-   * previous behaviour was to "deliver" every code to the service log, which looks like a
-   * working fallback factor and is not one. A deployment that has not decided where
-   * contact data lives should have a sign-in fallback that is visibly off, not silently
-   * broken.
-   */
-  private buildContactDirectory(cfg?: CountryConfig): ContactDirectory {
-    const dir = cfg?.contactDirectory;
-    if (!dir || dir.mode === 'none') return new NullContactDirectory();
-    if (dir.mode === 'external') {
-      this.log.log(`Contact directory: external (${dir.external!.baseUrl})`);
-      return new ExternalContactDirectory(dir.external!);
-    }
-    if (!process.env.CONTACT_ENCRYPTION_KEY) {
-      // Fail closed rather than run with a directory that can never decrypt anything: a
-      // silently empty directory is indistinguishable from "this citizen has no phone".
-      throw new Error(
-        'contactDirectory.mode is `encrypted` but CONTACT_ENCRYPTION_KEY is not set. ' +
-          'Generate one with `openssl rand -hex 32`.',
-      );
-    }
-    this.log.log('Contact directory: encrypted column');
-    return new EncryptedColumnContactDirectory((residentId) =>
-      this.store.loadEncryptedContact(residentId),
-    );
-  }
-
-  private buildMessaging(cfg?: CountryConfig): MessagingProvider | undefined {
-    const m = cfg?.messaging;
-    if (!m) {
-      this.log.warn(
-        'No messaging provider configured: one-time codes cannot be delivered, so the ' +
-          'OTP sign-in fallback is disabled. Configure `messaging` in the country config.',
-      );
-      return undefined;
-    }
-    if (m.provider === 'LOG') {
-      this.log.warn(
-        'Messaging provider is LOG: one-time codes are written to the service log and ' +
-          'NOT delivered. Development only.',
-      );
-    } else {
-      this.log.log(`Messaging provider: ${m.provider}`);
-    }
-    return buildMessagingProvider({
-      provider: m.provider,
-      baseUrl: m.baseUrl,
-      sender: m.sender,
-      timeoutMs: m.timeoutMs,
-      auth: m.auth,
-      request: m.request,
-    });
-  }
-
-  private buildOtpSender(cfg?: CountryConfig): OtpSender {
-    const provider = this.messaging;
-    const contacts = this.contacts;
-    if (!provider) {
-      // No aggregator: refuse to issue rather than pretend. The interaction controller
-      // still answers the citizen identically either way, so this does not leak whether a
-      // residency ID exists.
-      return {
-        async send(): Promise<{ channel: string }> {
-          throw new Error('MESSAGING_NOT_CONFIGURED');
-        },
-      };
-    }
-    return new MessagingOtpSender(
-      provider,
-      contacts,
-      cfg?.messaging?.otpTemplate,
-      cfg?.credential.issuerName ?? 'OpenResidency',
-    );
-  }
-
-  /** Send a non-OTP notification (USSD status replies). No-op when messaging is unconfigured. */
+  /** Send a non-OTP notification (USSD status replies). */
   async notify(residentId: string, body: string): Promise<boolean> {
-    if (!this.messaging) return false;
-    const to = await this.contacts.lookup(residentId);
-    if (!to) return false;
-    try {
-      await this.messaging.send({ to, body, kind: 'notification' });
-      return true;
-    } catch (e) {
-      this.log.warn(`Notification to resident ${residentId} failed: ${(e as Error).message}`);
-      return false;
-    }
+    return this.msg.notify(residentId, body);
   }
 
   messagingConfigured(): boolean {
-    return !!this.messaging;
+    return this.msg.messagingConfigured();
   }
 
   /** Which contact-storage policy this deployment runs, so enrolment keeps the right fields. */
   contactDirectoryMode(): 'none' | 'encrypted' | 'external' {
-    return this.listConfigs()[0]?.contactDirectory.mode ?? 'none';
+    return this.msg.contactDirectoryMode();
   }
+
 
   // ---- operator identity --------------------------------------------------
 
@@ -664,9 +575,7 @@ export class PlatformService implements OnModuleDestroy {
   }
   /** Release the HSM session, if the signing backend holds one. */
   async onModuleDestroy(): Promise<void> {
-    if (this.federationTimer) clearInterval(this.federationTimer);
-    if (this.oidcPurgeTimer) clearInterval(this.oidcPurgeTimer);
-    if (this.auditCheckpointTimer) clearInterval(this.auditCheckpointTimer);
+    this.jobs?.stop();
     await this.custody.close();
   }
 
@@ -760,80 +669,5 @@ export class PlatformService implements OnModuleDestroy {
         );
       }
     }
-  }
-
-  /**
-   * Commit to the audit head on an interval, and sign it.
-   *
-   * The interval IS the exposure: events appended since the last checkpoint are the ones a
-   * tail truncation could still take undetected, so a deployment answerable for its log
-   * should shorten it rather than accept the default. `AUDIT_CHECKPOINT_SECONDS=0` disables
-   * it for deployments that anchor externally on their own schedule.
-   *
-   * One is written at startup too. A process that ran, recorded events, and was restarted
-   * before its first interval elapsed would otherwise leave that whole window unanchored.
-   */
-  private startAuditCheckpoints(): void {
-    const seconds = Number(process.env.AUDIT_CHECKPOINT_SECONDS ?? 300);
-    if (!Number.isFinite(seconds) || seconds <= 0) {
-      this.log.warn(
-        'Audit checkpoints are disabled: the chain can detect edits and reordering, but not ' +
-          'having its tail cut. Anchor it externally, or set AUDIT_CHECKPOINT_SECONDS.',
-      );
-      return;
-    }
-    const write = () =>
-      void this.audit
-        .checkpoint()
-        .catch((e) => this.log.warn(`Audit checkpoint failed: ${(e as Error).message}`));
-    write();
-    this.auditCheckpointTimer = setInterval(write, seconds * 1000);
-    this.auditCheckpointTimer.unref?.();
-  }
-
-  /**
-   * Re-sync peer status lists on an interval, because a revocation published by a peer is
-   * only as timely as our last pull. `FEDERATION_STATUS_REFRESH_SECONDS=0` disables it for
-   * deployments that drive the sync themselves.
-   */
-  private startFederationRefresh(): void {
-    if (!this.federatedPeers.length) return;
-    const seconds = Number(process.env.FEDERATION_STATUS_REFRESH_SECONDS ?? 900);
-    if (!Number.isFinite(seconds) || seconds <= 0) return;
-    this.federationTimer = setInterval(() => {
-      void this.syncFederatedStatusLists().catch((e) =>
-        this.log.warn(`Federation: status refresh failed: ${(e as Error).message}`),
-      );
-    }, seconds * 1000);
-    // Do not hold the process open for a cache refresh.
-    this.federationTimer.unref?.();
-  }
-
-  /**
-   * Delete OIDC provider state that has already expired.
-   *
-   * Nothing reads an expired row -- `PrismaOidcStore` filters on every lookup -- but
-   * without a sweep they accumulate for the life of the deployment. This is the busiest
-   * table in the system: a row per authorization code, access token, refresh token and
-   * session, for every sign-in to every sector service. Left alone it becomes the largest
-   * thing in the database and the reason its backups stop fitting.
-   *
-   * Every replica runs this, which is harmless: the delete is idempotent and the losers of
-   * a race simply remove nothing. `OIDC_PURGE_INTERVAL_SECONDS=0` disables it for
-   * deployments that would rather sweep from cron.
-   */
-  private startOidcPurge(): void {
-    const seconds = Number(process.env.OIDC_PURGE_INTERVAL_SECONDS ?? 3600);
-    if (!Number.isFinite(seconds) || seconds <= 0) return;
-    this.oidcPurgeTimer = setInterval(() => {
-      void this.oidcStore
-        .purgeExpired(new Date())
-        .then((n) => {
-          if (n > 0) this.log.log(`OIDC: swept ${n} expired provider record(s)`);
-        })
-        .catch((e) => this.log.warn(`OIDC: expiry sweep failed: ${(e as Error).message}`));
-    }, seconds * 1000);
-    // A housekeeping sweep must not keep the process alive.
-    this.oidcPurgeTimer.unref?.();
   }
 }
