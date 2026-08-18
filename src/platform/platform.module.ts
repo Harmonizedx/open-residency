@@ -17,12 +17,14 @@ import {
   PrismaWebAuthnCredentialStore,
   PrismaService,
 } from '../prisma/prisma.service';
+import { KeyCustody } from './key-custody';
 import { PlatformService } from './platform.service';
 
 @Global()
 @Module({
   providers: [
     PrismaService,
+    KeyCustody,
     PrismaResidencyStore,
     PrismaAuditStore,
     PrismaAuditCheckpointStore,
