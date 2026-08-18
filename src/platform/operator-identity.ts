@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Injectable, Logger } from '@nestjs/common';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { secretsEqual } from '../core/kernel/secrets';
 import { CountryConfig } from '../core/config/country-config';
 import { IssuerKey } from '../core/credentials/keystore';
 import { OperatorService } from '../core/operator/operator';
@@ -70,11 +70,7 @@ export class OperatorIdentity {
       sharedKeyMatches: (presented: string) => {
         const required = process.env.ADMIN_API_KEY;
         if (!required) return false;
-        // Hash both sides to a fixed length first: timingSafeEqual throws on a length
-        // mismatch, which would itself leak the key's length.
-        const a = createHash('sha256').update(presented).digest();
-        const b = createHash('sha256').update(required).digest();
-        return timingSafeEqual(a, b);
+        return secretsEqual(presented, required);
       },
     };
 
