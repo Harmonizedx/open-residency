@@ -86,7 +86,7 @@ spec:
       initContainers:
         - name: migrate
           image: ghcr.io/your-org/openresidency:latest
-          command: ["npx", "prisma", "migrate", "deploy"]
+          command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
           envFrom:
             - secretRef: { name: openresidency-secrets }
 ---

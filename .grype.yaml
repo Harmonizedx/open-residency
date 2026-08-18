@@ -1,11 +1,25 @@
 # Vulnerability triage for the container image scan (CI: "Docker image builds").
 #
-# Empty on purpose. The scan is currently REPORT-ONLY (see #120) precisely so that this file
-# does not fill up with waivers nobody assessed: an entry here should mean somebody checked
-# whether the vulnerable code path is reachable in this image and concluded it is not, with a
-# date to re-check. Twenty boilerplate entries added to turn a job green would assert an
-# assessment that never happened, which is worse than no gate at all.
+# EMPTY, and that is the design rather than an omission.
 #
-# When the backlog in #120 is worked down, `fail-build` becomes true and whatever genuinely
-# survives assessment is recorded below with a reason and an `until` date.
+# The gate runs with `only-fixed: true`, so it fails only when a fix exists and this image
+# does not carry it. That question is always actionable, so the correct response is always
+# to take the fix — in the Dockerfile, in a dependency bound, in the base tag — and never to
+# add a line here. An entry in this file would mean "a fix exists, we know, and we are
+# choosing not to apply it", which wants a much better reason than a build being red.
+#
+# An earlier revision of this file listed eight CVEs with reachability arguments (perl is
+# never executed, GnuTLS is not linked, ncurses has no terminal). Those arguments were sound
+# in themselves but the list was built from a truncated scan and covered a fraction of what
+# the image actually reports — the full SARIF carries 168 findings, dozens at High. A waiver
+# list is the wrong instrument at that scale: nobody can honestly maintain per-CVE
+# reachability claims across a whole base image, and one written to make a job pass is worth
+# less than no gate at all.
+#
+# So the unfixable exposure is handled where it actually lives: it is inherent to
+# node:22-bookworm-slim, and the real remedy is a smaller base image (distroless), tracked in
+# #120. Recording it as "ignored" here would file a base-image decision as a triage note.
+#
+# If something ever does belong here, it needs the CVE, why the fix cannot be taken, who
+# accepted the risk, and a date to re-check. Anything less is a bug in this file.
 ignore: []

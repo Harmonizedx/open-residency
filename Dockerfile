@@ -3,7 +3,20 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npx prisma generate && npm run build
+# generate -> build -> prune -> generate.
+#
+# The first generate produces the client types tsc needs. The prune drops every
+# devDependency, which is what stops build tooling (glob, cross-spawn, tar, minimatch and
+# their trees) shipping in a production image and being reported against it forever. The
+# second generate restores the generated client, which lives in an unlisted node_modules
+# directory that prune treats as extraneous.
+#
+# prisma itself survives the prune because it is a real dependency of this artifact: the
+# Kubernetes and Helm init containers run `npx prisma migrate deploy` from this very image.
+RUN npx prisma generate \
+    && npm run build \
+    && npm prune --omit=dev \
+    && npx prisma generate
 
 FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436
 # Apply Debian security updates on top of the pinned digest.
@@ -17,6 +30,18 @@ RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Remove npm from the runtime image.
+#
+# npm ships its own vendored dependency tree under /usr/local/lib/node_modules/npm --
+# ip-address, brace-expansion and friends -- which pruning /app can never reach and which
+# npm@latest still carries. It was only here to run `npx prisma migrate deploy`, and the
+# Prisma CLI does not need npm: node_modules/.bin/prisma is a direct entry point. The
+# manifests invoke it that way, so the package manager has no remaining job at runtime.
+#
+# A production image that cannot install packages is also a smaller thing to reason about:
+# there is no npm for a compromised process to fetch with.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
