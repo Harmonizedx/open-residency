@@ -21,7 +21,14 @@ docker compose up --build
 
 The image's entrypoint is the server alone (`node dist/main.js`). Migrations are run
 **separately, from the same image**: the Kubernetes manifests and the Helm chart both
-declare an init container that runs `npx prisma migrate deploy` before the server starts.
+declare an init container that runs `./node_modules/.bin/prisma migrate deploy` before the
+server starts — invoking the Prisma CLI directly, because the runtime image ships no npm.
+
+The image carries no package manager. npm vendors its own dependency tree, which nothing
+in the application can prune and which keeps appearing in image scans; it was only present
+to run `npx`, and the Prisma CLI has a direct entry point that does not need it. A runtime
+image that cannot install packages is also one less capability for a compromised process
+to reach for.
 
 That separation is deliberate. A server that migrates on boot has every replica racing to
 migrate the same database, and a rollback has to be a schema decision rather than a deploy

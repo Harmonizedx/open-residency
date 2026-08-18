@@ -31,15 +31,17 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Update the bundled npm.
+# Remove npm from the runtime image.
 #
-# The base image ships npm with its own vendored dependency tree (tar, brace-expansion,
-# picomatch, sigstore and friends live under /usr/local/lib/node_modules/npm, not under
-# /app). Pruning our dependencies cannot touch them, so advisories against them persist no
-# matter how clean the application tree is. npm is needed in the image regardless -- the
-# migration init container runs `npx prisma migrate deploy` -- so the fix is to carry a
-# current one rather than the one frozen into the base tag.
-RUN npm install -g npm@latest && npm cache clean --force
+# npm ships its own vendored dependency tree under /usr/local/lib/node_modules/npm --
+# ip-address, brace-expansion and friends -- which pruning /app can never reach and which
+# npm@latest still carries. It was only here to run `npx prisma migrate deploy`, and the
+# Prisma CLI does not need npm: node_modules/.bin/prisma is a direct entry point. The
+# manifests invoke it that way, so the package manager has no remaining job at runtime.
+#
+# A production image that cannot install packages is also a smaller thing to reason about:
+# there is no npm for a compromised process to fetch with.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules

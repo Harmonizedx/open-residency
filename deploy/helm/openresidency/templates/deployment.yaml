@@ -17,7 +17,7 @@ spec:
       initContainers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          command: ["npx", "prisma", "migrate", "deploy"]
+          command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
           envFrom:
             - secretRef: { name: {{ include "openresidency.secretName" . }} }
       {{- end }}
