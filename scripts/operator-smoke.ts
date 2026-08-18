@@ -27,6 +27,7 @@ import {
 } from '../src/core/operator/operator';
 import { totpCode, verifyTotp, base32Encode, generateTotpSecret } from '../src/core/operator/totp';
 import { pairwiseSubject } from '../src/core/sso/pairwise';
+import { secretsEqual } from '../src/core/kernel/secrets';
 import { GenericHttpProvider, buildMessagingProvider } from '../src/core/messaging/providers';
 import { MessagingOtpSender } from '../src/core/messaging/otp-sender';
 import { encryptContact, decryptContact } from '../src/core/messaging/contact-directory';
@@ -335,6 +336,26 @@ async function main() {
   await operatorSuite();
   await pairwiseSuite();
   await messagingSuite();
+
+  // --- Constant-time secret comparison -------------------------------------
+  //
+  // Guards the shared-key path (ADMIN_API_KEY, the USSD gateway secret). The timing
+  // property cannot be asserted here, but the behaviour that makes it safe can: length is
+  // compared INSIDE the fixed-width frame, so no separate length check exists to leak one,
+  // and no digest of a credential is taken at all.
+  console.log('\nConstant-time secret comparison:');
+  check('identical secrets match', secretsEqual('KT-abc-123', 'KT-abc-123'));
+  check('a one-character difference does not', !secretsEqual('KT-abc-123', 'KT-abc-124'));
+  check('a prefix does not match the longer secret', !secretsEqual('KT-abc', 'KT-abc-123'));
+  check('a trailing NUL cannot impersonate (length is part of the comparison)', !secretsEqual('KT-abc-123\0', 'KT-abc-123'));
+  check('empty never matches a real key', !secretsEqual('', 'KT-abc-123'));
+  {
+    const long = 'x'.repeat(1024);
+    check('secrets longer than the frame still match themselves', secretsEqual(long, long));
+    check('and differ when their lengths differ', !secretsEqual(long, long + 'y'));
+  }
+
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   if (fail > 0) process.exit(1);
 }
