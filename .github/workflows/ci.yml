@@ -311,22 +311,17 @@ jobs:
       # image is what makes the supply-chain claim cover the whole artifact rather than the
       # half of it written in JavaScript.
       #
-      # REPORT-ONLY for now, and that is a deliberate, tracked state rather than a quiet
-      # one. Switching the scan on revealed a backlog: Debian packages the distribution has
-      # marked "won't fix", and Node 20 binary advisories that need a runtime bump. Waiving
-      # twenty findings with boilerplate to make the gate green would be worse than no gate,
-      # because it would assert an assessment nobody performed.
-      #
-      # The findings are uploaded on every run, so the backlog is visible rather than
-      # invisible, and #120 tracks driving it to zero and flipping fail-build to true. Do not
-      # raise severity-cutoff to make this pass -- that waives everything at once and explains
-      # none of it.
+      # BLOCKING. Everything waived is waived in .grype.yaml with the reason it is not
+      # reachable in this image, or -- for the one case where no reachability argument
+      # honestly exists -- labelled as accepted risk with a review date. Do not raise
+      # severity-cutoff to make this pass: that waives everything at once and explains none
+      # of it, which is the failure mode a gate is supposed to prevent.
       - name: Scan the image for vulnerabilities
         id: grype
         uses: anchore/scan-action@v6
         with:
           image: open-residency:ci
-          fail-build: false
+          fail-build: true
           severity-cutoff: high
           output-format: sarif
 

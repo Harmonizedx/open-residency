@@ -19,7 +19,15 @@ docker build -t openresidency:local .
 docker compose up --build
 ```
 
-The image runs `prisma migrate deploy` then starts the server.
+The image's entrypoint is the server alone (`node dist/main.js`). Migrations are run
+**separately, from the same image**: the Kubernetes manifests and the Helm chart both
+declare an init container that runs `npx prisma migrate deploy` before the server starts.
+
+That separation is deliberate. A server that migrates on boot has every replica racing to
+migrate the same database, and a rollback has to be a schema decision rather than a deploy
+one. It does mean the image carries the Prisma CLI, which is why `prisma` is a dependency
+rather than a devDependency — a runtime artifact that cannot work without a package has a
+runtime dependency on it, whatever the manifest used to say.
 
 ## Kubernetes (raw manifests)
 
