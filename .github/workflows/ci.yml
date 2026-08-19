@@ -329,7 +329,7 @@ jobs:
       # an ignore file claiming glibc is unreachable in a process that links it.
       - name: Scan the image for vulnerabilities
         id: grype
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: open-residency:ci
           fail-build: true

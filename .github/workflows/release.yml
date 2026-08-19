@@ -77,7 +77,7 @@ jobs:
 
       # Provenance is the machine-checkable half: it records which workflow, at which commit,
       # produced these bytes. A signature says who; provenance says how.
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             sbom.cyclonedx.json
