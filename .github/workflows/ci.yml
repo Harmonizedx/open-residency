@@ -22,6 +22,9 @@ jobs:
   verify:
     name: Typecheck, conformance, and end-to-end checks
     runs-on: ubuntu-latest
+    # Backstop. Without it a hung step runs to the platform's 6h ceiling and reports
+    # `cancelled`, which reads like a fluke rather than the failure it is.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -176,8 +179,31 @@ jobs:
       # written to skip cleanly when it is absent -- correct on a laptop, silently green in
       # CI, which is how this step passed for weeks without asserting anything. REQUIRE_HSM=1
       # below turns any skip into a failure, so it cannot regress to a no-op unnoticed.
+      #
+      # This step hung for six hours on 2026-08-19 (run 32207221401) and produced no output at
+      # all before the job hit the platform's 6h ceiling and was reported as `cancelled`. apt
+      # waits on the dpkg lock INDEFINITELY by default, and a GitHub runner boots with
+      # `unattended-upgrades` and the apt-daily timers already holding it -- so a step that
+      # normally takes eight seconds can block for as long as the job is allowed to live.
+      #
+      # `DPkg::Lock::Timeout` bounds that wait, the retry covers a transient mirror, and
+      # `timeout-minutes` is the backstop for anything neither anticipates: an installer that
+      # hangs now fails in five minutes with a log, rather than burning six hours of runner
+      # time and reporting a verdict that looks like a fluke.
       - name: Install SoftHSM (PKCS#11 token for the custody suite)
-        run: sudo apt-get update && sudo apt-get install -y softhsm2
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if sudo apt-get -o DPkg::Lock::Timeout=120 update \
+              && sudo apt-get -o DPkg::Lock::Timeout=120 install -y softhsm2; then
+              exit 0
+            fi
+            echo "::warning::apt attempt ${attempt} failed; retrying in 10s"
+            sleep 10
+          done
+          echo "::error::could not install softhsm2 after 3 attempts"
+          exit 1
 
       - name: Issuer key custody — PKCS#11 HSM
         run: npm run smoke:hsm
@@ -193,6 +219,9 @@ jobs:
   sso-e2e:
     name: Full-stack SSO (real NestJS app + Postgres)
     runs-on: ubuntu-latest
+    # Backstop. Without it a hung step runs to the platform's 6h ceiling and reports
+    # `cancelled`, which reads like a fluke rather than the failure it is.
+    timeout-minutes: 15
     # This is the only job with a database, and it exists for one reason: to boot the
     # ACTUAL application. Every other job is hermetic core logic that never calls
     # NestFactory.create(AppModule) -- which is exactly how a dependency-injection defect
@@ -242,6 +271,9 @@ jobs:
   sbom:
     name: SBOM and dependency audit
     runs-on: ubuntu-latest
+    # Backstop. Without it a hung step runs to the platform's 6h ceiling and reports
+    # `cancelled`, which reads like a fluke rather than the failure it is.
+    timeout-minutes: 15
     # A published SBOM is what lets a deploying government answer "are we exposed to this
     # CVE?" without reading our lockfile. DPG Standard indicator 8 and ORCS §13 ask for it;
     # ORCS §13 also lists data portability and vendor exit, and an SBOM is part of being
@@ -298,6 +330,9 @@ jobs:
   build:
     name: Docker image builds
     runs-on: ubuntu-latest
+    # Backstop. Without it a hung step runs to the platform's 6h ceiling and reports
+    # `cancelled`, which reads like a fluke rather than the failure it is.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       # The runtime image must carry contexts/, or JSON-LD issuance fails at RUN time with
