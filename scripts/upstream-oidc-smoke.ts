@@ -342,6 +342,25 @@ async function main() {
     !statelessError.authenticated && statelessError.reason === 'MISSING_STATE',
   );
 
+  // A repeated query parameter arrives as an array, not a string. Refused rather than
+  // coerced: a conformant OP sends each once, and operating on the wrong shape would make
+  // the cap truncate an array and the state comparison stop meaning what it reads as.
+  const arrayStart = await client.beginLogin();
+  const arrayState = await client.completeLogin({
+    error: ['a', 'b'] as unknown as string,
+    state: [arrayStart.state, 'other'] as unknown as string,
+  });
+  check(
+    'a repeated query parameter is refused, not treated as a string',
+    !arrayState.authenticated && arrayState.reason === 'MISSING_STATE',
+  );
+  check(
+    'and the state it named was not consumed by the attempt',
+    await client
+      .completeLogin({ error: 'access_denied', state: arrayStart.state })
+      .then((r) => r.reason === 'UPSTREAM_ERROR:access_denied'),
+  );
+
   const longStart = await client.beginLogin();
   const longError = await client.completeLogin({ error: 'x'.repeat(5000), state: longStart.state });
   check(
