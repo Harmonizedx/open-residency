@@ -297,14 +297,26 @@ export class UpstreamOidcClient {
     state?: string;
     error?: string;
   }): Promise<UpstreamLoginResult> {
-    if (params.error) return { authenticated: false, reason: `UPSTREAM_ERROR:${params.error}` };
-    if (!params.code || !params.state) {
-      return { authenticated: false, reason: 'MISSING_CODE_OR_STATE' };
-    }
+    if (!params.state) return { authenticated: false, reason: 'MISSING_STATE' };
 
     // Single-use by construction: take() deletes. A replayed callback finds nothing.
+    //
+    // Consumed BEFORE the error branch, deliberately. RFC 6749 s4.1.2.1 requires an OP to
+    // echo `state` on an error redirect too, so a genuine failure always carries one -- and
+    // returning early on `error` without consuming it made this endpoint an unauthenticated
+    // write: it is reached by browser redirect with no guard, so anyone could call
+    // ?error=<text> with no state at all and have the caller record it. The caller audits
+    // every outcome, and that audit log is hash-chained, so the cost was unbounded growth of
+    // a tamper-evident record with attacker-chosen content in it.
     const pending = await this.pending.take(params.state);
     if (!pending) return { authenticated: false, reason: 'UNKNOWN_STATE' };
+
+    if (params.error) {
+      // Capped: this string reaches an audit row, and an OP's error code is short. Anything
+      // longer is not an error code.
+      return { authenticated: false, reason: `UPSTREAM_ERROR:${params.error.slice(0, 64)}` };
+    }
+    if (!params.code) return { authenticated: false, reason: 'MISSING_CODE_OR_STATE' };
     if (!safeEqual(pending.state, params.state)) {
       return { authenticated: false, reason: 'STATE_MISMATCH' };
     }

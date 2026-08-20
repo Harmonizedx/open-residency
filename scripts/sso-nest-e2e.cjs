@@ -346,10 +346,14 @@ biometric:
     upstreamStart.status === 503,
     `status ${upstreamStart.status}`,
   );
+  // 400, not 404: mounted, and refusing an error callback that carries no state. That path
+  // is unguarded by design (a browser redirect lands on it) and the handler audits every
+  // outcome into the hash-chained log, so accepting a stateless ?error=<text> would be an
+  // unauthenticated, repeatable write of attacker-chosen content into that chain.
   const upstreamCb = await req('GET', `${base}/enrolment/upstream/callback?error=access_denied`, jar);
   check(
-    'GET /enrolment/upstream/callback is mounted -- the OP redirects a real resident here',
-    upstreamCb.status !== 404,
+    'GET /enrolment/upstream/callback is mounted and refuses a stateless error (400, never 404)',
+    upstreamCb.status === 400,
     `status ${upstreamCb.status}`,
   );
 

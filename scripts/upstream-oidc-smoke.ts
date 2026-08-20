@@ -320,8 +320,34 @@ async function main() {
   const forged = await client.completeLogin({ code: 'anything', state: 'never-issued' });
   check('a state we never issued is refused', !forged.authenticated && forged.reason === 'UNKNOWN_STATE');
 
-  const errored = await client.completeLogin({ error: 'access_denied' });
+  // A conformant OP echoes `state` on an error redirect too (RFC 6749 s4.1.2.1), so the
+  // realistic case carries one -- and it is consumed like any other.
+  const errStart = await client.beginLogin();
+  const errored = await client.completeLogin({ error: 'access_denied', state: errStart.state });
   check('an error response from the provider is reported, not treated as a sign-in', !errored.authenticated && errored.reason === 'UPSTREAM_ERROR:access_denied');
+
+  const erroredReplay = await client.completeLogin({ error: 'access_denied', state: errStart.state });
+  check(
+    'and its state is single-use like any other: the error callback cannot be replayed',
+    !erroredReplay.authenticated && erroredReplay.reason === 'UNKNOWN_STATE',
+  );
+
+  // The callback route is unguarded by design -- a browser redirect lands there -- and the
+  // caller audits every outcome into a hash-chained log. Without this, ?error=<anything>
+  // with no state at all was an unauthenticated, repeatable write of attacker-chosen text
+  // into that chain.
+  const statelessError = await client.completeLogin({ error: 'anything-i-like' });
+  check(
+    'an error callback with no state is refused before anything is recorded',
+    !statelessError.authenticated && statelessError.reason === 'MISSING_STATE',
+  );
+
+  const longStart = await client.beginLogin();
+  const longError = await client.completeLogin({ error: 'x'.repeat(5000), state: longStart.state });
+  check(
+    'a provider error string is capped before it reaches an audit row',
+    (longError.reason ?? '').length <= 'UPSTREAM_ERROR:'.length + 64,
+  );
 
   const startNonce = await client.beginLogin();
   const nonceCode = authorize(startNonce, ACR_BIOMETRIC);
