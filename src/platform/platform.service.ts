@@ -29,7 +29,7 @@ import {
   UpstreamOidcClient,
   UpstreamOidcConfig,
   assertUpstreamOidcUsable,
-} from '../core/sso/upstream-oidc';
+} from '../core/oidc/upstream-oidc';
 import { WebAuthnService } from '../core/sso/webauthn-service';
 import { BiometricMatcher, buildBiometricMatcher } from '../core/proofing/biometric';
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';

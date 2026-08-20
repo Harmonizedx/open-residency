@@ -27,7 +27,7 @@ import {
   InMemoryPendingUpstreamAuthStore,
   UpstreamOidcConfig,
   assertUpstreamOidcUsable,
-} from '../src/core/sso/upstream-oidc';
+} from '../src/core/oidc/upstream-oidc';
 import { parseCountryConfig } from '../src/core/config/country-config';
 
 let pass = 0;
