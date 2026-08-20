@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProviderRegistry } from '../src/core/foundational/registry';
 import { loadCountryConfigs } from '../src/core/config/country-config';
+import { ProviderNotConfiguredError } from '../src/core/foundational/types';
 import { parseXml, parseCsv } from '../src/core/foundational/util';
 import { ProviderConfig } from '../src/core/foundational/types';
 import { OidcFoundationalAdapter } from '../src/core/foundational/adapters/oidc.adapter';
@@ -429,27 +430,45 @@ async function oidcFoundationalSuite(): Promise<void> {
   const reg = new ProviderRegistry('pepper');
   for (const code of ['OIDC', 'ESIGNET']) {
     const resolved = reg.resolve({ code, assuranceOnSuccess: 'verified' } as ProviderConfig);
-    const out = await resolved.verify({
-      countryCode: 'ZZ',
-      identifiers: { code: 'c' },
-      challengeRef: 's',
-    });
+    let typed = false;
+    try {
+      await resolved.verify({ countryCode: 'ZZ', identifiers: { code: 'c' }, challengeRef: 's' });
+    } catch (e) {
+      typed = e instanceof ProviderNotConfiguredError;
+    }
     check(
       `the registry resolves ${code} to the OIDC adapter, not the generic REST fallback`,
-      resolved.code === 'OIDC' && out.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
+      resolved.code === 'OIDC' && typed,
     );
   }
 
-  const unwired = new OidcFoundationalAdapter('ESIGNET', undefined, 'pepper');
-  unwired.init({ code: 'ESIGNET' } as ProviderConfig);
-  const noClient = await unwired.verify({
-    countryCode: 'ZZ',
-    identifiers: { code: 'c' },
-    challengeRef: 's',
-  });
+  // A deployment that named the provider but never configured it is a misconfiguration, not
+  // a failed verification -- and both entry points must say so the same way, or one of them
+  // becomes a 500 that buries the actionable message.
+  const unwired = new OidcFoundationalAdapter('OIDC', undefined, 'pepper');
+  unwired.init({ code: 'OIDC' } as ProviderConfig);
+  const caught: string[] = [];
+  for (const call of [
+    () => unwired.verify({ countryCode: 'ZZ', identifiers: { code: 'c' }, challengeRef: 's' }),
+    () => unwired.initiateChallenge!({ countryCode: 'ZZ', identifiers: {} }),
+  ]) {
+    try {
+      await call();
+      caught.push('no-throw');
+    } catch (e) {
+      caught.push(e instanceof ProviderNotConfiguredError ? 'typed' : 'untyped');
+    }
+  }
   check(
-    'declaring the provider without an upstream profile refuses with a reason naming the gap',
-    !noClient.verified && noClient.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
+    'verify and initiateChallenge both refuse an unconfigured provider the same way',
+    caught.join(',') === 'typed,typed',
+  );
+  check(
+    'and the message names the config block to add',
+    await unwired
+      .initiateChallenge!({ countryCode: 'ZZ', identifiers: {} })
+      .then(() => false)
+      .catch((e: Error) => e.message.includes('upstream')),
   );
 }
 

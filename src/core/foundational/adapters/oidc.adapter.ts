@@ -5,6 +5,7 @@ import {
   FoundationalVerificationResult,
   NormalizedIdentity,
   ProviderConfig,
+  ProviderNotConfiguredError,
 } from '../types';
 import { tokenizeSubject } from '../util';
 // Type-only: this adapter is handed a client, it never constructs one, so nothing in the
@@ -74,7 +75,7 @@ export class OidcFoundationalAdapter implements FoundationalProvider {
   async initiateChallenge(
     _input: FoundationalVerificationInput,
   ): Promise<{ type: 'otp' | 'biometric' | 'push'; channel: string; challengeRef: string }> {
-    if (!this.client) throw new Error(this.notConfigured());
+    if (!this.client) throw this.notConfigured();
     const start = await this.client.beginLogin();
     return { type: 'push', channel: start.authorizationUrl, challengeRef: start.state };
   }
@@ -90,8 +91,12 @@ export class OidcFoundationalAdapter implements FoundationalProvider {
   async verify(
     input: FoundationalVerificationInput,
   ): Promise<FoundationalVerificationResult> {
+    // Throws rather than returning a reason, matching initiateChallenge. Every other reason
+    // this method returns describes the applicant or the OP's answer, and a caller can act
+    // on it; this one says the deployment is misconfigured, which no caller can act on and
+    // which must not read as "verification failed".
     if (!this.client) {
-      return this.failed('UPSTREAM_OIDC_NOT_CONFIGURED');
+      throw this.notConfigured();
     }
     const code = input.identifiers?.code;
     const state = input.challengeRef ?? input.identifiers?.state;
@@ -151,10 +156,11 @@ export class OidcFoundationalAdapter implements FoundationalProvider {
     };
   }
 
-  private notConfigured(): string {
-    return (
+  private notConfigured(): ProviderNotConfiguredError {
+    return new ProviderNotConfiguredError(
+      this.code,
       `foundational provider '${this.code}' needs an upstream OIDC profile: declare the ` +
-      `OP under the deployment's upstream config so the platform can build a client for it`
+        `OP under the deployment's upstream config so the platform can build a client for it`,
     );
   }
 }

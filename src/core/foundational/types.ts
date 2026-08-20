@@ -190,6 +190,25 @@ export interface ProviderConfig {
  * The single interface every country integration implements.
  * Keep it small on purpose: verify() plus an optional two-step challenge.
  */
+/**
+ * A provider was named in config but cannot be reached because the deployment did not
+ * declare what it needs.
+ *
+ * Distinct from a verification failing: nothing about the applicant is wrong, and no retry
+ * by them will help. Typed rather than a reason string so the delivery layer can answer 503
+ * -- "the route exists, this deployment has not configured it" -- which is what
+ * UpstreamController already answers for the same situation.
+ */
+export class ProviderNotConfiguredError extends Error {
+  constructor(
+    readonly providerCode: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ProviderNotConfiguredError';
+  }
+}
+
 export interface FoundationalProvider {
   readonly code: string;
   init(config: ProviderConfig): void | Promise<void>;

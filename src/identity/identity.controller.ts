@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Body, Controller, NotFoundException, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  NotFoundException,
+  Post,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { PlatformService } from '../platform/platform.service';
-import { NormalizedIdentity } from '../core/foundational/types';
+import { NormalizedIdentity, ProviderNotConfiguredError } from '../core/foundational/types';
 import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/identity.dto.ts.
@@ -29,10 +35,15 @@ export class IdentityController {
     if (!provider.initiateChallenge) {
       return { challengeRequired: false };
     }
-    const res = await provider.initiateChallenge({
-      countryCode: cfg.countryCode,
-      identifiers: body.identifiers,
-    });
+    let res;
+    try {
+      res = await provider.initiateChallenge({
+        countryCode: cfg.countryCode,
+        identifiers: body.identifiers,
+      });
+    } catch (e) {
+      throw asServiceUnavailable(e);
+    }
     await audit.record({
       action: 'identity.challenge',
       actor: 'citizen',
@@ -50,11 +61,16 @@ export class IdentityController {
     const provider = this.platform.getResidency().getProvider(cfg);
     const audit = this.platform.getAudit();
 
-    const result = await provider.verify({
-      countryCode: cfg.countryCode,
-      identifiers: body.identifiers,
-      challengeRef: body.challengeRef,
-    });
+    let result;
+    try {
+      result = await provider.verify({
+        countryCode: cfg.countryCode,
+        identifiers: body.identifiers,
+        challengeRef: body.challengeRef,
+      });
+    } catch (e) {
+      throw asServiceUnavailable(e);
+    }
 
     if (!result.verified && result.pendingChallenge) {
       return {
@@ -83,6 +99,17 @@ export class IdentityController {
       reason: result.verified ? undefined : result.reason,
     };
   }
+}
+
+/**
+ * A provider the deployment named but did not finish configuring is a 503, not a 500.
+ *
+ * 500 reads as "try again" and buries the message; 503 says the route exists and this
+ * deployment has not configured it, which is the same answer UpstreamController gives when
+ * no upstreamOidc profile is declared. Anything else is a genuine fault and is left alone.
+ */
+function asServiceUnavailable(e: unknown): unknown {
+  return e instanceof ProviderNotConfiguredError ? new ServiceUnavailableException(e.message) : e;
 }
 
 function minimize(identity?: NormalizedIdentity): Record<string, unknown> {
