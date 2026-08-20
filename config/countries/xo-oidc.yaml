@@ -1,0 +1,88 @@
+# Example: the national OpenID Connect provider IS the register.
+#
+# Most jurisdictions here verify against a register they call over REST or SOAP, and
+# separately (optionally) let residents sign in at a national OP. A MOSIP-style deployment
+# often has one system doing both: eSignet authenticates the person AND releases their
+# identity attributes. This config expresses that -- `foundational.provider: ESIGNET` points
+# the register at the OP declared in `upstreamOidc` below.
+#
+# ESIGNET is an alias for the OIDC provider, the way IMPORT aliases DATASET_FILE. There is no
+# eSignet-specific code in the platform; anything conformant works.
+#
+# HOW THE TWO-STEP FLOW RUNS
+#   POST /identity/challenge -> returns `channel`, the authorization URL to send the
+#                               applicant to, and `challengeRef`, the OIDC `state`
+#   (the applicant authenticates at the OP and is redirected back with a `code`)
+#   POST /identity/verify    -> { identifiers: { code }, challengeRef } -> the identity
+#
+# WHAT IT KEYS THE RECORD ON  (this is the part that matters -- see ADR-0010)
+# The residency identity is derived from `claimMapping.nationalId`, NOT from the OP's `sub`.
+# A `sub` is pairwise per relying party: eSignet issues a different one to every RP, so an
+# identity built from it would change if this deployment re-registered, and a registrar
+# enrolling the same person through a register lookup could never reproduce it.
+#
+# So the OP must release an authoritative identifier, and the deployment must map the claim
+# carrying it. If it does not, issuance is refused with NO_AUTHORITATIVE_IDENTIFIER rather
+# than quietly keying on the subject. An OP that will not release one can still be an
+# authenticator -- see docs/INTEROP.md -- it just cannot also be the register.
+
+countryCode: XO
+countryName: Example (OIDC Register)
+defaultSubnationalUnit: CE
+
+foundational:
+  provider: ESIGNET
+  inputs:
+    # The applicant types nothing: they authenticate at the OP. `code` arrives from the
+    # redirect and is passed through to /identity/verify.
+    - { key: code, label: Authorization code }
+  assuranceOnSuccess: verified
+
+# The OP, declared once and used for both roles.
+upstreamOidc:
+  issuer: https://esignet.example.gov
+  authorizationEndpoint: https://esignet.example.gov/authorize
+  tokenEndpoint: https://esignet.example.gov/v1/esignet/oauth/v2/token
+  userinfoEndpoint: https://esignet.example.gov/v1/esignet/oidc/userinfo
+  # Pinned, never fetched from jwks_uri: whoever answers for that URL decides which
+  # id_tokens we believe. Refresh out of band and restart.
+  jwks:
+    - { kty: RSA, n: "<base64url>", e: AQAB, kid: op-key-1, alg: RS256, use: sig }
+  clientId: openresidency-xo
+  redirectUri: https://id.example.gov/enrolment/upstream/callback
+  scopes: [profile]
+  acrValues: ["mosip:idp:acr:biometrics", "mosip:idp:acr:generated-code"]
+  acrMapping:
+    - { acr: "mosip:idp:acr:biometrics", assurance: high }
+    - { acr: "mosip:idp:acr:generated-code", assurance: verified }
+  clientAssertionKeyEnv: XO_CLIENT_ASSERTION_KEY
+  userinfoDecryptionKeyEnv: XO_USERINFO_DECRYPTION_KEY
+  claimMapping:
+    # REQUIRED for this provider to act as the register. There is no standard OIDC claim
+    # for "the national identifier" and the platform will not guess: leave this out and the
+    # OP can authenticate but cannot supply an identity.
+    nationalId: individual_id
+    fullName: name
+    dateOfBirth: birthdate
+    gender: gender
+    addressHint: address
+
+residency:
+  minAssurance: verified
+  proofOfResidence: attestation
+  applicantBinding:
+    # Unlike a register lookup, the redirect authenticates the applicant as the owner of the
+    # identity, so this provider supplies the binding itself -- no desk comparison needed.
+    required: true
+    acceptedMethods: [authoritative_authentication]
+
+credential:
+  issuerDid: did:web:id.example.gov
+  issuerName: Example State Residency Authority
+  type: StateResidencyCredential
+  validityDays: 1095
+  context:
+    - https://www.w3.org/ns/credentials/v2
+
+subnationalUnits:
+  - { code: CE, name: Centre, parent: XO, level: state }
