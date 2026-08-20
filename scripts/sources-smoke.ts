@@ -405,6 +405,23 @@ async function oidcFoundationalSuite(): Promise<void> {
     !missing.verified && missing.reason === 'MISSING_CODE_OR_STATE',
   );
 
+  // Resolved through the registry, not constructed directly: this is what proves the
+  // FACTORIES keys exist. An unknown code does not throw here -- it silently becomes a
+  // GENERIC_REST adapter -- so a typo in either key would pass every assertion above.
+  const reg = new ProviderRegistry('pepper');
+  for (const code of ['OIDC', 'ESIGNET']) {
+    const resolved = reg.resolve({ code, assuranceOnSuccess: 'verified' } as ProviderConfig);
+    const out = await resolved.verify({
+      countryCode: 'ZZ',
+      identifiers: { code: 'c' },
+      challengeRef: 's',
+    });
+    check(
+      `the registry resolves ${code} to the OIDC adapter, not the generic REST fallback`,
+      resolved.code === code && out.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
+    );
+  }
+
   const unwired = new OidcFoundationalAdapter('ESIGNET', undefined, 'pepper');
   unwired.init({ code: 'ESIGNET' } as ProviderConfig);
   const noClient = await unwired.verify({
