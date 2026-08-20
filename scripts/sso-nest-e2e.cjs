@@ -327,6 +327,32 @@ biometric:
   const meta = JSON.parse(disco.body || '{}');
   const issuer = meta.issuer;
 
+  // --- Every declared module is actually mounted (#140) --------------------------------
+  // UpstreamModule was imported by app.module.ts and left out of its `imports` array, so
+  // UpstreamController was never mounted and /enrolment/upstream/* answered 404. TypeScript
+  // was satisfied (the symbol *is* referenced) and no test booted the app and asked for the
+  // route, so nothing caught it. The redirectUri a deployment registers with its OP points
+  // at that callback, so a resident signing in at their national IdP came back to a 404.
+  //
+  // This fixture declares no upstreamOidc, so the route answers 503 -- which is the point:
+  // the controller returns 503 precisely to say "the route exists, the deployment has not
+  // configured a provider". 404 means the module is unmounted again.
+  const upstreamStart = await req('POST', `${base}/enrolment/upstream/start`, jar, {
+    headers: { 'x-admin-key': process.env.ADMIN_API_KEY },
+    body: JSON.stringify({}),
+  });
+  check(
+    'POST /enrolment/upstream/start is mounted (503 "not configured", never 404)',
+    upstreamStart.status === 503,
+    `status ${upstreamStart.status}`,
+  );
+  const upstreamCb = await req('GET', `${base}/enrolment/upstream/callback?error=access_denied`, jar);
+  check(
+    'GET /enrolment/upstream/callback is mounted -- the OP redirects a real resident here',
+    upstreamCb.status !== 404,
+    `status ${upstreamCb.status}`,
+  );
+
   // --- Request validation: the global ValidationPipe rejects bad input (#28) ------------
   // These hit public, side-effect-free endpoints, so a 400 comes from the pipe, not the
   // handler. Before this change every body interface was erased at runtime and nothing

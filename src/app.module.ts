@@ -39,6 +39,7 @@ import { AssuranceModule } from './assurance/assurance.module';
     MetaModule,
     OperatorModule,
     AssuranceModule,
+    UpstreamModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
