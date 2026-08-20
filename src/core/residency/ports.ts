@@ -5,6 +5,7 @@ import { RelationshipAttributes } from './lifecycle';
 import { CredentialStatusRecord, StatusPurpose } from '../credentials/credential-lifecycle';
 import { ApplicantBinding } from '../proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
+import { ResidenceAddress } from '../proofing/address';
 
 /**
  * A residency record as persisted. Note: no raw national id is ever stored.
@@ -29,6 +30,14 @@ export interface ResidentRecord {
     assuranceLevel: ResidenceAssuranceLevel;
     method: ResidenceEvidenceMethod;
     unit?: string;
+    /**
+     * The address residency is anchored to, under `anchor: 'address'`.
+     *
+     * The most sensitive field this register can hold -- a physical location for a named
+     * person -- so it is present only where the jurisdiction's law makes it the thing being
+     * registered, and it is destroyed by erasure like any other identifying field.
+     */
+    address?: ResidenceAddress;
     asOf?: string;
   };
   provisional: boolean;
@@ -137,6 +146,10 @@ export class InMemoryStore implements ResidencyStore {
       ...existing,
       subjectRef: tombstone,
       person: {},
+      // The address goes with the name. An erasure that destroyed who somebody is and kept
+      // where they live would be worse than useless -- it leaves a location attached to a
+      // record nobody can account for. Mirrors PrismaResidencyStore.erase.
+      residence: { ...existing.residence, address: undefined },
       erasedAt: at.toISOString(),
     };
     this.residents.set(tombstone, erased);

@@ -43,6 +43,11 @@ model Resident {
   residenceAssurance  String    @default("RAL0")
   residenceMethod     String    @default("self_declared")
   residenceUnit       String?
+  // The address residency is anchored to, under residence.anchor = 'address'. NULL in every
+  // unit-anchored deployment, which is the default and covers most of the world. The most
+  // sensitive field this register can hold, so erase() destroys it with the rest of the
+  // identifying data -- see PrismaResidencyStore.erase.
+  residenceAddress    Json?
   residenceAsOf       DateTime?
   provisional         Boolean   @default(false)
   // ORCS §4.3: what this relationship states about itself over time. Added additively under

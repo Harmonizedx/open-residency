@@ -165,6 +165,20 @@ const residencePolicySchema = z.object({
     .array(residenceMethodEnum)
     .default(['register_declared_residence', 'authority_attestation', 'document', 'geospatial_match']),
   unitMatchRequired: z.boolean().default(true),
+  /**
+   * What residency is anchored to in this jurisdiction.
+   *
+   * `unit` -- membership of an administrative unit. The default, and what residency means in
+   * Nigeria and much of the world where addressing is partial or informal.
+   *
+   * `address` -- registration at a specific address, with the unit still required to agree.
+   * What residency means under Germany's Bundesmeldegesetz, Japan's jūminhyō and the Nordic
+   * population registers, where "which state do you live in" is not a weaker residency but
+   * simply not residency at all.
+   *
+   * See `src/core/proofing/address.ts`. Defaulted so no existing deployment changes meaning.
+   */
+  anchor: z.enum(['unit', 'address']).default('unit'),
   recencyDays: z.number().int().positive().optional(),
   methodCeiling: z.record(residenceMethodEnum, residenceLevelEnum).optional(),
   acceptFoundationalResidence: z.boolean().default(false),

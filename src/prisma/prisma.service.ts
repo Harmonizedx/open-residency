@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { StatusList } from '../core/credentials/status-list';
 import { ResidencyStore, ResidentRecord } from '../core/residency/ports';
@@ -16,6 +16,7 @@ import {
 } from '../core/credentials/credential-lifecycle';
 import { BindingMethod } from '../core/proofing/binding';
 import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
+import { ResidenceAddress } from '../core/proofing/address';
 import {
   PendingUpstreamAuth,
   PendingUpstreamAuthStore,
@@ -97,6 +98,7 @@ export class PrismaResidencyStore implements ResidencyStore {
         assuranceLevel: (r.residenceAssurance ?? 'RAL0') as ResidenceAssuranceLevel,
         method: (r.residenceMethod ?? 'self_declared') as ResidenceEvidenceMethod,
         unit: r.residenceUnit ?? undefined,
+        address: (r.residenceAddress ?? undefined) as ResidenceAddress | undefined,
         asOf: r.residenceAsOf ? r.residenceAsOf.toISOString() : undefined,
       },
       provisional: r.provisional,
@@ -181,6 +183,9 @@ export class PrismaResidencyStore implements ResidencyStore {
       where: { residentId },
       data: {
         subjectRef: tombstone,
+        // An address locates a person physically. Erasure that left it behind would destroy
+        // the name and keep the door.
+        residenceAddress: Prisma.DbNull,
         fullName: null,
         givenName: null,
         familyName: null,
@@ -245,6 +250,8 @@ export class PrismaResidencyStore implements ResidencyStore {
       residenceAssurance: record.residence?.assuranceLevel ?? 'RAL0',
       residenceMethod: record.residence?.method ?? 'self_declared',
       residenceUnit: record.residence?.unit,
+      // Prisma distinguishes a JSON `null` VALUE from a NULL column; DbNull is the column.
+      residenceAddress: (record.residence?.address ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
       residenceAsOf: record.residence?.asOf ? new Date(record.residence.asOf) : undefined,
       provisional: record.provisional,
       relationshipType: rel?.type ?? 'GENERAL_RESIDENCY',

@@ -15,6 +15,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0008](0008-assurance-registry-maps-existing-vocabularies.md) | The Assurance Registry is a closed vocabulary; ORCS §8 dimensions derive from the existing `RAL*` and `BindingMethod` rather than replacing them | Accepted |
 | [0009](0009-legal-basis-registry-closed-vocabulary.md) | The Legal Basis Registry is a closed vocabulary; a consent that cannot name its controller, categories, evidence and basis is refused rather than written blank | Accepted |
 | [0010](0010-authentication-refs-are-not-residency-identities.md) | An upstream authentication reference is not a residency identity: `subjectRef` is always the foundational provider's, and a pairwise OP subject cannot substitute | Accepted |
+| [0011](0011-residency-anchor-is-a-jurisdiction-choice.md) | What residency is anchored to — an administrative unit or an address — is a jurisdiction's declaration, not a global assumption | Accepted |
 
 ## Pending
 

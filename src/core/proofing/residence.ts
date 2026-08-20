@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { ResidenceAddress, ResidenceAnchor, addressesMatch } from './address';
 /**
  * Proof of residence.
  *
@@ -68,6 +69,11 @@ export interface ResidenceEvidence {
   asOf?: string;
   /** Opaque reference: an attestation id, a document id, a register transaction. */
   ref?: string;
+  /**
+   * The address this evidence attests to, where the jurisdiction anchors on addresses.
+   * Ignored entirely under `anchor: 'unit'`, which is the default.
+   */
+  address?: ResidenceAddress;
 }
 
 /** The maximum RAL each method can yield on its own, before recency/unit-match downgrades. */
@@ -89,6 +95,12 @@ export interface ResidencePolicy {
   acceptedMethods: ResidenceEvidenceMethod[];
   /** Require the evidence's reconciled unit to equal the claimed unit. Recommended. */
   unitMatchRequired: boolean;
+  /**
+   * What residence is anchored to. `unit` (the default) keeps the administrative-unit model;
+   * `address` additionally requires the evidence to name the same address the applicant
+   * claims. See `core/proofing/address.ts` for why this is a jurisdiction's choice.
+   */
+  anchor?: ResidenceAnchor;
   /** Evidence older than this (or undated) is capped at RAL1 -- it cannot reach RAL2+. */
   recencyDays?: number;
   /** Per-method ceiling overrides, merged over DEFAULT_METHOD_CEILING. */
@@ -118,6 +130,8 @@ export interface ResidenceOutcome {
   satisfied: boolean;
   /** The winning evidence method ('self_declared' when nothing else qualified). */
   method: ResidenceEvidenceMethod;
+  /** The address the achieved residence is anchored to, under address anchoring. */
+  address?: ResidenceAddress;
   /** The reconciled unit the achieved residence is anchored to, when known. */
   unit?: string;
   asOf?: string;
@@ -167,6 +181,12 @@ export function evaluateResidence(
   evidences: ResidenceEvidence[],
   claimedUnit: string,
   nowIso: string,
+  /**
+   * The address the applicant claims to reside at. Required under `anchor: 'address'` and
+   * ignored otherwise, so a unit-anchored jurisdiction is entirely unaffected by this
+   * parameter existing.
+   */
+  claimedAddress?: ResidenceAddress,
 ): ResidenceOutcome {
   const ceiling = { ...DEFAULT_METHOD_CEILING, ...(policy.methodCeiling ?? {}) };
   const claim = norm(claimedUnit);
@@ -182,6 +202,16 @@ export function evaluateResidence(
     const unitMatches = ev.adminUnit != null && norm(ev.adminUnit) === claim;
     if (policy.unitMatchRequired && !unitMatches) continue;
 
+    // Address match, where the jurisdiction anchors on addresses. Strictly ADDITIONAL to the
+    // unit check, never instead of it: a German municipality still has to establish the
+    // address is in its own municipality, and an address alone does not say that.
+    //
+    // Evidence carrying no address cannot prove residence at an address, however strong the
+    // method. A ward officer's attestation that somebody "lives in Rigasa" is real evidence
+    // about a unit and says nothing about which door -- treating it as address proof would
+    // silently downgrade what address anchoring means.
+    if (policy.anchor === 'address' && !addressesMatch(ev.address, claimedAddress)) continue;
+
     let level = ceiling[ev.method];
 
     // Recency: undated or stale evidence cannot reach RAL2+.
@@ -195,6 +225,7 @@ export function evaluateResidence(
         satisfied: false,
         method: ev.method,
         unit: ev.adminUnit,
+        address: ev.address,
         asOf: ev.asOf,
       };
     }
