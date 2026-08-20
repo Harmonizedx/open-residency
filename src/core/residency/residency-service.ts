@@ -48,6 +48,7 @@ import {
   selectResidencyDue,
 } from '../privacy/retention';
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
+import { ResidenceAddress } from '../proofing/address';
 import {
   DEFAULT_RESIDENCE_POLICY,
   ResidenceEvidence,
@@ -137,6 +138,14 @@ export interface IssueResidencyRequest {
    * enrolment context -- a caller cannot self-assert that they reside somewhere.
    */
   residenceEvidence?: ResidenceEvidence[];
+  /**
+   * The address the applicant claims to reside at.
+   *
+   * Required where the jurisdiction anchors residency on addresses, ignored where it anchors
+   * on administrative units -- which is the default and covers every deployment that existed
+   * before this. See `core/proofing/address.ts`.
+   */
+  address?: ResidenceAddress;
   /**
    * Who took the enrolment decision, for ORCS §4.3 decision provenance. An operator id from
    * the authenticated enrolment context; defaults to a generic marker rather than inventing
@@ -285,6 +294,7 @@ export class ResidencyService {
       targetLevel: p.targetLevel,
       acceptedMethods: p.acceptedMethods,
       unitMatchRequired: p.unitMatchRequired,
+      anchor: p.anchor,
       recencyDays: p.recencyDays,
       methodCeiling: p.methodCeiling,
       acceptFoundationalResidence: p.acceptFoundationalResidence,
@@ -468,11 +478,19 @@ export class ResidencyService {
         adminUnit: ev.adminUnit ?? reconcileUnit(cfg.subnationalUnits, ev.reportedUnit),
       });
     }
+    // Address anchoring needs an address to anchor to. Refusing here, before evaluation,
+    // gives the applicant a reason naming what is missing -- rather than a generic
+    // proof-of-residence failure they cannot act on, which is what evaluation would return
+    // once every piece of evidence failed to match an address that was never supplied.
+    if (residencePolicy.anchor === 'address' && !req.address) {
+      return this.refuse(cfg, req, 'RESIDENCE_ADDRESS_REQUIRED', identity.subjectRef);
+    }
     const residence = evaluateResidence(
       residencePolicy,
       residenceEvidence,
       req.subnationalUnit,
       new Date().toISOString(),
+      req.address,
     );
     if (residencePolicy.required && !residence.satisfied) {
       return this.refuse(cfg, req, residence.reason ?? 'PROOF_OF_RESIDENCE_REQUIRED', identity.subjectRef);
@@ -481,9 +499,11 @@ export class ResidencyService {
       assuranceLevel: typeof residence.level;
       method: typeof residence.method;
       unit?: string;
+      address?: ResidenceAddress;
       asOf?: string;
     } = { assuranceLevel: residence.level, method: residence.method };
     if (residence.unit) residenceClaim.unit = residence.unit;
+    if (residence.address) residenceClaim.address = residence.address;
     if (residence.asOf) residenceClaim.asOf = residence.asOf;
 
     // 5. Mint residency id + assign a revocation status index.
