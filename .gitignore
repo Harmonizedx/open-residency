@@ -19,6 +19,9 @@ coverage/
 .nyc_output/
 w3c-report.json
 
+# Claude Code local scratch, worktrees, and per-machine settings
+.claude/
+
 # Editor / OS
 .DS_Store
 .idea/
