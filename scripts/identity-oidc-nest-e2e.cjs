@@ -18,7 +18,7 @@
  * Requires PostgreSQL; run through scripts/run-sso-nest-e2e.sh, which provides one.
  */
 const { createServer } = require('node:http');
-const { mkdirSync, writeFileSync, rmSync } = require('node:fs');
+const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const { generateKeyPairSync } = require('node:crypto');
@@ -127,8 +127,9 @@ async function main() {
   }
 
   // --- A jurisdiction whose register IS that OP ---------------------------
-  const cfgDir = join(tmpdir(), `ors-idoidc-cfg-${process.pid}`);
-  mkdirSync(cfgDir, { recursive: true });
+  // mkdtempSync, not a pid-derived path: the directory name must not be predictable, or a
+  // pre-created symlink at that path decides where this writes.
+  const cfgDir = mkdtempSync(join(tmpdir(), 'ors-idoidc-cfg-'));
   writeFileSync(join(cfgDir, 'zz.yaml'), `countryCode: ZZ
 countryName: Demoland
 defaultSubnationalUnit: DX
