@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { JWK } from 'jose';
 import { CountryConfig, loadCountryConfigs } from '../core/config/country-config';
 import { ProviderRegistry } from '../core/foundational/registry';
+import { OidcFoundationalAdapter } from '../core/foundational/adapters/oidc.adapter';
 import { IssuerKey } from '../core/credentials/keystore';
 import { KeyCustody } from './key-custody';
 import { BackgroundJobs } from './background-jobs';
@@ -233,6 +234,18 @@ export class PlatformService implements OnModuleDestroy {
     // watch it validate at boot, and find no route had ever been mounted. Config that is
     // accepted and then ignored is worse than config that is refused.
     this.upstreamOidc = this.buildUpstreamOidc(defaultCfg);
+
+    // The same OP can be the register as well as the front door. Re-register the OIDC
+    // foundational codes with the client just built, so a deployment declaring
+    // `foundational.provider: ESIGNET` gets one that can actually run the redirect. Without
+    // an upstream profile the registry's own entries stand and refuse with a reason naming
+    // the config to add.
+    if (this.upstreamOidc) {
+      const client = this.upstreamOidc;
+      for (const code of ['OIDC', 'ESIGNET']) {
+        this.registry.register(code, (p) => new OidcFoundationalAdapter(code, client, p));
+      }
+    }
 
     this.oid4vp = new Oid4vpService(
       {

@@ -7,6 +7,7 @@ import { NinAdapter } from './adapters/nin.adapter';
 import { AadhaarAdapter } from './adapters/aadhaar.adapter';
 import { MosipIdaAdapter } from './adapters/mosip-ida.adapter';
 import { MockAdapter } from './adapters/mock.adapter';
+import { OidcFoundationalAdapter } from './adapters/oidc.adapter';
 import { shortHash } from './util';
 
 /** Order-independent JSON so the cache key is identical for equal configs. */
@@ -43,6 +44,12 @@ const FACTORIES: Record<string, ProviderFactory> = {
   // MOSIP ID Authentication. Not config-driven like the generic adapters: its request body
   // is an encrypted envelope, so it needs real code rather than a request template.
   MOSIP_IDA: (p) => new MosipIdaAdapter(p),
+  // An OpenID Connect provider as the register itself. Registered here so the code is
+  // recognised and the error is explicit; the platform re-registers these with a real client
+  // once it has built one from the deployment's upstream profile. Without that profile they
+  // refuse rather than silently falling through to the generic REST adapter.
+  OIDC: (p) => new OidcFoundationalAdapter('OIDC', undefined, p),
+  ESIGNET: (p) => new OidcFoundationalAdapter('ESIGNET', undefined, p), // alias, cf. IMPORT
   MOCK: (p) => new MockAdapter(p),
 };
 

@@ -100,6 +100,7 @@ export interface UpstreamOidcConfig {
 }
 
 export type UpstreamIdentityField =
+  | 'nationalId'
   | 'fullName'
   | 'givenName'
   | 'familyName'
@@ -160,6 +161,19 @@ export interface UpstreamIdentity {
    * enrolment channel could reproduce.
    */
   authenticationRef: string;
+  /**
+   * The authoritative identifier the OP released, if it released one -- a NIN, an Aadhaar
+   * number, whatever the register is keyed on. Present only when the deployment mapped a
+   * claim to it, because there is no standard claim name for "the national identifier" and
+   * guessing at one would be worse than not offering the field.
+   *
+   * This, never `authenticationRef`, is what a foundational adapter keys a residency
+   * identity on (ADR-0010). `authenticationRef` derives from a pairwise `sub` that no other
+   * enrolment channel can reproduce; this derives from the identifier the register itself
+   * uses, so the same person enrolling through a registrar's lookup lands on the same
+   * record.
+   */
+  nationalId?: string;
   fullName?: string;
   givenName?: string;
   familyName?: string;
@@ -550,6 +564,9 @@ export class UpstreamOidcClient {
 
     return {
       authenticationRef: tokenizeSubject(this.providerCode(), sub, this.pepper),
+      // No default: `nationalId` is absent unless a deployment explicitly maps a claim to
+      // it. Every other field has a standard OIDC claim to fall back on; this one does not.
+      nationalId: read('nationalId'),
       fullName: read('fullName'),
       givenName: read('givenName'),
       familyName: read('familyName'),

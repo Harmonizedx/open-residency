@@ -12,6 +12,8 @@ import { join } from 'node:path';
 import { ProviderRegistry } from '../src/core/foundational/registry';
 import { parseXml, parseCsv } from '../src/core/foundational/util';
 import { ProviderConfig } from '../src/core/foundational/types';
+import { OidcFoundationalAdapter } from '../src/core/foundational/adapters/oidc.adapter';
+import type { UpstreamOidcClient } from '../src/core/oidc/upstream-oidc';
 
 let pass = 0;
 let fail = 0;
@@ -284,8 +286,136 @@ async function main(): Promise<void> {
     rmSync(dir, { recursive: true, force: true });
   }
 
+  await oidcFoundationalSuite();
+
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);
   if (fail > 0) process.exit(1);
+}
+
+
+/**
+ * An OIDC provider as the register itself (#116, ADR-0010).
+ *
+ * The invariant under test is that the residency identity keys on the authoritative
+ * identifier the OP releases and never on its `sub`. A `sub` is pairwise per relying party,
+ * so an identity derived from one is unreproducible by any other enrolment channel -- the
+ * adapter must refuse rather than fall back to it.
+ */
+function fakeClient(over: Partial<{
+  nationalId: string;
+  sub: string;
+  authenticated: boolean;
+  reason: string;
+}> = {}): UpstreamOidcClient {
+  const { nationalId, sub = 'pairwise-sub-1', authenticated = true, reason } = over;
+  return {
+    beginLogin: async () => ({
+      authorizationUrl: 'https://op.example/authorize?state=st-1',
+      state: 'st-1',
+    }),
+    completeLogin: async () => ({
+      authenticated,
+      reason,
+      assurance: 'high' as const,
+      identity: authenticated
+        ? { authenticationRef: `oidc_ab12:${sub}`, nationalId, fullName: 'Ada Umeh' }
+        : undefined,
+      binding: authenticated
+        ? { method: 'authoritative_authentication' as const, performedAt: new Date().toISOString() }
+        : undefined,
+    }),
+  } as unknown as UpstreamOidcClient;
+}
+
+async function oidcFoundationalSuite(): Promise<void> {
+  console.log('\nOIDC provider as a foundational source:');
+
+  const ok = new OidcFoundationalAdapter('ESIGNET', fakeClient({ nationalId: 'NIN-123' }), 'pepper');
+  ok.init({ code: 'ESIGNET' } as ProviderConfig);
+
+  const started = await ok.initiateChallenge!({ countryCode: 'ZZ', identifiers: {} });
+  check(
+    'the challenge step hands back the authorization URL to send the applicant to',
+    started.channel.startsWith('https://op.example/authorize') && started.challengeRef === 'st-1',
+  );
+
+  const res = await ok.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check('a completed sign-in verifies', res.verified && res.providerCode === 'ESIGNET');
+  check(
+    'the redirect asserts an applicant binding a bare lookup could not',
+    res.applicantBinding?.method === 'authoritative_authentication',
+  );
+
+  // The heart of ADR-0010: same person, different pairwise sub -> same residency identity.
+  const other = new OidcFoundationalAdapter(
+    'ESIGNET',
+    fakeClient({ nationalId: 'NIN-123', sub: 'pairwise-sub-2' }),
+    'pepper',
+  );
+  other.init({ code: 'ESIGNET' } as ProviderConfig);
+  const res2 = await other.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'the identity keys on the national identifier, so a different pairwise sub still resolves to the same person',
+    res.identity!.subjectRef === res2.identity!.subjectRef,
+  );
+  check(
+    'and the subject reference is namespaced by the provider, not the OP issuer',
+    res.identity!.subjectRef.startsWith('esignet:'),
+  );
+
+  // Different person at the same OP must not collide.
+  const third = new OidcFoundationalAdapter('ESIGNET', fakeClient({ nationalId: 'NIN-999' }), 'pepper');
+  third.init({ code: 'ESIGNET' } as ProviderConfig);
+  const res3 = await third.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'a different national identifier is a different person',
+    res3.identity!.subjectRef !== res.identity!.subjectRef,
+  );
+
+  // Fails closed when the OP authenticates but releases no identifier.
+  const noId = new OidcFoundationalAdapter('ESIGNET', fakeClient({}), 'pepper');
+  noId.init({ code: 'ESIGNET' } as ProviderConfig);
+  const refused = await noId.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'an OP that authenticates but releases no identifier is refused, not keyed on its sub',
+    !refused.verified && refused.reason === 'NO_AUTHORITATIVE_IDENTIFIER',
+  );
+  check('and the refusal yields no identity at all', refused.identity === undefined);
+
+  // Transport-level refusals stay reasons, never throws.
+  const missing = await ok.verify({ countryCode: 'ZZ', identifiers: {} });
+  check(
+    'a callback with no code is refused with a reason rather than throwing',
+    !missing.verified && missing.reason === 'MISSING_CODE_OR_STATE',
+  );
+
+  const unwired = new OidcFoundationalAdapter('ESIGNET', undefined, 'pepper');
+  unwired.init({ code: 'ESIGNET' } as ProviderConfig);
+  const noClient = await unwired.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'c' },
+    challengeRef: 's',
+  });
+  check(
+    'declaring the provider without an upstream profile refuses with a reason naming the gap',
+    !noClient.verified && noClient.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
+  );
 }
 
 main().catch((e) => {
