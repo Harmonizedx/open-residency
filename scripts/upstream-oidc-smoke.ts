@@ -634,11 +634,11 @@ async function main() {
   check('a real sign-in through the OP yields a verified foundational result', regResult.verified);
   check(
     'the residency identity is keyed on the identifier the OP released, not its subject',
-    regResult.identity?.subjectRef === tokenizeSubject('ESIGNET', INDIVIDUAL_ID, 'test-pepper'),
+    regResult.identity?.subjectRef === tokenizeSubject('OIDC', INDIVIDUAL_ID, 'test-pepper'),
   );
   check(
     'and it is namespaced by the provider, never by the OP issuer hash',
-    (regResult.identity?.subjectRef ?? '').startsWith('esignet:') &&
+    (regResult.identity?.subjectRef ?? '').startsWith('oidc:') &&
       !(regResult.identity?.subjectRef ?? '').includes('oidc_'),
   );
   check(
@@ -665,6 +665,10 @@ async function main() {
     !bare.verified && bare.reason === 'NO_AUTHORITATIVE_IDENTIFIER',
   );
   check('the refusal carries no identity to fall back on', bare.identity === undefined);
+  check(
+    'the raw identifier never rides inside the identity object the callback route returns',
+    !JSON.stringify(regResult.identity ?? {}).includes(INDIVIDUAL_ID),
+  );
   releaseNationalId = true;
 
   server.close();

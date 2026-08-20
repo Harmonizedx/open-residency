@@ -493,9 +493,16 @@ derived from the authoritative identifier the register is keyed on, mapped throu
 `claimMapping.nationalId`, and never from the OP's subject. The reason is in the table above:
 `sub` is pairwise per relying party. That property is exactly what makes it good for
 authentication and useless as an identity — a different RP registration produces a different
-value for the same person, so a record keyed on it could never be reconciled with the same
-person enrolling through a registrar's lookup. No choice of prefix fixes this, because the
-prefix is not what differs; the thing being hashed is.
+value for the same person, so a record keyed on it is not stable across re-registration. No
+choice of prefix fixes this, because the prefix is not what differs; the thing being hashed
+is.
+
+To be precise about what keying on the released identifier does and does not buy: it is
+stable for *this* provider across re-registrations, which the subject is not. It does **not**
+reconcile with a different foundational provider — `tokenizeSubject` namespaces by provider,
+so the same NIN under `OIDC` and under `NG_NIN` are different references. That is by design
+and costs nothing, because a deployment declares exactly one `foundational.provider`
+(ADR-0004); it only matters if a deployment ever changes provider, which is a migration.
 
 So an OP that authenticates but releases no identifier is **refused** at issuance with
 `NO_AUTHORITATIVE_IDENTIFIER` rather than falling back to `sub`. It can still be the

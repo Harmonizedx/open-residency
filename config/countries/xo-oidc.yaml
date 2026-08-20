@@ -12,7 +12,8 @@
 # HOW THE TWO-STEP FLOW RUNS
 #   POST /identity/challenge -> returns `channel`, the authorization URL to send the
 #                               applicant to, and `challengeRef`, the OIDC `state`
-#   (the applicant authenticates at the OP and is redirected back with a `code`)
+#   (the applicant authenticates at the OP; the browser returns to `redirectUri` below,
+#    which must be the ENROLMENT UI -- not this app's own upstream callback route)
 #   POST /identity/verify    -> { identifiers: { code }, challengeRef } -> the identity
 #
 # WHAT IT KEYS THE RECORD ON  (this is the part that matters -- see ADR-0010)
@@ -49,7 +50,12 @@ upstreamOidc:
   jwks:
     - { kty: RSA, n: "<base64url>", e: AQAB, kid: op-key-1, alg: RS256, use: sig }
   clientId: openresidency-xo
-  redirectUri: https://id.example.gov/enrolment/upstream/callback
+  # NOT /enrolment/upstream/callback. That route is this app's own relying-party handler and
+  # it completes the sign-in itself -- consuming the single-use state and redeeming the code
+  # -- so the register flow's second step would then find UNKNOWN_STATE. When the OP is the
+  # REGISTER, the browser must come back to the enrolment UI, which reads `code` and `state`
+  # off the query string and posts them to POST /identity/verify.
+  redirectUri: https://id.example.gov/app/enrol/upstream-return
   scopes: [profile]
   acrValues: ["mosip:idp:acr:biometrics", "mosip:idp:acr:generated-code"]
   acrMapping:
@@ -70,6 +76,13 @@ upstreamOidc:
 residency:
   minAssurance: verified
   proofOfResidence: attestation
+  # authoritative_authentication is unattended -- the OP confirms the applicant, no officer
+  # is present -- so a decision here can be taken with no person involved. The loader refuses
+  # to start such a jurisdiction without somewhere an affected person can be heard
+  # (NDPA 2023 s.37, GDPR Art.22).
+  humanReview:
+    path: 'Reconsideration is requested at any state enrolment centre, or in writing to the Residency Authority.'
+    withinDays: 30
   applicantBinding:
     # Unlike a register lookup, the redirect authenticates the applicant as the owner of the
     # identity, so this provider supplies the binding itself -- no desk comparison needed.

@@ -222,7 +222,7 @@ subnationalUnits:
     check(
       'the identity is namespaced by the provider, not by the OP issuer hash',
       typeof verified.body.subjectRef === 'string' &&
-        verified.body.subjectRef.startsWith('esignet:') &&
+        verified.body.subjectRef.startsWith('oidc:') &&
         !verified.body.subjectRef.includes('oidc_'),
     );
     check(

@@ -22,7 +22,8 @@ import type { UpstreamOidcClient } from '../../oidc/upstream-oidc';
  *
  * SPEAKS THE STANDARD, NAMES NO VENDOR. eSignet is the OP this is most often pointed at, and
  * there is no eSignet-specific branch here; `ESIGNET` is an alias for discoverability, the
- * way `IMPORT` aliases `DATASET_FILE`.
+ * way `IMPORT` aliases `DATASET_FILE`. Both tokenize under one namespace so switching the
+ * alias in config is the no-op it looks like.
  *
  * WHAT IT KEYS ON, AND WHY THAT IS NOT THE SUBJECT (ADR-0010). The residency identity is
  * derived from the authoritative identifier the OP releases -- a national identifier mapped
@@ -36,6 +37,16 @@ import type { UpstreamOidcClient } from '../../oidc/upstream-oidc';
  * the failure it exists to avoid, and it would fail silently years later at the point where
  * two records for one person cannot be reconciled.
  */
+/**
+ * The namespace every subjectRef from this adapter is keyed under, whichever registry code
+ * resolved it. `ESIGNET` is documented as a pure alias of `OIDC`, so it must behave as one:
+ * tokenizing under the literal code would mean the same person at the same OP hashes to
+ * `esignet:...` under one and `oidc:...` under the other, and an operator editing the alias
+ * in config -- reasonably expecting a no-op -- would orphan every existing residency, since
+ * subjectRef is unique and each resident would re-enrol as a new record.
+ */
+const SUBJECT_NAMESPACE = 'OIDC';
+
 export class OidcFoundationalAdapter implements FoundationalProvider {
   readonly code: string;
   private cfg?: ProviderConfig;
@@ -93,15 +104,21 @@ export class OidcFoundationalAdapter implements FoundationalProvider {
       return this.failed(result.reason ?? 'UPSTREAM_AUTHENTICATION_FAILED');
     }
 
-    const authoritativeId = result.identity.nationalId;
+    const authoritativeId = result.authoritativeId;
     if (!authoritativeId) {
+      // The identifier normally arrives in userinfo, so a userinfo outage looks exactly like
+      // an OP that released nothing -- except one is transient and the other is permanent.
+      // NO_AUTHORITATIVE_IDENTIFIER means "this OP cannot be the register", which a caller
+      // should not conclude from a 5xx. The state and code are spent either way, so the
+      // retry is a fresh challenge, but the operator is told which of the two happened.
+      if (result.userinfoUnavailable) return this.failed('UPSTREAM_USERINFO_UNAVAILABLE');
       // Fails closed. See the class comment: `sub` is not a substitute, and accepting the
       // sign-in without an identifier would write a record nothing else can match.
       return this.failed('NO_AUTHORITATIVE_IDENTIFIER');
     }
 
     const identity: NormalizedIdentity = {
-      subjectRef: tokenizeSubject(this.code, authoritativeId, this.pepper),
+      subjectRef: tokenizeSubject(SUBJECT_NAMESPACE, authoritativeId, this.pepper),
       fullName: result.identity.fullName,
       givenName: result.identity.givenName,
       familyName: result.identity.familyName,

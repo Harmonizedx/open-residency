@@ -10,6 +10,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProviderRegistry } from '../src/core/foundational/registry';
+import { loadCountryConfigs } from '../src/core/config/country-config';
 import { parseXml, parseCsv } from '../src/core/foundational/util';
 import { ProviderConfig } from '../src/core/foundational/types';
 import { OidcFoundationalAdapter } from '../src/core/foundational/adapters/oidc.adapter';
@@ -287,6 +288,7 @@ async function main(): Promise<void> {
   }
 
   await oidcFoundationalSuite();
+  shippedConfigsSuite();
 
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);
   if (fail > 0) process.exit(1);
@@ -317,8 +319,11 @@ function fakeClient(over: Partial<{
       authenticated,
       reason,
       assurance: 'high' as const,
+      // The raw identifier rides beside the identity, never inside it: the identity object
+      // is handed straight back over HTTP by the upstream callback route.
+      authoritativeId: nationalId,
       identity: authenticated
-        ? { authenticationRef: `oidc_ab12:${sub}`, nationalId, fullName: 'Ada Umeh' }
+        ? { authenticationRef: `oidc_ab12:${sub}`, fullName: 'Ada Umeh' }
         : undefined,
       binding: authenticated
         ? { method: 'authoritative_authentication' as const, performedAt: new Date().toISOString() }
@@ -368,7 +373,20 @@ async function oidcFoundationalSuite(): Promise<void> {
   );
   check(
     'and the subject reference is namespaced by the provider, not the OP issuer',
-    res.identity!.subjectRef.startsWith('esignet:'),
+    res.identity!.subjectRef.startsWith('oidc:'),
+  );
+  // ESIGNET is documented as a pure alias, so it must not change the namespace: an operator
+  // editing the alias would otherwise orphan every residency under the old prefix.
+  const aliased = new OidcFoundationalAdapter('OIDC', fakeClient({ nationalId: 'NIN-123' }), 'pepper');
+  aliased.init({ code: 'OIDC' } as ProviderConfig);
+  const aliasRes = await aliased.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'the ESIGNET alias and OIDC produce the same subjectRef for the same person',
+    aliasRes.identity!.subjectRef === res.identity!.subjectRef,
   );
 
   // Different person at the same OP must not collide.
@@ -418,7 +436,7 @@ async function oidcFoundationalSuite(): Promise<void> {
     });
     check(
       `the registry resolves ${code} to the OIDC adapter, not the generic REST fallback`,
-      resolved.code === code && out.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
+      resolved.code === 'OIDC' && out.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
     );
   }
 
@@ -433,6 +451,29 @@ async function oidcFoundationalSuite(): Promise<void> {
     'declaring the provider without an upstream profile refuses with a reason naming the gap',
     !noClient.verified && noClient.reason === 'UPSTREAM_OIDC_NOT_CONFIGURED',
   );
+}
+
+
+/**
+ * The configs this repository ships must load.
+ *
+ * loadCountryConfigs throws for the WHOLE directory when any single file is invalid, so one
+ * bad example config stops the app booting at all -- and nothing else in the suite reads
+ * config/countries, so a malformed example ships green. That is exactly what happened with
+ * xo-oidc.yaml (#136 review): it declared an unattended applicantBinding without the
+ * humanReview the loader requires, and `npm run start:dev` died on a fresh checkout.
+ */
+function shippedConfigsSuite(): void {
+  console.log('\nThe shipped country configs:');
+  let configs: Map<string, unknown> | undefined;
+  let err = '';
+  try {
+    configs = loadCountryConfigs('config/countries') as unknown as Map<string, unknown>;
+  } catch (e) {
+    err = (e as Error).message;
+  }
+  check(`every config in config/countries loads${err ? ` -- ${err.slice(0, 160)}` : ''}`, !!configs);
+  check('and the directory is not empty', (configs?.size ?? 0) > 0);
 }
 
 main().catch((e) => {
