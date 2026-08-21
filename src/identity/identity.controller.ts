@@ -5,7 +5,12 @@ import {
   NotFoundException,
   Post,
   ServiceUnavailableException,
+  UseGuards,
 } from '@nestjs/common';
+import {
+  OperatorGuard,
+  RequireRoles,
+} from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
 import { NormalizedIdentity, ProviderNotConfiguredError } from '../core/foundational/types';
 import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
@@ -25,6 +30,21 @@ import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
 export class IdentityController {
   constructor(private platform: PlatformService) {}
 
+  /**
+   * Begin a two-step verification against the configured provider.
+   *
+   * Operator-guarded. For a provider that authenticates by redirect, this mints a state,
+   * nonce and PKCE verifier and writes a pending row -- so an unauthenticated caller could
+   * otherwise drive authorization requests at the jurisdiction's own identity provider on its
+   * behalf, and accumulate pending state doing it. `POST /enrolment/upstream/start` performs
+   * the same act and has carried this guard for exactly that reason; leaving this one open
+   * would have made the guard there decorative.
+   *
+   * `registrar` rather than `admin`: beginning a verification is enrolment-desk work, and the
+   * role that may complete an enrolment is the one that may start one.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
   @Post('challenge')
   async challenge(@Body() body: ChallengeDto) {
     const cfg = this.platform.getConfig(body.countryCode);

@@ -486,7 +486,7 @@ It can. Set `foundational.provider: ESIGNET` (an alias for `OIDC`, the way `IMPO
 `DATASET_FILE`) and the register is the OP declared in `upstreamOidc`. There is no second
 config block and no new endpoints: the redirect rides the same two-step seam Aadhaar's OTP
 needed, `POST /identity/challenge` handing back the authorization URL and `POST
-/identity/verify` consuming the callback. See `config/countries/xo-oidc.yaml`.
+/identity/verify` consuming the callback. See `config/examples/xo-oidc.yaml`, and copy it into `config/countries` to use it.
 
 **But it must release an identifier, and `sub` is not one.** A residency `subjectRef` is
 derived from the authoritative identifier the register is keyed on, mapped through

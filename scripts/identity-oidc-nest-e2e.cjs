@@ -44,10 +44,15 @@ function rsaPair() {
   });
 }
 
-async function post(base, path, body) {
+// Both endpoints driven here sit behind OperatorGuard: beginning a verification mints state
+// at the jurisdiction's own provider, so it is enrolment-desk work rather than something an
+// anonymous caller may start. The registrar's UI authenticates the same way.
+async function post(base, path, body, opts = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (opts.anonymous !== true) headers['x-admin-key'] = process.env.ADMIN_API_KEY;
   const res = await fetch(`${base}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -250,7 +255,24 @@ subnationalUnits:
       'an OP that authenticates but releases no identifier is refused through the real endpoint',
       refused.body.verified === false && refused.body.reason === 'NO_AUTHORITATIVE_IDENTIFIER',
     );
-    check('and no identity is returned to fall back on', refused.body.identity === undefined);
+    // The old form of this checked `body.identity`, which this endpoint never returns under
+    // any outcome -- so it passed whatever the adapter did, including returning a subject
+    // derived from the pairwise `sub`, which is the regression it exists to catch. Assert
+    // against the whole payload instead: a refusal must carry no subject reference at all.
+    check(
+      'and no subject reference is returned to fall back on',
+      !/subjectRef/i.test(JSON.stringify(refused.body)),
+      JSON.stringify(refused.body).slice(0, 160),
+    );
+
+    // The guard itself. Beginning a verification mints state at the jurisdiction's own
+    // provider, so an anonymous caller must not be able to start one.
+    const anon = await post(base, '/identity/challenge', { countryCode: 'ZZ', identifiers: {} }, { anonymous: true });
+    check(
+      'an unauthenticated caller cannot drive authorization requests at the jurisdiction OP',
+      anon.status === 401 || anon.status === 403,
+      `status ${anon.status}`,
+    );
   } finally {
     await app.close();
     opServer.close();
