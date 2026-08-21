@@ -35,7 +35,7 @@
     "prisma:migrate": "prisma migrate dev",
     "smoke": "tsc -p tsconfig.core.json && node dist-core/scripts/smoke.js",
     "smoke:sources": "tsc -p tsconfig.core.json && node dist-core/scripts/sources-smoke.js",
-    "test": "npm run smoke && npm run smoke:sources && npm run smoke:oid4vci && npm run smoke:inji && npm run smoke:oid4vp && npm run smoke:sso && npm run smoke:federation && npm run smoke:ld-suites && npm run smoke:webauthn && npm run smoke:webauthn-service && npm run smoke:biometric && npm run smoke:statistics && npm run smoke:privacy && npm run smoke:assurance && npm run smoke:consent && npm run smoke:lifecycle && npm run smoke:credential-lifecycle && npm run smoke:refusal && npm run smoke:address-anchor && npm run smoke:sso-oidc && npm run smoke:upstream-oidc && npm run smoke:mosip-ida && npm run smoke:operator && npm run smoke:hsm && npm run smoke:gcpkms && npm run smoke:awskms && npm run test:conformance",
+    "test": "npm run smoke && npm run smoke:sources && npm run smoke:identifier-namespace && npm run smoke:oid4vci && npm run smoke:inji && npm run smoke:oid4vp && npm run smoke:sso && npm run smoke:federation && npm run smoke:ld-suites && npm run smoke:webauthn && npm run smoke:webauthn-service && npm run smoke:biometric && npm run smoke:statistics && npm run smoke:privacy && npm run smoke:assurance && npm run smoke:consent && npm run smoke:lifecycle && npm run smoke:credential-lifecycle && npm run smoke:refusal && npm run smoke:address-anchor && npm run smoke:sso-oidc && npm run smoke:upstream-oidc && npm run smoke:mosip-ida && npm run smoke:operator && npm run smoke:hsm && npm run smoke:gcpkms && npm run smoke:awskms && npm run test:conformance",
     "smoke:oid4vci": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vci-smoke.js",
     "smoke:oid4vp": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vp-smoke.js",
     "test:conformance": "tsc -p tsconfig.core.json && node dist-core/scripts/conformance.js",
@@ -67,7 +67,8 @@
     "smoke:credential-lifecycle": "tsc -p tsconfig.core.json && node dist-core/scripts/credential-lifecycle-smoke.js",
     "smoke:refusal": "tsc -p tsconfig.core.json && node dist-core/scripts/refusal-smoke.js",
     "smoke:address-anchor": "tsc -p tsconfig.core.json && node dist-core/scripts/address-anchor-smoke.js",
-    "test:store-e2e": "bash scripts/run-store-e2e.sh"
+    "test:store-e2e": "bash scripts/run-store-e2e.sh",
+    "smoke:identifier-namespace": "tsc -p tsconfig.core.json && node dist-core/scripts/identifier-namespace-smoke.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.1",

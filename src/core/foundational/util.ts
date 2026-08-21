@@ -43,14 +43,46 @@ export function interpolateObject(
  * pepper MUST come from a secret (env/KMS) in production.
  */
 export function tokenizeSubject(
-  providerCode: string,
+  /**
+   * The NAMESPACE this reference lives in -- not necessarily the provider code.
+   *
+   * A provider declaring `identifierType` passes that instead, so two routes to the same
+   * authoritative identifier land in one namespace. See `identifierNamespace` below and
+   * ADR-0012 for why the route must not decide the namespace.
+   */
+  namespace: string,
   rawId: string,
   pepper: string,
 ): string {
   const mac = createHmac('sha256', pepper)
-    .update(`${providerCode}:${rawId}`)
+    .update(`${namespace}:${rawId}`)
     .digest('hex');
-  return `${providerCode.toLowerCase()}:${mac.slice(0, 40)}`;
+  return `${namespace.toLowerCase()}:${mac.slice(0, 40)}`;
+}
+
+/**
+ * Which namespace a provider's references belong in.
+ *
+ * The namespace exists to stop two DIFFERENT national schemes colliding: a NIN and an Aadhaar
+ * number are both digit strings, and without separation the same digits from two registers
+ * would hash to one reference for two different people. That is a property of the IDENTIFIER,
+ * not of the software that handed it over.
+ *
+ * Keying on the provider code instead conflates the two, and the cost is concrete: a resident
+ * enrolled at a desk through a NIN gateway and the same resident returning online through an
+ * OIDC provider that releases the same NIN produce different references, so the register holds
+ * them as two people. Permanently -- the reference is one-way and there is no identity-link
+ * lifecycle to correct it.
+ *
+ * So a provider MAY declare `identifierType`, and two providers declaring the same one share a
+ * namespace. Defaulting to the provider code keeps every deployment that declares nothing
+ * exactly where it was: this is additive, and no existing reference changes value.
+ */
+export function identifierNamespace(config: {
+  code: string;
+  identifierType?: string;
+}): string {
+  return config.identifierType?.trim() || config.code;
 }
 
 /** Deterministic short hash, handy for status-list indices and correlation ids. */

@@ -365,6 +365,9 @@ export class ResidencyService {
   getProvider(cfg: CountryConfig): FoundationalProvider {
     return this.registry.resolve({
       code: cfg.foundational.provider,
+      // Namespaces the subject reference when declared, so two routes to the same national
+      // identifier reconcile rather than producing two records. See ADR-0012.
+      identifierType: cfg.foundational.identifierType,
       baseUrl: cfg.foundational.baseUrl,
       auth: cfg.foundational.auth,
       timeoutMs: cfg.foundational.timeoutMs,

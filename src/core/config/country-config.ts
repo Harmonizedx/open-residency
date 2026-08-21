@@ -51,6 +51,19 @@ const foundationalSchema = z.object({
   // e.g. NG_NIN, IN_AADHAAR, GENERIC_REST (JSON API), GENERIC_XML (XML/SOAP API),
   // DATASET_FILE / IMPORT (register extract), MOCK
   provider: z.string(),
+  /**
+   * The KIND of authoritative identifier this source returns -- `NIN`, `AADHAAR`, `HUDUMA`.
+   *
+   * Subject references are namespaced by this rather than by the provider code, so two routes
+   * to the SAME identifier reconcile: a resident enrolled at a desk through a NIN gateway and
+   * the same resident returning online through an OIDC provider that releases the same NIN are
+   * one record, not two. Different identifier types stay separate, which is what the namespace
+   * is actually for -- a NIN and an Aadhaar number are both digit strings.
+   *
+   * Omit it and the namespace falls back to the provider code, which is exactly the previous
+   * behaviour: no reference already written changes value. See ADR-0012.
+   */
+  identifierType: z.string().trim().min(1).optional(),
   baseUrl: z.string().optional(),
   auth: authSchema.optional(),
   timeoutMs: z.number().int().positive().optional(),
