@@ -59,3 +59,8 @@ npm run build >/dev/null 2>&1
 
 echo "== driving the real app =="
 node scripts/sso-nest-e2e.cjs
+# Second app boot against the same cluster: an OIDC provider acting as the foundational
+# register (#116). Separate because it needs a different country config, and so a different
+# boot; standing up another PostgreSQL for it would double the slowest job in CI for nothing.
+echo "== driving the real app: an OIDC provider as the register =="
+node scripts/identity-oidc-nest-e2e.cjs

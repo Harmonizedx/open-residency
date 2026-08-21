@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Body, Controller, NotFoundException, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  NotFoundException,
+  Post,
+  ServiceUnavailableException,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  OperatorGuard,
+  RequireRoles,
+} from '../common/operator.guard';
 import { PlatformService } from '../platform/platform.service';
-import { NormalizedIdentity } from '../core/foundational/types';
+import { NormalizedIdentity, ProviderNotConfiguredError } from '../core/foundational/types';
 import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/identity.dto.ts.
@@ -19,6 +30,21 @@ import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
 export class IdentityController {
   constructor(private platform: PlatformService) {}
 
+  /**
+   * Begin a two-step verification against the configured provider.
+   *
+   * Operator-guarded. For a provider that authenticates by redirect, this mints a state,
+   * nonce and PKCE verifier and writes a pending row -- so an unauthenticated caller could
+   * otherwise drive authorization requests at the jurisdiction's own identity provider on its
+   * behalf, and accumulate pending state doing it. `POST /enrolment/upstream/start` performs
+   * the same act and has carried this guard for exactly that reason; leaving this one open
+   * would have made the guard there decorative.
+   *
+   * `registrar` rather than `admin`: beginning a verification is enrolment-desk work, and the
+   * role that may complete an enrolment is the one that may start one.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
   @Post('challenge')
   async challenge(@Body() body: ChallengeDto) {
     const cfg = this.platform.getConfig(body.countryCode);
@@ -29,10 +55,15 @@ export class IdentityController {
     if (!provider.initiateChallenge) {
       return { challengeRequired: false };
     }
-    const res = await provider.initiateChallenge({
-      countryCode: cfg.countryCode,
-      identifiers: body.identifiers,
-    });
+    let res;
+    try {
+      res = await provider.initiateChallenge({
+        countryCode: cfg.countryCode,
+        identifiers: body.identifiers,
+      });
+    } catch (e) {
+      throw asServiceUnavailable(e);
+    }
     await audit.record({
       action: 'identity.challenge',
       actor: 'citizen',
@@ -50,11 +81,16 @@ export class IdentityController {
     const provider = this.platform.getResidency().getProvider(cfg);
     const audit = this.platform.getAudit();
 
-    const result = await provider.verify({
-      countryCode: cfg.countryCode,
-      identifiers: body.identifiers,
-      challengeRef: body.challengeRef,
-    });
+    let result;
+    try {
+      result = await provider.verify({
+        countryCode: cfg.countryCode,
+        identifiers: body.identifiers,
+        challengeRef: body.challengeRef,
+      });
+    } catch (e) {
+      throw asServiceUnavailable(e);
+    }
 
     if (!result.verified && result.pendingChallenge) {
       return {
@@ -83,6 +119,17 @@ export class IdentityController {
       reason: result.verified ? undefined : result.reason,
     };
   }
+}
+
+/**
+ * A provider the deployment named but did not finish configuring is a 503, not a 500.
+ *
+ * 500 reads as "try again" and buries the message; 503 says the route exists and this
+ * deployment has not configured it, which is the same answer UpstreamController gives when
+ * no upstreamOidc profile is declared. Anything else is a genuine fault and is left alone.
+ */
+function asServiceUnavailable(e: unknown): unknown {
+  return e instanceof ProviderNotConfiguredError ? new ServiceUnavailableException(e.message) : e;
 }
 
 function minimize(identity?: NormalizedIdentity): Record<string, unknown> {

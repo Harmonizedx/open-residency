@@ -10,8 +10,12 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProviderRegistry } from '../src/core/foundational/registry';
+import { loadCountryConfigs } from '../src/core/config/country-config';
+import { ProviderNotConfiguredError } from '../src/core/foundational/types';
 import { parseXml, parseCsv } from '../src/core/foundational/util';
 import { ProviderConfig } from '../src/core/foundational/types';
+import { OidcFoundationalAdapter } from '../src/core/foundational/adapters/oidc.adapter';
+import type { UpstreamOidcClient } from '../src/core/oidc/upstream-oidc';
 
 let pass = 0;
 let fail = 0;
@@ -284,8 +288,211 @@ async function main(): Promise<void> {
     rmSync(dir, { recursive: true, force: true });
   }
 
+  await oidcFoundationalSuite();
+  shippedConfigsSuite();
+
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);
   if (fail > 0) process.exit(1);
+}
+
+
+/**
+ * An OIDC provider as the register itself (#116, ADR-0010).
+ *
+ * The invariant under test is that the residency identity keys on the authoritative
+ * identifier the OP releases and never on its `sub`. A `sub` is pairwise per relying party,
+ * so an identity derived from one is unreproducible by any other enrolment channel -- the
+ * adapter must refuse rather than fall back to it.
+ */
+function fakeClient(over: Partial<{
+  nationalId: string;
+  sub: string;
+  authenticated: boolean;
+  reason: string;
+}> = {}): UpstreamOidcClient {
+  const { nationalId, sub = 'pairwise-sub-1', authenticated = true, reason } = over;
+  return {
+    beginLogin: async () => ({
+      authorizationUrl: 'https://op.example/authorize?state=st-1',
+      state: 'st-1',
+    }),
+    completeLogin: async () => ({
+      authenticated,
+      reason,
+      assurance: 'high' as const,
+      // The raw identifier rides beside the identity, never inside it: the identity object
+      // is handed straight back over HTTP by the upstream callback route.
+      authoritativeId: nationalId,
+      identity: authenticated
+        ? { authenticationRef: `oidc_ab12:${sub}`, fullName: 'Ada Umeh' }
+        : undefined,
+      binding: authenticated
+        ? { method: 'authoritative_authentication' as const, performedAt: new Date().toISOString() }
+        : undefined,
+    }),
+  } as unknown as UpstreamOidcClient;
+}
+
+async function oidcFoundationalSuite(): Promise<void> {
+  console.log('\nOIDC provider as a foundational source:');
+
+  const ok = new OidcFoundationalAdapter('ESIGNET', fakeClient({ nationalId: 'NIN-123' }), 'pepper');
+  ok.init({ code: 'ESIGNET' } as ProviderConfig);
+
+  const started = await ok.initiateChallenge!({ countryCode: 'ZZ', identifiers: {} });
+  check(
+    'the challenge step hands back the authorization URL to send the applicant to',
+    started.channel.startsWith('https://op.example/authorize') && started.challengeRef === 'st-1',
+  );
+
+  const res = await ok.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check('a completed sign-in verifies', res.verified && res.providerCode === 'ESIGNET');
+  check(
+    'the redirect asserts an applicant binding a bare lookup could not',
+    res.applicantBinding?.method === 'authoritative_authentication',
+  );
+
+  // The heart of ADR-0010: same person, different pairwise sub -> same residency identity.
+  const other = new OidcFoundationalAdapter(
+    'ESIGNET',
+    fakeClient({ nationalId: 'NIN-123', sub: 'pairwise-sub-2' }),
+    'pepper',
+  );
+  other.init({ code: 'ESIGNET' } as ProviderConfig);
+  const res2 = await other.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'the identity keys on the national identifier, so a different pairwise sub still resolves to the same person',
+    res.identity!.subjectRef === res2.identity!.subjectRef,
+  );
+  check(
+    'and the subject reference is namespaced by the provider, not the OP issuer',
+    res.identity!.subjectRef.startsWith('oidc:'),
+  );
+  // ESIGNET is documented as a pure alias, so it must not change the namespace: an operator
+  // editing the alias would otherwise orphan every residency under the old prefix.
+  const aliased = new OidcFoundationalAdapter('OIDC', fakeClient({ nationalId: 'NIN-123' }), 'pepper');
+  aliased.init({ code: 'OIDC' } as ProviderConfig);
+  const aliasRes = await aliased.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'the ESIGNET alias and OIDC produce the same subjectRef for the same person',
+    aliasRes.identity!.subjectRef === res.identity!.subjectRef,
+  );
+
+  // Different person at the same OP must not collide.
+  const third = new OidcFoundationalAdapter('ESIGNET', fakeClient({ nationalId: 'NIN-999' }), 'pepper');
+  third.init({ code: 'ESIGNET' } as ProviderConfig);
+  const res3 = await third.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'a different national identifier is a different person',
+    res3.identity!.subjectRef !== res.identity!.subjectRef,
+  );
+
+  // Fails closed when the OP authenticates but releases no identifier.
+  const noId = new OidcFoundationalAdapter('ESIGNET', fakeClient({}), 'pepper');
+  noId.init({ code: 'ESIGNET' } as ProviderConfig);
+  const refused = await noId.verify({
+    countryCode: 'ZZ',
+    identifiers: { code: 'auth-code' },
+    challengeRef: 'st-1',
+  });
+  check(
+    'an OP that authenticates but releases no identifier is refused, not keyed on its sub',
+    !refused.verified && refused.reason === 'NO_AUTHORITATIVE_IDENTIFIER',
+  );
+  check('and the refusal yields no identity at all', refused.identity === undefined);
+
+  // Transport-level refusals stay reasons, never throws.
+  const missing = await ok.verify({ countryCode: 'ZZ', identifiers: {} });
+  check(
+    'a callback with no code is refused with a reason rather than throwing',
+    !missing.verified && missing.reason === 'MISSING_CODE_OR_STATE',
+  );
+
+  // Resolved through the registry, not constructed directly: this is what proves the
+  // FACTORIES keys exist. An unknown code does not throw here -- it silently becomes a
+  // GENERIC_REST adapter -- so a typo in either key would pass every assertion above.
+  const reg = new ProviderRegistry('pepper');
+  for (const code of ['OIDC', 'ESIGNET']) {
+    const resolved = reg.resolve({ code, assuranceOnSuccess: 'verified' } as ProviderConfig);
+    let typed = false;
+    try {
+      await resolved.verify({ countryCode: 'ZZ', identifiers: { code: 'c' }, challengeRef: 's' });
+    } catch (e) {
+      typed = e instanceof ProviderNotConfiguredError;
+    }
+    check(
+      `the registry resolves ${code} to the OIDC adapter, not the generic REST fallback`,
+      resolved.code === 'OIDC' && typed,
+    );
+  }
+
+  // A deployment that named the provider but never configured it is a misconfiguration, not
+  // a failed verification -- and both entry points must say so the same way, or one of them
+  // becomes a 500 that buries the actionable message.
+  const unwired = new OidcFoundationalAdapter('OIDC', undefined, 'pepper');
+  unwired.init({ code: 'OIDC' } as ProviderConfig);
+  const caught: string[] = [];
+  for (const call of [
+    () => unwired.verify({ countryCode: 'ZZ', identifiers: { code: 'c' }, challengeRef: 's' }),
+    () => unwired.initiateChallenge!({ countryCode: 'ZZ', identifiers: {} }),
+  ]) {
+    try {
+      await call();
+      caught.push('no-throw');
+    } catch (e) {
+      caught.push(e instanceof ProviderNotConfiguredError ? 'typed' : 'untyped');
+    }
+  }
+  check(
+    'verify and initiateChallenge both refuse an unconfigured provider the same way',
+    caught.join(',') === 'typed,typed',
+  );
+  check(
+    'and the message names the config block to add',
+    await unwired
+      .initiateChallenge!({ countryCode: 'ZZ', identifiers: {} })
+      .then(() => false)
+      .catch((e: Error) => e.message.includes('upstream')),
+  );
+}
+
+
+/**
+ * The configs this repository ships must load.
+ *
+ * loadCountryConfigs throws for the WHOLE directory when any single file is invalid, so one
+ * bad example config stops the app booting at all -- and nothing else in the suite reads
+ * config/countries, so a malformed example ships green. That is exactly what happened with
+ * xo-oidc.yaml (#136 review): it declared an unattended applicantBinding without the
+ * humanReview the loader requires, and `npm run start:dev` died on a fresh checkout.
+ */
+function shippedConfigsSuite(): void {
+  console.log('\nThe shipped country configs:');
+  let configs: Map<string, unknown> | undefined;
+  let err = '';
+  try {
+    configs = loadCountryConfigs('config/countries') as unknown as Map<string, unknown>;
+  } catch (e) {
+    err = (e as Error).message;
+  }
+  check(`every config in config/countries loads${err ? ` -- ${err.slice(0, 160)}` : ''}`, !!configs);
+  check('and the directory is not empty', (configs?.size ?? 0) > 0);
 }
 
 main().catch((e) => {

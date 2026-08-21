@@ -27,8 +27,10 @@ import {
   InMemoryPendingUpstreamAuthStore,
   UpstreamOidcConfig,
   assertUpstreamOidcUsable,
-} from '../src/core/sso/upstream-oidc';
+} from '../src/core/oidc/upstream-oidc';
 import { parseCountryConfig } from '../src/core/config/country-config';
+import { OidcFoundationalAdapter } from '../src/core/foundational/adapters/oidc.adapter';
+import { tokenizeSubject } from '../src/core/foundational/util';
 
 let pass = 0;
 let fail = 0;
@@ -45,6 +47,9 @@ function check(name: string, cond: boolean, detail?: string) {
 const CLIENT_ID = 'openresidency-katsina';
 const REDIRECT_URI = 'https://id.katsina.gov.ng/sso/upstream/callback';
 const SUBJECT = 'pairwise-subject-for-this-rp-only';
+/** Whether the OP releases an authoritative identifier alongside the profile claims. */
+let releaseNationalId = true;
+const INDIVIDUAL_ID = '2847100493';
 const ACR_BIOMETRIC = 'mosip:idp:acr:biometrics';
 const ACR_OTP = 'mosip:idp:acr:generated-code';
 const ACR_UNMAPPED = 'mosip:idp:acr:linked-wallet';
@@ -183,6 +188,7 @@ async function main() {
       // Signed, then encrypted to the RP: a nested JWT.
       const signed = await new SignJWT({
         sub,
+        ...(releaseNationalId ? { individual_id: INDIVIDUAL_ID } : {}),
         name: 'Amina Bello',
         given_name: 'Amina',
         family_name: 'Bello',
@@ -596,6 +602,74 @@ async function main() {
     check('declaring userinfo decryption without the key refuses to boot', decMsg !== null);
     check('and names that variable too', !!decMsg && decMsg.includes('UP_DEC'));
   }
+
+
+  // ---- The same OP as the foundational register (#116, ADR-0010) -----------
+  // Everything above proves the client. This drives the FoundationalProvider that sits on
+  // top of it, through the same real HTTP, real signed id_token and real nested-JWT
+  // userinfo -- not a stubbed client -- because the thing under test is which value out of
+  // that exchange becomes the residency identity.
+  console.log('\nThe OP as a foundational register:');
+
+  const registerConfig: UpstreamOidcConfig = {
+    ...config,
+    claimMapping: { nationalId: 'individual_id' },
+  };
+  const registerClient = new UpstreamOidcClient(registerConfig, store, 'test-pepper');
+  const adapter = new OidcFoundationalAdapter('ESIGNET', registerClient, 'test-pepper');
+  adapter.init({ code: 'ESIGNET', assuranceOnSuccess: 'verified' });
+
+  const challenge = await adapter.initiateChallenge!({ countryCode: 'NG', identifiers: {} });
+  check(
+    'the challenge step returns the OP authorization URL and the state as its reference',
+    challenge.channel.startsWith(`${issuer}/authorize`) && !!challenge.challengeRef,
+  );
+
+  const regCode = authorize({ authorizationUrl: challenge.channel }, ACR_BIOMETRIC);
+  const regResult = await adapter.verify({
+    countryCode: 'NG',
+    identifiers: { code: regCode },
+    challengeRef: challenge.challengeRef,
+  });
+  check('a real sign-in through the OP yields a verified foundational result', regResult.verified);
+  check(
+    'the residency identity is keyed on the identifier the OP released, not its subject',
+    regResult.identity?.subjectRef === tokenizeSubject('OIDC', INDIVIDUAL_ID, 'test-pepper'),
+  );
+  check(
+    'and it is namespaced by the provider, never by the OP issuer hash',
+    (regResult.identity?.subjectRef ?? '').startsWith('oidc:') &&
+      !(regResult.identity?.subjectRef ?? '').includes('oidc_'),
+  );
+  check(
+    'the profile claims decrypted out of the nested JWT reach the identity',
+    regResult.identity?.fullName === 'Amina Bello' && regResult.identity?.dateOfBirth === '1990-04-11',
+  );
+  check(
+    'the redirect supplies the applicant binding a register lookup cannot',
+    regResult.applicantBinding?.method === 'authoritative_authentication',
+  );
+  check('the acr the OP reported still sets the assurance', regResult.assuranceLevel === 'high');
+
+  // Same OP, same flow, one difference: it releases no identifier.
+  releaseNationalId = false;
+  const bareChallenge = await adapter.initiateChallenge!({ countryCode: 'NG', identifiers: {} });
+  const bareCode = authorize({ authorizationUrl: bareChallenge.channel }, ACR_BIOMETRIC);
+  const bare = await adapter.verify({
+    countryCode: 'NG',
+    identifiers: { code: bareCode },
+    challengeRef: bareChallenge.challengeRef,
+  });
+  check(
+    'an OP that authenticates but releases no identifier is refused, never keyed on sub',
+    !bare.verified && bare.reason === 'NO_AUTHORITATIVE_IDENTIFIER',
+  );
+  check('the refusal carries no identity to fall back on', bare.identity === undefined);
+  check(
+    'the raw identifier never rides inside the identity object the callback route returns',
+    !JSON.stringify(regResult.identity ?? {}).includes(INDIVIDUAL_ID),
+  );
+  releaseNationalId = true;
 
   server.close();
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);

@@ -20,7 +20,7 @@ import { ResidenceAddress } from '../core/proofing/address';
 import {
   PendingUpstreamAuth,
   PendingUpstreamAuthStore,
-} from '../core/sso/upstream-oidc';
+} from '../core/oidc/upstream-oidc';
 import {
   AuditCheckpoint,
   AuditCheckpointStore,

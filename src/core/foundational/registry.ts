@@ -7,6 +7,7 @@ import { NinAdapter } from './adapters/nin.adapter';
 import { AadhaarAdapter } from './adapters/aadhaar.adapter';
 import { MosipIdaAdapter } from './adapters/mosip-ida.adapter';
 import { MockAdapter } from './adapters/mock.adapter';
+import { OidcFoundationalAdapter } from './adapters/oidc.adapter';
 import { shortHash } from './util';
 
 /** Order-independent JSON so the cache key is identical for equal configs. */
@@ -43,15 +44,34 @@ const FACTORIES: Record<string, ProviderFactory> = {
   // MOSIP ID Authentication. Not config-driven like the generic adapters: its request body
   // is an encrypted envelope, so it needs real code rather than a request template.
   MOSIP_IDA: (p) => new MosipIdaAdapter(p),
+  // An OpenID Connect provider as the register itself. Registered here so the code is
+  // recognised and the error is explicit; the platform re-registers these with a real client
+  // once it has built one from the deployment's upstream profile. Without that profile they
+  // refuse rather than silently falling through to the generic REST adapter.
+  OIDC: (p) => new OidcFoundationalAdapter('OIDC', undefined, p),
+  // A true alias: same adapter, same code, so the subjectRef namespace does not depend on
+  // which spelling a deployment used. cf. IMPORT -> DATASET_FILE.
+  ESIGNET: (p) => new OidcFoundationalAdapter('OIDC', undefined, p),
   MOCK: (p) => new MockAdapter(p),
 };
 
 export class ProviderRegistry {
   private cache = new Map<string, FoundationalProvider>();
+  /**
+   * Factories registered on THIS registry, consulted before the module-level defaults.
+   *
+   * Per-instance rather than writing into FACTORIES: a registered factory closes over
+   * deployment state -- PlatformService registers one holding a live UpstreamOidcClient and
+   * that deployment's pepper -- and a module-global map would hand it to every other
+   * registry in the process, including one built after the app that registered it closed.
+   * That is a cross-tenant leak in anything that boots twice, and it silently changes what a
+   * test resolves depending on what ran before it.
+   */
+  private overrides = new Map<string, ProviderFactory>();
   constructor(private pepper: string) {}
 
   register(code: string, factory: ProviderFactory): void {
-    FACTORIES[code] = factory;
+    this.overrides.set(code, factory);
   }
 
   /**
@@ -66,7 +86,7 @@ export class ProviderRegistry {
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
 
-    const known = FACTORIES[config.code];
+    const known = this.overrides.get(config.code) ?? FACTORIES[config.code];
     if (!known) {
       // Unknown code falls back to the config-driven generic adapter so that a typo or a
       // new provider never hard-crashes the platform. But it must not do so silently: a

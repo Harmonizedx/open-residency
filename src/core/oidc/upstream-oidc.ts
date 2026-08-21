@@ -100,6 +100,7 @@ export interface UpstreamOidcConfig {
 }
 
 export type UpstreamIdentityField =
+  | 'nationalId'
   | 'fullName'
   | 'givenName'
   | 'familyName'
@@ -174,6 +175,25 @@ export interface UpstreamIdentity {
 export interface UpstreamLoginResult {
   authenticated: boolean;
   identity?: UpstreamIdentity;
+  /**
+   * The RAW authoritative identifier the OP released -- a NIN, an Aadhaar number, whatever
+   * the register is keyed on -- when the deployment mapped a claim to it. There is no
+   * standard claim name for one, so it is absent unless configured.
+   *
+   * Deliberately NOT a field on `UpstreamIdentity`. Callers hand that object straight back
+   * over HTTP (`GET /enrolment/upstream/callback` does), and a raw national identifier must
+   * never leave in a response. It sits here so reaching it is a decision: the foundational
+   * adapter tokenizes it into a `subjectRef` and nothing else reads it.
+   *
+   * This, never `authenticationRef`, is what a residency identity is keyed on (ADR-0010).
+   */
+  authoritativeId?: string;
+  /**
+   * Set when userinfo was configured but could not be read. The sign-in still succeeded --
+   * the id_token said so -- but any claim that only userinfo carries is missing for a
+   * transient reason, which is not the same as the OP declining to release it.
+   */
+  userinfoUnavailable?: boolean;
   /** The acr the OP reported, verbatim, for the audit trail. */
   acr?: string;
   assurance?: AssuranceLevel;
@@ -370,6 +390,7 @@ export class UpstreamOidcClient {
     // it. A userinfo failure is not fatal: the authentication already succeeded, and the
     // demographic detail is an enrichment.
     let profile: Record<string, unknown> = { ...claims };
+    let userinfoUnavailable = false;
     if (this.cfg.userinfoEndpoint && tokens.access_token) {
       try {
         const info = await this.fetchUserinfo(tokens.access_token);
@@ -379,7 +400,10 @@ export class UpstreamOidcClient {
         }
         profile = { ...profile, ...info };
       } catch {
-        // Deliberately swallowed: see above. The identity is still what the id_token said.
+        // Still not fatal -- the identity is what the id_token said. But it is recorded, so a
+        // caller that needs a userinfo-only claim can tell "could not read" from "not
+        // released" and retry rather than conclude the OP cannot be a register.
+        userinfoUnavailable = true;
       }
     }
 
@@ -388,6 +412,8 @@ export class UpstreamOidcClient {
       acr,
       assurance: mapped.assurance,
       identity: this.toIdentity(sub, profile),
+      authoritativeId: this.readAuthoritativeId(profile),
+      userinfoUnavailable: userinfoUnavailable || undefined,
       binding: {
         // The OP authenticated the owner; that is exactly what this binding means.
         method: 'authoritative_authentication',
@@ -528,6 +554,18 @@ export class UpstreamOidcClient {
    * that is stable here and correlatable nowhere else -- which matters more than usual for
    * a pairwise `sub` the OP already scoped to us.
    */
+  /**
+   * The mapped authoritative identifier, raw. No default claim name: every other field has a
+   * standard OIDC claim to fall back on, this one does not, and guessing would key residency
+   * identities on whatever happened to look right.
+   */
+  private readAuthoritativeId(profile: Record<string, unknown>): string | undefined {
+    const claim = this.cfg.claimMapping?.nationalId;
+    if (!claim) return undefined;
+    const v = profile[claim];
+    return typeof v === 'string' && v.length ? v : undefined;
+  }
+
   private toIdentity(sub: string, profile: Record<string, unknown>): UpstreamIdentity {
     const mapping: Partial<Record<UpstreamIdentityField, string>> = {
       fullName: 'name',

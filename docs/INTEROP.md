@@ -475,6 +475,44 @@ unpinned key, a provider that switches subject between `id_token` and userinfo. 
 boundary applies as everywhere else here — this is eSignet's **documented** behavior, not a
 live MOSIP deployment, which needs a registered client this repo's CI cannot have.
 
+### The same provider as the register, and why that is a different question
+
+Everything above uses the OP as an *authenticator*: it answers "was this person here just
+now?" and yields an `authoritative_authentication` binding. A MOSIP-style deployment often
+wants it to answer a second question too — "what does the register say about them?" — because
+eSignet is both the front door and the filing cabinet.
+
+It can. Set `foundational.provider: ESIGNET` (an alias for `OIDC`, the way `IMPORT` aliases
+`DATASET_FILE`) and the register is the OP declared in `upstreamOidc`. There is no second
+config block and no new endpoints: the redirect rides the same two-step seam Aadhaar's OTP
+needed, `POST /identity/challenge` handing back the authorization URL and `POST
+/identity/verify` consuming the callback. See `config/examples/xo-oidc.yaml`, and copy it into `config/countries` to use it.
+
+**But it must release an identifier, and `sub` is not one.** A residency `subjectRef` is
+derived from the authoritative identifier the register is keyed on, mapped through
+`claimMapping.nationalId`, and never from the OP's subject. The reason is in the table above:
+`sub` is pairwise per relying party. That property is exactly what makes it good for
+authentication and useless as an identity — a different RP registration produces a different
+value for the same person, so a record keyed on it is not stable across re-registration. No
+choice of prefix fixes this, because the prefix is not what differs; the thing being hashed
+is.
+
+To be precise about what keying on the released identifier does and does not buy: it is
+stable for *this* provider across re-registrations, which the subject is not. It does **not**
+reconcile with a different foundational provider — `tokenizeSubject` namespaces by provider,
+so the same NIN under `OIDC` and under `NG_NIN` are different references. That is by design
+and costs nothing, because a deployment declares exactly one `foundational.provider`
+(ADR-0004); it only matters if a deployment ever changes provider, which is a migration.
+
+So an OP that authenticates but releases no identifier is **refused** at issuance with
+`NO_AUTHORITATIVE_IDENTIFIER` rather than falling back to `sub`. It can still be the
+deployment's authenticator, paired with a register that does supply an identity. There is no
+default claim name for `nationalId` either: no standard OIDC claim carries it, and guessing
+would key identities on whatever happened to look right. `ADR-0010` records the decision, and
+`scripts/sources-smoke.ts` asserts both halves — two different pairwise subjects carrying one
+national identifier resolve to a single `subjectRef`, and an OP releasing no identifier is
+refused.
+
 ## Verifying against a foundational ID registry
 
 Step 1 of the enrollment flow above — the operator checking an applicant against the

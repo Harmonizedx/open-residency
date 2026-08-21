@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { JWK } from 'jose';
 import { CountryConfig, loadCountryConfigs } from '../core/config/country-config';
 import { ProviderRegistry } from '../core/foundational/registry';
+import { OidcFoundationalAdapter } from '../core/foundational/adapters/oidc.adapter';
 import { IssuerKey } from '../core/credentials/keystore';
 import { KeyCustody } from './key-custody';
 import { BackgroundJobs } from './background-jobs';
@@ -29,7 +30,7 @@ import {
   UpstreamOidcClient,
   UpstreamOidcConfig,
   assertUpstreamOidcUsable,
-} from '../core/sso/upstream-oidc';
+} from '../core/oidc/upstream-oidc';
 import { WebAuthnService } from '../core/sso/webauthn-service';
 import { BiometricMatcher, buildBiometricMatcher } from '../core/proofing/biometric';
 import { VpVerifier, VpTrustedIssuer, keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
@@ -232,7 +233,45 @@ export class PlatformService implements OnModuleDestroy {
     // parsed and discarded: a jurisdiction could point `upstreamOidc` at its national IdP,
     // watch it validate at boot, and find no route had ever been mounted. Config that is
     // accepted and then ignored is worse than config that is refused.
-    this.upstreamOidc = this.buildUpstreamOidc(defaultCfg);
+    // One deployment, one jurisdiction (ADR-0004), so the OP is deployment-wide -- but read
+    // it from whichever config declares it rather than assuming that is the first one. Two
+    // declarations are ambiguous under ADR-0004 and are refused rather than silently
+    // resolved to whichever sorted first.
+    const declaring = this.listConfigs().filter((c) => c.upstreamOidc);
+    if (declaring.length > 1) {
+      throw new Error(
+        `more than one country config declares upstreamOidc (${declaring
+          .map((c) => c.countryCode)
+          .join(', ')}); a deployment serves one jurisdiction and can front one provider`,
+      );
+    }
+    const upstreamCfg = declaring[0] ?? defaultCfg;
+    this.upstreamOidc = this.buildUpstreamOidc(upstreamCfg);
+
+    // The same OP can be the register as well as the front door. Re-register the OIDC
+    // foundational codes with the client just built, so a deployment declaring
+    // `foundational.provider: ESIGNET` gets one that can actually run the redirect.
+    if (this.upstreamOidc) {
+      const client = this.upstreamOidc;
+      for (const code of ['OIDC', 'ESIGNET']) {
+        this.registry.register(code, (p) => new OidcFoundationalAdapter('OIDC', client, p));
+      }
+    }
+
+    // A config naming an OIDC register with no profile to reach it would resolve to the
+    // clientless factory and refuse every verify at request time, which reads as a runtime
+    // fault rather than the configuration error it is. Refuse at boot instead, naming the
+    // block to add -- the same reasoning as the comment above about config that is accepted
+    // and then ignored.
+    for (const cfg of this.listConfigs()) {
+      const code = cfg.foundational.provider.toUpperCase();
+      if ((code === 'OIDC' || code === 'ESIGNET') && !cfg.upstreamOidc) {
+        throw new Error(
+          `country ${cfg.countryCode} sets foundational.provider: ${cfg.foundational.provider} ` +
+            'but declares no upstreamOidc block, so there is no provider to verify against',
+        );
+      }
+    }
 
     this.oid4vp = new Oid4vpService(
       {
