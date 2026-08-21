@@ -18,7 +18,7 @@ import {
   NormalizedIdentity,
   ProviderConfig,
 } from '../types';
-import { tokenizeSubject } from '../util';
+import { identifierNamespace, tokenizeSubject } from '../util';
 
 /**
  * MOSIP ID Authentication (IDA) as a foundational provider.
@@ -402,7 +402,7 @@ export class MosipIdaAdapter implements FoundationalProvider {
       return typeof value === 'string' && value.length ? value : undefined;
     };
     return {
-      subjectRef: tokenizeSubject(this.code, individualId, this.pepper),
+      subjectRef: tokenizeSubject(identifierNamespace({ code: this.code, identifierType: this.cfg?.identifierType }), individualId, this.pepper),
       fullName: read('name'),
       givenName: read('given_name'),
       familyName: read('family_name'),
@@ -561,7 +561,7 @@ export class MosipIdaAdapter implements FoundationalProvider {
       providerCode: this.code,
       assuranceLevel: this.cfg.assuranceOnSuccess,
       identity: {
-        subjectRef: tokenizeSubject(this.code, individualId, this.pepper),
+        subjectRef: tokenizeSubject(identifierNamespace({ code: this.code, identifierType: this.cfg?.identifierType }), individualId, this.pepper),
         // The demographics MOSIP just CONFIRMED, not attributes it returned: /auth answers
         // yes or no, and claiming more than that would overstate what was established.
         fullName: demographics.name,

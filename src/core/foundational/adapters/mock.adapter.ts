@@ -5,7 +5,7 @@ import {
   FoundationalVerificationResult,
   ProviderConfig,
 } from '../types';
-import { tokenizeSubject } from '../util';
+import { identifierNamespace, tokenizeSubject } from '../util';
 
 /**
  * Deterministic mock foundational provider.
@@ -24,8 +24,11 @@ export class MockAdapter implements FoundationalProvider {
     this.pepper = pepper;
   }
 
+  private identifierType?: string;
+
   init(config: ProviderConfig): void {
     this.authenticatesApplicant = config.authenticatesApplicant === true;
+    this.identifierType = config.identifierType;
   }
 
   async verify(
@@ -59,7 +62,7 @@ export class MockAdapter implements FoundationalProvider {
           }
         : undefined,
       identity: {
-        subjectRef: tokenizeSubject(this.code, primary, this.pepper),
+        subjectRef: tokenizeSubject(identifierNamespace({ code: this.code, identifierType: this.identifierType }), primary, this.pepper),
         fullName: (input.identifiers.fullName as string) ?? 'Amina Test Citizen',
         givenName: (input.identifiers.givenName as string) ?? 'Amina',
         familyName: (input.identifiers.familyName as string) ?? 'Test',

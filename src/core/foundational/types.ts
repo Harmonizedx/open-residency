@@ -91,6 +91,14 @@ export interface FoundationalVerificationResult {
 /** Static configuration handed to an adapter at init time (comes from country YAML). */
 export interface ProviderConfig {
   code: string;
+  /**
+   * The KIND of authoritative identifier this provider returns -- `NIN`, `AADHAAR`, `HUDUMA`.
+   *
+   * Two providers declaring the same type share a subject-reference namespace, so the same
+   * person reaching the register by two routes is one record rather than two. Omit it and the
+   * namespace falls back to `code`, which is exactly today's behaviour. See ADR-0012.
+   */
+  identifierType?: string;
   /** Base URL of the foundational verification API. */
   baseUrl?: string;
   /** Auth mode against the foundational API. */

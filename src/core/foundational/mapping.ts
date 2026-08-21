@@ -16,7 +16,7 @@ import {
   ProviderConfig,
 } from './types';
 import { ApplicantBinding } from '../proofing/binding';
-import { getPath, tokenizeSubject } from './util';
+import { getPath, identifierNamespace, tokenizeSubject } from './util';
 
 /** Build outbound auth headers from config. Secrets come from env, never from the file. */
 export function buildAuthHeaders(cfg: ProviderConfig): Record<string, string> {
@@ -101,7 +101,8 @@ export function mapIdentity(
     '';
 
   return {
-    subjectRef: tokenizeSubject(code, rawId, pepper),
+    // The namespace is the identifier's, not the route's -- see identifierNamespace.
+    subjectRef: tokenizeSubject(identifierNamespace({ code, identifierType: cfg.identifierType }), rawId, pepper),
     fullName: pick('fullName'),
     givenName: pick('givenName'),
     familyName: pick('familyName'),
