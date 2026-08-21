@@ -297,21 +297,45 @@ export class UpstreamOidcClient {
     state?: string;
     error?: string;
   }): Promise<UpstreamLoginResult> {
-    if (params.error) return { authenticated: false, reason: `UPSTREAM_ERROR:${params.error}` };
-    if (!params.code || !params.state) {
-      return { authenticated: false, reason: 'MISSING_CODE_OR_STATE' };
-    }
+    // Query parameters are not necessarily strings. Express turns a repeated key --
+    // `?state=a&state=b` -- into an array, and the declared types say otherwise, so
+    // everything downstream would be operating on the wrong shape: `.slice()` on an array
+    // truncates the array rather than the text, and a comparison silently stops meaning what
+    // it reads as. A conformant provider sends each of these once, so anything else is
+    // refused rather than coerced.
+    const str = (v: unknown): string | undefined =>
+      typeof v === 'string' && v.length > 0 ? v : undefined;
+    const state = str(params.state);
+    const code = str(params.code);
+    const error = str(params.error);
+
+    if (!state) return { authenticated: false, reason: 'MISSING_STATE' };
 
     // Single-use by construction: take() deletes. A replayed callback finds nothing.
-    const pending = await this.pending.take(params.state);
+    //
+    // Consumed BEFORE the error branch, deliberately. RFC 6749 s4.1.2.1 requires an OP to
+    // echo `state` on an error redirect too, so a genuine failure always carries one -- and
+    // returning early on `error` without consuming it made this endpoint an unauthenticated
+    // write: it is reached by browser redirect with no guard, so anyone could call
+    // ?error=<text> with no state at all and have the caller record it. The caller audits
+    // every outcome, and that audit log is hash-chained, so the cost was unbounded growth of
+    // a tamper-evident record with attacker-chosen content in it.
+    const pending = await this.pending.take(state);
     if (!pending) return { authenticated: false, reason: 'UNKNOWN_STATE' };
-    if (!safeEqual(pending.state, params.state)) {
+
+    if (error) {
+      // Capped: this string reaches an audit row, and an OP's error code is short. Anything
+      // longer is not an error code.
+      return { authenticated: false, reason: `UPSTREAM_ERROR:${error.slice(0, 64)}` };
+    }
+    if (!code) return { authenticated: false, reason: 'MISSING_CODE_OR_STATE' };
+    if (!safeEqual(pending.state, state)) {
       return { authenticated: false, reason: 'STATE_MISMATCH' };
     }
 
     let tokens: { id_token?: string; access_token?: string };
     try {
-      tokens = await this.exchangeCode(params.code, pending.codeVerifier);
+      tokens = await this.exchangeCode(code, pending.codeVerifier);
     } catch (e) {
       return { authenticated: false, reason: `TOKEN_REQUEST_FAILED:${(e as Error).message}` };
     }

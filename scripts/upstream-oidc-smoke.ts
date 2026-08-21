@@ -320,8 +320,53 @@ async function main() {
   const forged = await client.completeLogin({ code: 'anything', state: 'never-issued' });
   check('a state we never issued is refused', !forged.authenticated && forged.reason === 'UNKNOWN_STATE');
 
-  const errored = await client.completeLogin({ error: 'access_denied' });
+  // A conformant OP echoes `state` on an error redirect too (RFC 6749 s4.1.2.1), so the
+  // realistic case carries one -- and it is consumed like any other.
+  const errStart = await client.beginLogin();
+  const errored = await client.completeLogin({ error: 'access_denied', state: errStart.state });
   check('an error response from the provider is reported, not treated as a sign-in', !errored.authenticated && errored.reason === 'UPSTREAM_ERROR:access_denied');
+
+  const erroredReplay = await client.completeLogin({ error: 'access_denied', state: errStart.state });
+  check(
+    'and its state is single-use like any other: the error callback cannot be replayed',
+    !erroredReplay.authenticated && erroredReplay.reason === 'UNKNOWN_STATE',
+  );
+
+  // The callback route is unguarded by design -- a browser redirect lands there -- and the
+  // caller audits every outcome into a hash-chained log. Without this, ?error=<anything>
+  // with no state at all was an unauthenticated, repeatable write of attacker-chosen text
+  // into that chain.
+  const statelessError = await client.completeLogin({ error: 'anything-i-like' });
+  check(
+    'an error callback with no state is refused before anything is recorded',
+    !statelessError.authenticated && statelessError.reason === 'MISSING_STATE',
+  );
+
+  // A repeated query parameter arrives as an array, not a string. Refused rather than
+  // coerced: a conformant OP sends each once, and operating on the wrong shape would make
+  // the cap truncate an array and the state comparison stop meaning what it reads as.
+  const arrayStart = await client.beginLogin();
+  const arrayState = await client.completeLogin({
+    error: ['a', 'b'] as unknown as string,
+    state: [arrayStart.state, 'other'] as unknown as string,
+  });
+  check(
+    'a repeated query parameter is refused, not treated as a string',
+    !arrayState.authenticated && arrayState.reason === 'MISSING_STATE',
+  );
+  check(
+    'and the state it named was not consumed by the attempt',
+    await client
+      .completeLogin({ error: 'access_denied', state: arrayStart.state })
+      .then((r) => r.reason === 'UPSTREAM_ERROR:access_denied'),
+  );
+
+  const longStart = await client.beginLogin();
+  const longError = await client.completeLogin({ error: 'x'.repeat(5000), state: longStart.state });
+  check(
+    'a provider error string is capped before it reaches an audit row',
+    (longError.reason ?? '').length <= 'UPSTREAM_ERROR:'.length + 64,
+  );
 
   const startNonce = await client.beginLogin();
   const nonceCode = authorize(startNonce, ACR_BIOMETRIC);

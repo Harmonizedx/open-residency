@@ -92,12 +92,13 @@ export class UpstreamController {
     @Query('state') state?: string,
     @Query('error') error?: string,
   ) {
-    if (!error && (!code || !state)) {
-      throw new BadRequestException('callback needs either code and state, or error');
+    // `state` is required on every path, including the error redirect: RFC 6749 s4.1.2.1
+    // says a conformant OP echoes it there too, and without it this unguarded route would
+    // accept an anonymous ?error=<text> and write it to the hash-chained audit log.
+    if (!state || (!error && !code)) {
+      throw new BadRequestException('callback needs state, plus either code or error');
     }
-    const result = await this.client().completeLogin(
-      error ? { error } : { code: code!, state: state! },
-    );
+    const result = await this.client().completeLogin({ code, state, error });
 
     await this.platform.getAudit().record({
       action: 'sso.upstream.callback',

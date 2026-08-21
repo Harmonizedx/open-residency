@@ -49,6 +49,41 @@ tags:
       Draft 13 request/response shapes are accepted; the response matches the dialect
       of the request.
 paths:
+  /enrolment/upstream/start:
+    post:
+      tags: [identity]
+      summary: Begin a sign-in at an external OpenID Provider
+      description: >
+        Operator-only. Returns the authorization URL to send the applicant to, and the
+        `state` that identifies the request. 503 when the deployment declares no
+        `upstreamOidc` profile -- the route exists, it is simply not configured here.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      responses:
+        '201':
+          description: The authorization URL and its state
+        '503':
+          description: This deployment declares no upstream provider
+  /enrolment/upstream/callback:
+    get:
+      tags: [identity]
+      summary: Complete a sign-in at an external OpenID Provider
+      description: >
+        The redirect target registered with the provider. Unauthenticated by necessity -- a
+        resident's browser arrives here -- so `state` is required on every path, including
+        the provider's error redirect (RFC 6749 s4.1.2.1 requires the provider to echo it),
+        and it is single-use. Returns an ApplicantBinding of `authoritative_authentication`
+        to hand to POST /residency/issue.
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, required: false, schema: { type: string } }
+        - { name: error, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: The authentication outcome and, on success, the applicant binding
+        '400':
+          description: Missing state, or neither code nor error
+        '503':
+          description: This deployment declares no upstream provider
   /identity/challenge:
     post:
       tags: [identity]
