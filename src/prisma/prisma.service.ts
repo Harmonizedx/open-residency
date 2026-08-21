@@ -236,7 +236,13 @@ export class PrismaResidencyStore implements ResidencyStore {
    */
   async save(record: ResidentRecord): Promise<ResidentRecord> {
     const rel = record.relationship;
-    const data = {
+    // TYPED, not inferred. `create: { id, ...data }` spreads this object into the call, and
+    // TypeScript does not apply excess-property checking through a spread -- so an inferred
+    // `data` silently accepts a column that does not exist and silently omits one that does.
+    // A missing `residenceAddress` typechecked cleanly for several commits that way and
+    // surfaced only when a generated migration came back empty. Annotating the declaration
+    // moves the check to the point the object is written, where it belongs.
+    const data: Omit<Prisma.ResidentUncheckedCreateInput, 'id'> = {
       residentId: record.residentId,
       subjectRef: record.subjectRef,
       countryCode: record.countryCode,
@@ -632,7 +638,9 @@ export class PrismaOidcStore implements OidcStore {
   }
 
   async upsert(item: OidcStoredItem): Promise<void> {
-    const data = {
+    // Typed for the same reason as PrismaResidencyStore.save: the spread below defeats
+    // excess-property checking, so the annotation is what catches a wrong or missing column.
+    const data: Omit<Prisma.OidcStoredItemUncheckedCreateInput, 'name' | 'id' | 'consumedAt'> = {
       payload: item.payload as any,
       grantId: item.grantId ?? null,
       uid: item.uid ?? null,
@@ -1268,7 +1276,8 @@ export class PrismaAuditCheckpointStore implements AuditCheckpointStore {
   });
 
   async put(cp: AuditCheckpoint): Promise<void> {
-    const data = {
+    // Typed for the same reason as the two upserts above.
+    const data: Omit<Prisma.AuditCheckpointUncheckedCreateInput, 'seq'> = {
       hash: cp.hash,
       count: cp.count,
       createdAt: new Date(cp.createdAt),

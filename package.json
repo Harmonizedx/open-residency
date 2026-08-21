@@ -66,7 +66,8 @@
     "smoke:lifecycle": "tsc -p tsconfig.core.json && node dist-core/scripts/lifecycle-smoke.js",
     "smoke:credential-lifecycle": "tsc -p tsconfig.core.json && node dist-core/scripts/credential-lifecycle-smoke.js",
     "smoke:refusal": "tsc -p tsconfig.core.json && node dist-core/scripts/refusal-smoke.js",
-    "smoke:address-anchor": "tsc -p tsconfig.core.json && node dist-core/scripts/address-anchor-smoke.js"
+    "smoke:address-anchor": "tsc -p tsconfig.core.json && node dist-core/scripts/address-anchor-smoke.js",
+    "test:store-e2e": "bash scripts/run-store-e2e.sh"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.1",

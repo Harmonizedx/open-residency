@@ -258,9 +258,12 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      # Prisma 7 dropped --skip-generate; generation is the separate step above.
-      - name: Push schema to the service database
-        run: npx prisma db push
+      # `migrate deploy`, not `db push`. A deployment applies the committed migrations, so a
+      # CI job that derived the schema from schema.prisma would pass against a shape no
+      # deployment can reach -- which is how a missing migrations directory once went
+      # unnoticed while every check was green.
+      - name: Apply migrations to the service database
+        run: npx prisma migrate deploy
 
       - name: Build the application
         run: npm run build
@@ -379,3 +382,41 @@ jobs:
           name: image-vulnerability-scan
           path: ${{ steps.grype.outputs.sarif }}
           if-no-files-found: warn
+
+  store-e2e:
+    name: Persistence contract (every store, real Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The default suite is hermetic -- in-memory stores, no database -- which makes a whole
+    # class of defect structurally invisible to it: anything that exists only between the
+    # record and the column. Two such defects shipped and were caught by hand. This job
+    # round-trips every store against the committed migrations so the next one is caught here.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: openres_store_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/openres_store_e2e
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Persistence contract
+        run: npm run test:store-e2e
