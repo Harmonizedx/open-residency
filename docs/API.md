@@ -6,7 +6,11 @@ quick orientation.
 
 ## Identity Verification
 
-- `POST /identity/challenge` — start an OTP for two-step providers (e.g. Aadhaar).
+Both routes require an authenticated operator (`registrar`; `admin` satisfies it).
+
+- `POST /identity/challenge` — start the provider's second step: an OTP for two-step
+  providers such as Aadhaar, or the authorization URL for a provider that authenticates by
+  redirect.
 - `POST /identity/verify` — verify a person against the foundational ID and return
   minimized attributes plus assurance. No residency is issued and nothing is stored.
 
@@ -151,7 +155,7 @@ release as needing its own disclosure review.
 
 Endpoints that are public by specification (wallet-facing OpenID4VCI/VP routes,
 `.well-known` documents, credential verification) are open. Everything privileged
-requires an authenticated **operator**: `/admin`, `/audit`, `/consent`, the VC-API,
+requires an authenticated **operator**: `/identity`, `/admin`, `/audit`, `/consent`, the VC-API,
 credential-offer and presentation-request creation, and both residency issuance and
 revocation. `POST /offline/ussd` takes a separate gateway secret.
 
@@ -172,7 +176,7 @@ Set by `operatorAuth.mode` in the country config:
 
 | Role | Grants |
 |---|---|
-| `registrar` | residency issuance, credential offers, VC-API issuance |
+| `registrar` | identity verification, residency issuance, credential offers, VC-API issuance |
 | `revoker` | residency revocation |
 | `auditor` | the audit log and its chain verification |
 | `support` | registry reads, consent administration, presentation requests |

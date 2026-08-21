@@ -14,7 +14,11 @@ npm install @openresidency/sdk
 ```ts
 import { OpenResidencyClient } from '@openresidency/sdk';
 
-const client = new OpenResidencyClient({ baseUrl: 'https://id.katsina.gov.ng' });
+// Identity verification is an operator action, so the client needs a credential.
+const client = new OpenResidencyClient({
+  baseUrl: 'https://id.katsina.gov.ng',
+  operatorKey: process.env.OPERATOR_KEY, // ork_..., minted at POST /operator/keys
+});
 
 // Verify a person against the national ID (no residency issued)
 const idv = await client.verifyIdentity({

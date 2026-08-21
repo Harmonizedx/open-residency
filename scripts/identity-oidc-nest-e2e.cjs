@@ -273,6 +273,20 @@ subnationalUnits:
       anon.status === 401 || anon.status === 403,
       `status ${anon.status}`,
     );
+
+    // And the lookup itself. Guarding only the first step would leave open the call that
+    // actually reads somebody else's identity out of the register.
+    const anonVerify = await post(
+      base,
+      '/identity/verify',
+      { countryCode: 'ZZ', identifiers: { code: 'x' }, challengeRef: 'y' },
+      { anonymous: true },
+    );
+    check(
+      'an unauthenticated caller cannot ask the register about a named person',
+      anonVerify.status === 401 || anonVerify.status === 403,
+      `status ${anonVerify.status}`,
+    );
   } finally {
     await app.close();
     opServer.close();

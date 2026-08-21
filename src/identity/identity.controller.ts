@@ -4,13 +4,17 @@ import {
   Controller,
   NotFoundException,
   Post,
+  Req,
   ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import {
   OperatorGuard,
   RequireRoles,
+  RequestWithOperator,
+  requireOperator,
 } from '../common/operator.guard';
+import { operatorActor } from '../core/operator/operator';
 import { PlatformService } from '../platform/platform.service';
 import { NormalizedIdentity, ProviderNotConfiguredError } from '../core/foundational/types';
 import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
@@ -46,7 +50,8 @@ export class IdentityController {
   @UseGuards(OperatorGuard)
   @RequireRoles('registrar')
   @Post('challenge')
-  async challenge(@Body() body: ChallengeDto) {
+  async challenge(@Req() req: RequestWithOperator, @Body() body: ChallengeDto) {
+    const operator = requireOperator(req);
     const cfg = this.platform.getConfig(body.countryCode);
     if (!cfg) throw new NotFoundException(`No config for country ${body.countryCode}`);
     const provider = this.platform.getResidency().getProvider(cfg);
@@ -66,7 +71,10 @@ export class IdentityController {
     }
     await audit.record({
       action: 'identity.challenge',
-      actor: 'citizen',
+      // The route is operator-only, so the trail names the operator. 'citizen' would
+      // attribute the lookup to a party who cannot have made the call -- and this log is the
+      // only place that can answer who asked the register about a named person.
+      actor: operatorActor(operator),
       countryCode: cfg.countryCode,
       outcome: 'success',
       metadata: { channel: res.channel, type: res.type },
@@ -74,8 +82,17 @@ export class IdentityController {
     return { challengeRequired: true, challengeRef: res.challengeRef, channel: res.channel };
   }
 
+  /**
+   * Operator-guarded for the same reason as `challenge`, and for one more: this asks the
+   * jurisdiction's register about a named person and returns their attributes. Guarding only
+   * the first step would leave the lookup itself open, which is the part that reads somebody
+   * else's identity.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
   @Post('verify')
-  async verify(@Body() body: VerifyIdentityDto) {
+  async verify(@Req() req: RequestWithOperator, @Body() body: VerifyIdentityDto) {
+    const operator = requireOperator(req);
     const cfg = this.platform.getConfig(body.countryCode);
     if (!cfg) throw new NotFoundException(`No config for country ${body.countryCode}`);
     const provider = this.platform.getResidency().getProvider(cfg);
@@ -103,7 +120,7 @@ export class IdentityController {
 
     await audit.record({
       action: 'identity.verify',
-      actor: 'citizen',
+      actor: operatorActor(operator),
       target: result.identity?.subjectRef,
       countryCode: cfg.countryCode,
       outcome: result.verified ? 'success' : 'failure',
