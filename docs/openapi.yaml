@@ -88,6 +88,10 @@ paths:
     post:
       tags: [identity]
       summary: Start a second factor (OTP) for two-step providers
+      description: >
+        Operator-only. For a provider that authenticates by redirect this mints state at that
+        provider, so it is not open to anonymous callers.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:
@@ -105,6 +109,9 @@ paths:
     post:
       tags: [identity]
       summary: Verify a person against the foundational ID, without issuing residency
+      description: >
+        Operator-only. Asks the jurisdiction's register about a named person.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
         content:

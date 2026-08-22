@@ -144,14 +144,17 @@ export class OpenResidencyClient {
   }
 
   // ---- identity ----
+  /** Operator action: needs the `registrar` role. */
   identityChallenge(countryCode: string, identifiers: Record<string, string>) {
     return this.post<{ challengeRequired: boolean; challengeRef?: string; channel?: string }>(
       '/identity/challenge',
       { countryCode, identifiers },
+      true,
     );
   }
+  /** Operator action: needs the `registrar` role. */
   verifyIdentity(req: IdentityVerifyRequest) {
-    return this.post<IdentityVerifyResponse>('/identity/verify', req);
+    return this.post<IdentityVerifyResponse>('/identity/verify', req, true);
   }
 
   // ---- residency ----

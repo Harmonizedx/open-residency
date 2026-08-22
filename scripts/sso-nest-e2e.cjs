@@ -369,7 +369,11 @@ biometric:
   });
   check('an unknown property is rejected, not silently accepted (400)', unknownField.status === 400, `status ${unknownField.status}`);
 
+  // /identity/verify is operator-only, and guards run before pipes -- so authenticate, or
+  // this 401s and stops testing what it is here to test. The point is unchanged: a malformed
+  // field value must not reach a handler.
   const badValue = await req('POST', `${base}/identity/verify`, jar, {
+    headers: { 'x-admin-key': process.env.ADMIN_API_KEY },
     body: JSON.stringify({ countryCode: 'NOT-A-COUNTRY-CODE', identifiers: {} }),
   });
   check('a malformed field value is rejected (400)', badValue.status === 400, `status ${badValue.status}`);
