@@ -17,7 +17,9 @@ the thing this deliberately does not do. Those relationships reach each other as
 credentials, through the federation trust list, rather than as rows in a shared table.
 
 Packaged to be registered and reused as a **Digital Public Good (DPG)**: a jurisdiction-neutral open
-core, proven first across Nigeria's states and reusable, unchanged, by any country.
+core, built first against Nigeria's states and reusable, unchanged, by any country. Nigeria is a
+configuration profile, not the model: six jurisdiction configs and eight foundational adapters ship
+in `config/countries/` and `src/core/foundational/adapters/`, and NIN is one adapter among them.
 
 It turns this flow into infrastructure any state, province, or county can deploy and own:
 
