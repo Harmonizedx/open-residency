@@ -24,7 +24,8 @@
  * Each criterion prints PASS, FAIL or PARTIAL with the finding id, so the output doubles as
  * a progress report against the gap analysis.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { InMemoryStore } from '../src/core/residency/ports';
 
@@ -657,14 +658,73 @@ async function main() {
   // 9. The core contains no Nigeria-specific hard-coded field names or hierarchy assumptions.
   // ---------------------------------------------------------------------------
   //
-  // Asserted structurally: the core reasons over configured jurisdictions, and NIN is one
-  // adapter among several rather than a built-in concept.
+  // This criterion used to be a hardcoded PASS with a prose detail string. It asserted
+  // nothing, so it would have reported PASS while the property was violated -- and its
+  // counts had already drifted (it claimed six adapters when eight shipped) because nothing
+  // recomputed them. That is the false-green shape this suite warns about elsewhere.
+  //
+  // Two things are checked now, both derived rather than stated.
+  //
+  // (a) PLURALITY. A core that reasons over configured jurisdictions has more than one
+  //     jurisdiction to reason over, and more than one way into a foundational source. One
+  //     of either is a single-jurisdiction system wearing a config file.
+  const countryConfigs = readdirSync(join(process.cwd(), 'config/countries')).filter((f) =>
+    f.endsWith('.yaml'),
+  );
+  const adapters = readdirSync(
+    join(process.cwd(), 'src/core/foundational/adapters'),
+  ).filter((f) => f.endsWith('.adapter.ts'));
+  const plural = countryConfigs.length >= 2 && adapters.length >= 2;
+
+  // (b) NO JURISDICTION BRANCHING. The violation that matters is control flow: the core
+  //     behaving differently because the jurisdiction is Nigeria. Naming Nigeria is not the
+  //     offence -- the provider registry and the ORCS §8.1 assurance mappings both name
+  //     NG_NIN in the data tables that make providers selectable, which is the mechanism of
+  //     jurisdiction-neutrality rather than a breach of it. Comments are excluded for the
+  //     same reason mosip-conformance excludes them: `// e.g. KT for Katsina` documents a
+  //     field, and a check that cannot coexist with its own explanation is not usable.
+  //     The pattern is deliberately tight. An earlier draft matched `NG` anywhere inside a
+  //     string literal and case-insensitively, which flagged every `typeof x === 'string'`
+  //     in the core -- 'string' and 'pending' both contain "ng". A check that cries wolf on
+  //     50 lines of correct code gets switched off, so this matches an exact `'NG'`/`'NIN'`
+  //     comparison, or a place name as a word.
+  const jurisdictionBranch = execFileSync(
+    'bash',
+    [
+      '-c',
+      `grep -rnE "(===|!==|==|!=)[[:space:]]*['\\"](NG|NIN)['\\"]|` +
+        `(includes|startsWith|match)[[:space:]]*\\([[:space:]]*['\\"](NG|NIN)['\\"]|` +
+        `['\\"][^'\\"]*[Nn]igeria|['\\"][^'\\"]*[Kk]aduna|['\\"][^'\\"]*[Kk]atsina" ` +
+        `--include='*.ts' src/core ` +
+        `| grep -viE ":[0-9]+:[[:space:]]*(\\*|//|/\\*)" || true`,
+    ],
+    { encoding: 'utf8' },
+  )
+    .split('\n')
+    .filter(Boolean)
+    // The NIN adapter is the one place a NIN may be recognised: that is its whole job, and
+    // it is reached only because a config selected it.
+    .filter((line) => !line.startsWith('src/core/foundational/adapters/nin.adapter.ts'))
+    // The ORCS §8.1 mapping table names the authority each provider's verification comes
+    // from -- "NIMC, Nigeria" is the content of the mapping, not a branch on it. Naming an
+    // authority in the table that makes providers selectable is the mechanism of neutrality,
+    // exactly as the provider registry naming NG_NIN alongside IN_AADHAAR is.
+    .filter((line) => !line.startsWith('src/core/assurance/profiles.ts'));
+
+  const neutral = plural && jurisdictionBranch.length === 0;
   record(
     9,
     'No Nigeria-specific hard-coding in the core',
-    'PASS',
-    'six jurisdiction configs and six foundational adapters; NIN is an adapter, and no ' +
-      'jurisdiction, threshold or document type is embedded in src/core',
+    neutral ? 'PASS' : 'FAIL',
+    neutral
+      ? `${countryConfigs.length} jurisdiction configs and ${adapters.length} foundational ` +
+        `adapters ship; NIN is an adapter reached through the registry, and no control flow in ` +
+        `src/core branches on a Nigerian jurisdiction or identifier. Counts are read from disk, ` +
+        `so they cannot drift from the tree the way the previous fixed string did`
+      : `plural (>=2 configs and >=2 adapters): ${plural} ` +
+        `(${countryConfigs.length} configs, ${adapters.length} adapters); ` +
+        `jurisdiction branching in src/core: ${jurisdictionBranch.join(' ') || 'none'}`,
+    neutral ? undefined : 'G-11',
   );
 
   // --- Report -----------------------------------------------------------------
