@@ -14,56 +14,58 @@
 #   - CI and release workflows  the thing that decides what "verified" and "signed" mean
 #   - security and licensing    what an adopting government relies on in writing
 #
-# NOTE ON THE TEAM. GitHub only honours a CODEOWNERS entry when the named team has write
-# access to this repository. `@Harmonizedx/maintainers` does (admin). The
-# `@Harmonizedx/open-residency-admin` team exists but is not currently granted access here, so
-# naming it would silently do nothing -- the rule would appear configured and never fire. If
-# that team is meant to govern this repository, grant it write access first, then swap the
-# owner below in one edit.
+# NOTE ON THE TEAM. GitHub honours a CODEOWNERS entry only when the named team has write
+# access to this repository. `@Harmonizedx/open-residency-admin` holds `push`, granted for
+# exactly this purpose -- without it every line below would be silently ignored and the rule
+# would read as configured while never firing.
+#
+# So if this team is ever removed from the repository's access list, these rules stop applying
+# and nothing announces it. Check `gh api repos/Harmonizedx/open-residency/teams` if a review
+# that should have been required was not.
 
 # Default: any change not matched more specifically.
-*                                   @Harmonizedx/maintainers
+*                                   @Harmonizedx/open-residency-admin
 
 # Credential issuance, verification, revocation, and issuer key custody.
-/src/core/credentials/              @Harmonizedx/maintainers
-/src/core/oid4vci/                  @Harmonizedx/maintainers
-/src/core/oid4vp/                   @Harmonizedx/maintainers
+/src/core/credentials/              @Harmonizedx/open-residency-admin
+/src/core/oid4vci/                  @Harmonizedx/open-residency-admin
+/src/core/oid4vp/                   @Harmonizedx/open-residency-admin
 
 # The only layer that sees a raw national ID, and the tokenization that keeps it unstored.
-/src/core/foundational/             @Harmonizedx/maintainers
+/src/core/foundational/             @Harmonizedx/open-residency-admin
 
 # Issuance policy gates and the residency record itself.
-/src/core/residency/                @Harmonizedx/maintainers
-/src/core/proofing/                 @Harmonizedx/maintainers
+/src/core/residency/                @Harmonizedx/open-residency-admin
+/src/core/proofing/                 @Harmonizedx/open-residency-admin
 
 # Lawful basis for processing, and the assurance values relying parties read.
-/src/core/consent/                  @Harmonizedx/maintainers
-/src/core/assurance/                @Harmonizedx/maintainers
+/src/core/consent/                  @Harmonizedx/open-residency-admin
+/src/core/assurance/                @Harmonizedx/open-residency-admin
 
 # The tamper-evident record.
-/src/core/audit/                    @Harmonizedx/maintainers
+/src/core/audit/                    @Harmonizedx/open-residency-admin
 
 # Authentication, session storage, and pairwise subject derivation.
-/src/core/sso/                      @Harmonizedx/maintainers
-/src/core/oidc/                     @Harmonizedx/maintainers
+/src/core/sso/                      @Harmonizedx/open-residency-admin
+/src/core/oidc/                     @Harmonizedx/open-residency-admin
 
 # The composition root: where keys, peppers and providers are wired.
-/src/platform/                      @Harmonizedx/maintainers
+/src/platform/                      @Harmonizedx/open-residency-admin
 
 # What "verified" and "signed" mean. A change here can weaken every check at once.
-/.github/workflows/                 @Harmonizedx/maintainers
-/.github/CODEOWNERS                 @Harmonizedx/maintainers
+/.github/workflows/                 @Harmonizedx/open-residency-admin
+/.github/CODEOWNERS                 @Harmonizedx/open-residency-admin
 
 # The conformance gates themselves.
-/scripts/orcs-conformance.ts        @Harmonizedx/maintainers
-/scripts/mosip-conformance.ts       @Harmonizedx/maintainers
-/scripts/check-license-headers.sh   @Harmonizedx/maintainers
+/scripts/orcs-conformance.ts        @Harmonizedx/open-residency-admin
+/scripts/mosip-conformance.ts       @Harmonizedx/open-residency-admin
+/scripts/check-license-headers.sh   @Harmonizedx/open-residency-admin
 
 # Commitments an adopting government relies on in writing.
-/SECURITY.md                        @Harmonizedx/maintainers
-/RELEASING.md                       @Harmonizedx/maintainers
-/LICENSE                            @Harmonizedx/maintainers
-/NOTICE                             @Harmonizedx/maintainers
+/SECURITY.md                        @Harmonizedx/open-residency-admin
+/RELEASING.md                       @Harmonizedx/open-residency-admin
+/LICENSE                            @Harmonizedx/open-residency-admin
+/NOTICE                             @Harmonizedx/open-residency-admin
 
 # Database schema and migrations: irreversible in production.
-/prisma/                            @Harmonizedx/maintainers
+/prisma/                            @Harmonizedx/open-residency-admin
