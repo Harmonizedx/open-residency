@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 #
 # Run the official W3C VC Data Model 2.0 test suite against a running instance.
 #

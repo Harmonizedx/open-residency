@@ -46,6 +46,12 @@ jobs:
       - name: Architectural fence (core stays framework-agnostic, no cycles)
         run: npm run lint:arch
 
+      # DPG Standard indicator 2 (clear open licence). A LICENSE file states the project's
+      # licence; it does not travel with a file somebody copies out, and copying is the point
+      # of publishing this. Cheap to keep true, tedious to fix once it has drifted.
+      - name: Licence headers on every source file
+        run: npm run lint:licenses
+
       - name: Typecheck
         run: npm run typecheck
 

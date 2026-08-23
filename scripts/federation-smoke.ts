@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Cross-issuer federation: a residency credential issued by ONE state verifies at another

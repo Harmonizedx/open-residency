@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Bring-your-own biometric authority: the config-driven HTTP matcher and its two
