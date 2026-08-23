@@ -13,10 +13,10 @@ export function trustedProxyHops(): number {
 /**
  * Rate limiting that counts the caller rather than whatever proxy forwarded them (ADR-0013).
  *
- * The stock tracker keys on `req.ips[0] ?? req.ip`, which behind the ingress this project
- * documents is the ingress pod for every request -- one bucket for the whole deployment. The
- * decision of what to count lives in `core/ratelimit/caller-key.ts`; this reads the request
- * and reports the mismatch.
+ * The stock tracker keys on `req.ip`, which behind the ingress this project documents is the
+ * ingress pod for every request -- one bucket for the whole deployment. The decision of what
+ * to count lives in `core/ratelimit/caller-key.ts`; this reads the request and reports the
+ * mismatch.
  */
 @Injectable()
 export class CallerThrottlerGuard extends ThrottlerGuard {
@@ -25,17 +25,15 @@ export class CallerThrottlerGuard extends ThrottlerGuard {
 
   protected async getTracker(req: Record<string, unknown>): Promise<string> {
     const r = req as unknown as Request;
-    const bearer = String(r.headers?.authorization ?? '').replace(/^Bearer /i, '');
-    const credential =
-      String(r.headers?.['x-operator-key'] ?? '') ||
-      (bearer.startsWith('ork_') ? bearer : '') ||
-      bearer ||
-      undefined;
 
+    // No credential is read here. This guard is global, so it runs BEFORE OperatorGuard: any
+    // credential on the request is an unverified string at this point, and keying on one
+    // would let an anonymous caller rotate a header to get a fresh budget per request.
     const forwardedFor = r.headers?.['x-forwarded-for'];
     const decided = callerKey({
-      credential,
-      forwardedFor: Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor,
+      // Duplicate header instances: the later ones were appended by the proxies we trust, so
+      // preserve the whole chain rather than keeping the caller-supplied first.
+      forwardedFor: Array.isArray(forwardedFor) ? forwardedFor.join(', ') : forwardedFor,
       remoteAddress: r.ip ?? r.socket?.remoteAddress,
       trustedHops: trustedProxyHops(),
     });

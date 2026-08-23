@@ -14,8 +14,9 @@ ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: RATE_LIMIT_PER_M
 { provide: APP_GUARD, useClass: ThrottlerGuard }
 ```
 
-`ThrottlerGuard` keys that budget on `req.ips[0] ?? req.ip`. Express only populates `req.ips`
-from `X-Forwarded-For` when `trust proxy` is set, and **it is set nowhere** in this
+`ThrottlerGuard` keys that budget on `req.ip` (`@nestjs/throttler@6.5.0`). Express derives
+`req.ip` from the socket peer unless `trust proxy` is set, in which case it reads the client
+address out of `X-Forwarded-For` instead — and `trust proxy` **is set nowhere** in this
 repository. The documented deployment fronts the application with an nginx ingress
 (`deploy/k8s/ingress.yaml`), so every request presents the ingress pod's address.
 
@@ -54,29 +55,38 @@ artifact this project ships: a deployment that misconfigures nginx then has no l
 and nothing in the repository would tell them. It also cannot express "per operator", only
 "per address".
 
-**D. Key on the authenticated principal.** Unspoofable and more meaningful than an address —
-but it answers nothing for the wallet-facing and `.well-known` routes, which are
-unauthenticated by specification and are exactly where anonymous volume arrives.
+**D. Key on the authenticated principal.** More meaningful than an address, and the obvious
+answer for an enrolment desk. **It cannot be done from a global guard.** Rate limiting runs
+before authentication — that is the point of a rate limiter — so at that moment a presented
+credential is an unverified string. Keying on one lets an anonymous caller rotate a header and
+receive a fresh, empty budget per request: not a weaker limit, no limit at all, and the same
+failure as option A wearing another hat. Doing it safely means throttling *after*
+authentication, which is a second mechanism rather than a variation of this one.
 
 ## Decision
 
-**Rate limiting keys on the strongest identifier the request actually carries, and the
-deployment declares its own topology.**
+**Rate limiting keys on the client address, and nothing the caller controls reaches the key.**
 
-1. **An authenticated principal, where there is one.** The operator guard already resolves
-   `ork_…` keys and bearer tokens; the limit keys on that operator. Unspoofable, and a
-   registrar's desk gets its own budget rather than sharing one with the building.
+1. **The client address, derived from a declared hop count.** `TRUSTED_PROXY_HOPS` states how
+   many proxies sit in front, and only that many entries of `X-Forwarded-For` are believed,
+   counted from the right where the entries were appended by infrastructure we control. It
+   defaults to `0` — direct exposure, today's behaviour for anyone not behind a proxy — and is
+   never guessed at. Declaring more hops than a request actually traversed falls back to the
+   socket peer rather than reading the caller-supplied head of the chain.
 
-2. **Otherwise the client address, derived from a declared hop count.** `TRUSTED_PROXY_HOPS`
-   states how many proxies sit in front. It defaults to `0` — direct exposure, today's
-   behaviour for anyone not behind one — and is not guessed at.
+2. **A mismatch is reported, not absorbed.** When a request arrives carrying
+   `X-Forwarded-For` while the hop count is `0`, the application says so, once, plainly: it is
+   behind a proxy and the limit is counting the proxy rather than the caller.
 
-3. **A mismatch is reported, not absorbed.** When a request arrives carrying
-   `X-Forwarded-For` while the hop count is `0`, the application says so, once, plainly:
-   it is behind a proxy and the limit is counting the proxy rather than the caller.
+**Rejected:** A, as strictly worse than the defect. D from a global guard, for the same reason
+— it is option A relocated to a different header. C as the *only* control, though an ingress
+limit remains sound defence in depth.
 
-**Rejected:** A, as strictly worse than the defect. C as the *only* control, though an
-ingress limit remains sound defence in depth.
+**Deferred: per-operator budgets.** A ward office behind one NAT is a single address, so
+address-keyed limiting still shares one budget across a busy office. Fixing that needs a
+throttle applied *after* `OperatorGuard`, keyed on the resolved operator rather than a
+presented string. That is a separate mechanism and a separate change; recording it here so the
+gap is known rather than assumed closed.
 
 ## Why
 
@@ -97,11 +107,11 @@ it is meant to protect. Per-operator does not.
 
 ## Consequences
 
-- Authenticated callers are limited individually; the budget stops being collective for
-  them.
-- Anonymous routes remain address-keyed, and remain the place where a distributed source can
-  still consume the budget. This decision narrows that surface; it does not remove it, and
-  an ingress-level limit is still worth having in front.
+- Every caller behind one address still shares a budget, including a busy enrolment office.
+  This decision makes the limit count the right address; it does not make it count people. See
+  the deferred item above.
+- A distributed source can still consume an address's budget. An ingress-level limit remains
+  worth having in front.
 - `TRUSTED_PROXY_HOPS` becomes part of what a deployment declares, alongside its database
   URL and pepper. `DEPLOY.md` and the Helm chart carry it.
 - `docs/API.md` must stop describing the limit as per-caller without qualification, because
@@ -109,8 +119,10 @@ it is meant to protect. Per-operator does not.
 
 ## How this is verified
 
-`scripts/*.ts` assertions that: an authenticated request keys on the operator rather than the
-address; two operators from one address do not share a budget; a declared hop count reads the
-client address from `X-Forwarded-For` while an undeclared one does not; and a spoofed
-`X-Forwarded-For` with no declared hops cannot change the key. Plus one asserting that the
-mismatch between a forwarded header and a zero hop count is reported.
+`scripts/ratelimit-smoke.ts`, chained into `npm test`: a declared hop count reads the client
+address from `X-Forwarded-For` while an undeclared one does not; a spoofed header cannot change
+the key when no proxy is declared; a caller prepending entries cannot steer the key past the
+declared hops; declaring more hops than were traversed falls back to the socket peer rather
+than the caller-supplied head; the mismatch is reported; and — the regression test for the
+first implementation of this record — two requests from one address share a bucket regardless
+of what headers they carry.

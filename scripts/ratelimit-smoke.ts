@@ -24,23 +24,21 @@ function check(name: string, cond: boolean, detail = ''): void {
 function main(): void {
   console.log('\n== Rate-limit caller identification ==\n');
 
-  console.log('An authenticated caller is budgeted individually:');
-  const opA = callerKey({ credential: 'ork_aaa', remoteAddress: '10.0.0.1', trustedHops: 0 });
-  const opB = callerKey({ credential: 'ork_bbb', remoteAddress: '10.0.0.1', trustedHops: 0 });
-  check('an operator key keys on the operator, not the address', opA.source === 'operator');
+  console.log('Nothing the caller controls may reach the key:');
+  // The bypass this replaces: keying on a presented credential looked like "per operator",
+  // but this guard is global and runs BEFORE authentication, so the credential is an
+  // unverified string. An anonymous caller rotating one got a fresh, empty bucket on every
+  // request -- not a weaker limit, no limit at all, and strictly worse than the shared bucket
+  // it was meant to fix. It is the rejected `trust proxy: true` failure wearing another hat.
+  const rotA = callerKey({ remoteAddress: '203.0.113.9', trustedHops: 0 });
+  const rotB = callerKey({ remoteAddress: '203.0.113.9', trustedHops: 0 });
   check(
-    'two operators behind one address do not share a budget',
-    opA.key !== opB.key,
-    'a ward office behind one NAT is a single address',
+    'two requests from one address share a bucket regardless of what they send',
+    rotA.key === rotB.key && rotA.key === 'ip:203.0.113.9',
   );
   check(
-    'the same operator gets the same bucket across requests',
-    callerKey({ credential: 'ork_aaa', remoteAddress: '10.9.9.9', trustedHops: 0 }).key === opA.key,
-  );
-  check(
-    'the credential is never the key itself',
-    !opA.key.includes('ork_aaa'),
-    'rate-limit keys reach memory, logs and metrics',
+    'the key is derived only from the address, never from a header the caller sets',
+    rotA.source === 'address',
   );
 
   console.log('\nAn anonymous caller keys on an address the deployment can trust:');
@@ -90,14 +88,22 @@ function main(): void {
     'trusting the leftmost is exactly the blanket-trust failure',
   );
 
+  // Declared more hops than the request actually traversed -- an LB bypassed, or an
+  // in-cluster caller reaching the ingress directly. Clamping to the leftmost entry would
+  // hand the caller their own bucket, so this falls back to the socket peer instead.
   const shortChain = callerKey({
-    forwardedFor: '198.51.100.7',
+    forwardedFor: 'attacker-chosen',
     remoteAddress: '10.0.0.5',
     trustedHops: 3,
   });
   check(
-    'a chain shorter than the declared hops does not read past its start',
-    shortChain.key === 'ip:198.51.100.7',
+    'declaring more hops than were traversed falls back to the socket peer',
+    shortChain.key === 'ip:10.0.0.5',
+    shortChain.key,
+  );
+  check(
+    'and never to the caller-supplied head of the chain',
+    shortChain.key !== 'ip:attacker-chosen',
   );
 
   console.log('\nDegenerate input fails closed rather than open:');
