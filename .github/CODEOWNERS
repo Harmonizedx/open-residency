@@ -1,0 +1,69 @@
+# Code owners — required reviewers for the paths where a mistake is expensive.
+#
+# The repository ruleset already requires one approving review on every pull request. This
+# narrows that for the sensitive paths: a change here needs review from a maintainer
+# specifically, not from whoever is available.
+#
+# Chosen by blast radius, not by how often the files change:
+#
+#   - credentials and keys      a defect here invalidates every credential ever issued
+#   - foundational adapters     the only code that touches a raw national ID
+#   - residency issuance        the policy gates; each one fails closed by design
+#   - consent and legal basis   what a deployment is lawfully permitted to do
+#   - audit                     the record that everything else is checked against
+#   - CI and release workflows  the thing that decides what "verified" and "signed" mean
+#   - security and licensing    what an adopting government relies on in writing
+#
+# NOTE ON THE TEAM. GitHub only honours a CODEOWNERS entry when the named team has write
+# access to this repository. `@Harmonizedx/maintainers` does (admin). The
+# `@Harmonizedx/open-residency-admin` team exists but is not currently granted access here, so
+# naming it would silently do nothing -- the rule would appear configured and never fire. If
+# that team is meant to govern this repository, grant it write access first, then swap the
+# owner below in one edit.
+
+# Default: any change not matched more specifically.
+*                                   @Harmonizedx/maintainers
+
+# Credential issuance, verification, revocation, and issuer key custody.
+/src/core/credentials/              @Harmonizedx/maintainers
+/src/core/oid4vci/                  @Harmonizedx/maintainers
+/src/core/oid4vp/                   @Harmonizedx/maintainers
+
+# The only layer that sees a raw national ID, and the tokenization that keeps it unstored.
+/src/core/foundational/             @Harmonizedx/maintainers
+
+# Issuance policy gates and the residency record itself.
+/src/core/residency/                @Harmonizedx/maintainers
+/src/core/proofing/                 @Harmonizedx/maintainers
+
+# Lawful basis for processing, and the assurance values relying parties read.
+/src/core/consent/                  @Harmonizedx/maintainers
+/src/core/assurance/                @Harmonizedx/maintainers
+
+# The tamper-evident record.
+/src/core/audit/                    @Harmonizedx/maintainers
+
+# Authentication, session storage, and pairwise subject derivation.
+/src/core/sso/                      @Harmonizedx/maintainers
+/src/core/oidc/                     @Harmonizedx/maintainers
+
+# The composition root: where keys, peppers and providers are wired.
+/src/platform/                      @Harmonizedx/maintainers
+
+# What "verified" and "signed" mean. A change here can weaken every check at once.
+/.github/workflows/                 @Harmonizedx/maintainers
+/.github/CODEOWNERS                 @Harmonizedx/maintainers
+
+# The conformance gates themselves.
+/scripts/orcs-conformance.ts        @Harmonizedx/maintainers
+/scripts/mosip-conformance.ts       @Harmonizedx/maintainers
+/scripts/check-license-headers.sh   @Harmonizedx/maintainers
+
+# Commitments an adopting government relies on in writing.
+/SECURITY.md                        @Harmonizedx/maintainers
+/RELEASING.md                       @Harmonizedx/maintainers
+/LICENSE                            @Harmonizedx/maintainers
+/NOTICE                             @Harmonizedx/maintainers
+
+# Database schema and migrations: irreversible in production.
+/prisma/                            @Harmonizedx/maintainers
