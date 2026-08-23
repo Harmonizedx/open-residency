@@ -151,6 +151,17 @@ release as needing its own disclosure review.
 - Interaction (login/consent) pages under `/interaction/*`.
 - Issuer DID document: `GET /.well-known/did.json`.
 
+## Rate limiting
+
+`RATE_LIMIT_PER_MINUTE` (default 120) is applied **per caller**, where a caller is the
+authenticated operator if the request carries a credential, and otherwise the client address.
+
+Behind a proxy the client address can only be read from `X-Forwarded-For`, which is
+client-supplied — so the service believes only as many hops as `TRUSTED_PROXY_HOPS` declares
+(default 0, meaning direct exposure). **Left at 0 behind a proxy, every anonymous caller
+shares one budget**, because each request presents the proxy's address; the service logs a
+warning when it detects this. See ADR-0013.
+
 ## Auth model
 
 Endpoints that are public by specification (wallet-facing OpenID4VCI/VP routes,

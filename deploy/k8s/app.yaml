@@ -13,6 +13,9 @@ data:
   PUBLIC_BASE_URL: "https://id.example.gov"
   COUNTRY_CONFIG_DIR: "/app/config/countries"
   RATE_LIMIT_PER_MINUTE: "120"
+  # This manifest ships an nginx ingress in front, so one proxy hop is trusted -- otherwise
+  # every anonymous caller behind it shares a single budget (ADR-0013).
+  TRUSTED_PROXY_HOPS: "1"
 ---
 # Example only. In production, source these from a sealed secret / external secrets
 # operator / cloud KMS, never commit real values.

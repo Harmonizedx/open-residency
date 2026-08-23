@@ -13,6 +13,10 @@ config:
   publicBaseUrl: https://id.example.gov
   countryConfigDir: /app/config/countries
   rateLimitPerMinute: "120"
+  # Proxies in front of the service. The chart enables an ingress by default, so 1 is the
+  # matching value; 0 would leave every anonymous caller behind it sharing one rate-limit
+  # budget (ADR-0013).
+  trustedProxyHops: 1
 
 # Provide these via `--set-string` or a values file kept out of version control,
 # or reference an existing secret with existingSecret.

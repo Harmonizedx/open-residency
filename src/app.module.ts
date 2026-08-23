@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { PlatformModule } from './platform/platform.module';
 import { ResidencyModule } from './residency/residency.module';
 import { IdentityModule } from './identity/identity.module';
@@ -16,6 +16,7 @@ import { VcApiModule } from './vcapi/vcapi.module';
 import { MetaModule } from './meta/meta.module';
 import { OperatorModule } from './operator/operator.module';
 import { UpstreamModule } from './upstream/upstream.module';
+import { CallerThrottlerGuard } from './common/caller-throttler.guard';
 import { AssuranceModule } from './assurance/assurance.module';
 
 @Module({
@@ -42,7 +43,8 @@ import { AssuranceModule } from './assurance/assurance.module';
     UpstreamModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Counts the caller, not the proxy that forwarded them (ADR-0013).
+    { provide: APP_GUARD, useClass: CallerThrottlerGuard },
     // Global request validation. Registered as an APP_PIPE provider rather than a main.ts
     // `useGlobalPipes` call so it is active wherever AppModule is instantiated -- the server,
     // the full-stack e2e harness, and any future test -- and cannot silently be absent in one

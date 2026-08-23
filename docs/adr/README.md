@@ -17,6 +17,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0010](0010-authentication-refs-are-not-residency-identities.md) | An upstream authentication reference is not a residency identity: `subjectRef` is always the foundational provider's, and a pairwise OP subject cannot substitute | Accepted |
 | [0011](0011-residency-anchor-is-a-jurisdiction-choice.md) | What residency is anchored to — an administrative unit or an address — is a jurisdiction's declaration, not a global assumption | Accepted |
 | [0012](0012-subject-references-key-on-the-identifier.md) | A subject reference keys on the identifier type, not the provider code, so two routes to the same national identifier reconcile | Accepted |
+| [0013](0013-rate-limiting-identifies-the-caller.md) | Rate limiting keys on the authenticated caller, or on a client address read from a declared number of trusted proxy hops; a proxy it was not told about is reported rather than absorbed | Proposed |
 
 ## Pending
 
