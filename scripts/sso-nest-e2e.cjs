@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable */
 /**
  * Full-stack SSO end-to-end test: boots the ACTUAL NestJS application (AppModule) the

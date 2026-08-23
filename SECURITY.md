@@ -21,12 +21,33 @@ and report responsibly, issues in:
 - The audit log (any way to append, edit, or delete without breaking the hash chain).
 - The admin and audit endpoints and their authentication.
 
+## Supported versions
+
+| Version | Supported |
+| --- | --- |
+| Latest `0.MINOR.x` | ✅ Security fixes |
+| Any earlier `0.MINOR.x` | ❌ Upgrade to the latest minor |
+
+**While the project is `0.x`, only the latest minor receives security fixes.** Backporting to
+branches nobody runs costs more than it protects, and saying so plainly is more useful to a
+deploying government than an implied promise nobody intends to keep. A jurisdiction pinning an
+older `0.x` should plan to move forward, not expect patches.
+
+This changes at `1.0.0`, when a stated support window becomes something an adopter can build
+procurement around. `1.0.0` is cut when a jurisdiction is running this in production — see
+[`RELEASING.md`](RELEASING.md).
+
 ## Handling and disclosure
 
 We follow coordinated disclosure. Once a fix is available we will publish a release and
 credit the reporter unless anonymity is requested. Deployers should watch releases and
 apply security updates promptly, especially any affecting credential verification or the
 issuer key.
+
+A security release is a patch bump, cut as soon as the fix exists rather than waiting for
+unrelated work. Its changelog entry states **what was possible before the fix** — an entry
+reading only "hardening" tells a deploying government nothing about whether to schedule the
+upgrade tonight or next month.
 
 ## Deployer responsibilities
 

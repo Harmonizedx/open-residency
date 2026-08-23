@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * MOSIP ID Authentication, driven against a server that actually opens the envelope.

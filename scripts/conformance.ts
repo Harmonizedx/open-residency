@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * W3C conformance checks, run in CI on every pull request.

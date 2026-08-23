@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * The ORCS §8 Assurance Registry: governed profiles, §8.1 provider mappings, and the

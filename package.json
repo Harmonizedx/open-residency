@@ -41,6 +41,7 @@
     "test:conformance": "tsc -p tsconfig.core.json && node dist-core/scripts/conformance.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint:arch": "depcruise src scripts --config .dependency-cruiser.cjs",
+    "lint:licenses": "bash scripts/check-license-headers.sh",
     "test:w3c": "bash scripts/run-w3c-suite.sh",
     "smoke:sso": "tsc -p tsconfig.core.json && node dist-core/scripts/sso-smoke.js",
     "smoke:federation": "tsc -p tsconfig.core.json && node dist-core/scripts/federation-smoke.js",

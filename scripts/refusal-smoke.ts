@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Refused applications are recorded, with a reason and somewhere to appeal.
