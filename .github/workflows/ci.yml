@@ -117,6 +117,20 @@ jobs:
       - name: MOSIP integration conformance (gate)
         run: npm run conformance:mosip
 
+      # ORCS §15 as a RATCHET, not a pass/fail gate. scripts/orcs-baseline.json records the
+      # verdict each criterion currently holds; this fails when one drops, and also when one
+      # improves without the baseline being updated.
+      #
+      # It stayed out of CI while most criteria failed, on the reasoning that a permanently-red
+      # required check trains people to ignore red checks. That reasoning has expired: most
+      # criteria now pass, and nothing was protecting them. Criterion 9 asserted nothing for
+      # weeks while its own prose drifted from six adapters to eight, and no build noticed.
+      #
+      # When every criterion reaches PASS the baseline is all-PASS and this IS the gate, with
+      # no separate step to remember.
+      - name: ORCS §15 conformance (ratchet against the recorded baseline)
+        run: npm run conformance:orcs
+
       # WebAuthn passkey factor (registration + assertion verification against a simulated
       # authenticator, both ES256 and EdDSA) and the assurance model (acr/amr, biometric
       # step-up). Security-critical crypto, so it is gated.
