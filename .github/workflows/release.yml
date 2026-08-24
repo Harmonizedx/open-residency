@@ -83,11 +83,34 @@ jobs:
             sbom.cyclonedx.json
             ${{ env.ARCHIVE }}
 
+      # Pushing a tag creates a TAG. It does not create a RELEASE -- they are separate objects,
+      # and `gh release upload` fails outright when the release does not exist. So the
+      # documented `git tag -s && git push origin vX.Y.Z` would have built and signed
+      # everything and then failed on the last step with "release not found", which is exactly
+      # the failure this workflow's header warns about: one that first appears when it is least
+      # convenient.
+      #
+      # Create it when absent, so a tag push is sufficient on its own. Idempotent: a release
+      # made through the UI (which pushes the tag, firing this same workflow) is found and
+      # reused rather than duplicated.
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "No release for $GITHUB_REF_NAME yet; creating it."
+            # --verify-tag refuses to invent a tag: if the ref is not a real tag, fail here
+            # rather than publish a release pointing at nothing.
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag
+          else
+            echo "Release $GITHUB_REF_NAME already exists; attaching to it."
+          fi
+
           gh release upload "$GITHUB_REF_NAME" \
             sbom.cyclonedx.json sbom.cyclonedx.json.sig sbom.cyclonedx.json.pem \
             "$ARCHIVE" "${ARCHIVE}.sig" "${ARCHIVE}.pem" \
