@@ -9,6 +9,8 @@
  *
  * Spec: https://www.w3.org/TR/vc-data-model-2.0/
  */
+import { createHash } from 'node:crypto';
+import { base58btcDecode } from './base58';
 
 export const CREDENTIALS_V2_CONTEXT = 'https://www.w3.org/ns/credentials/v2';
 
@@ -53,7 +55,10 @@ export function isDateTimeStamp(value: unknown): boolean {
 }
 
 /** Validate a credential against the VC Data Model 2.0. Returns the list of violations. */
-export function validateCredentialShape(credential: Record<string, unknown>): string[] {
+export function validateCredentialShape(
+  credential: Record<string, unknown>,
+  options: CredentialShapeOptions = {},
+): string[] {
   const errors: string[] = [];
 
   // @context: REQUIRED, and the FIRST value must be the VC v2 context. Ordering is
@@ -78,7 +83,18 @@ export function validateCredentialShape(credential: Record<string, unknown>): st
   const subject = credential.credentialSubject;
   if (!subject || typeof subject !== 'object') {
     errors.push('credentialSubject is required');
-  } else if (!Array.isArray(subject) && Object.keys(subject).length === 0) {
+  } else if (Array.isArray(subject)) {
+    // A set of subjects, where EACH is the subject of one or more claims. One empty
+    // member is as meaningless as a single empty subject -- and harder to spot, which is
+    // precisely why it needs checking rather than being waved through with the set.
+    if (subject.length === 0) {
+      errors.push('credentialSubject must not be empty');
+    } else if (
+      subject.some((s) => !s || typeof s !== 'object' || Object.keys(s).length === 0)
+    ) {
+      errors.push('every credentialSubject must be a non-empty object');
+    }
+  } else if (Object.keys(subject).length === 0) {
     errors.push('credentialSubject must not be empty');
   }
 
@@ -108,15 +124,203 @@ export function validateCredentialShape(credential: Record<string, unknown>): st
     }
   }
 
-  // credentialStatus: OPTIONAL, but if present MUST carry a type.
-  const status = credential.credentialStatus;
-  if (status != null) {
-    for (const entry of Array.isArray(status) ? status : [status]) {
-      if (!entry || typeof entry !== 'object') {
-        errors.push('credentialStatus must be an object');
-      } else if (!(entry as Record<string, unknown>).type) {
-        errors.push('credentialStatus must have a type');
+  // These properties are all OPTIONAL, but each entry MUST carry a `type`. Without one a
+  // consumer cannot tell what the object is meant to be, so it cannot act on it -- an
+  // untyped `refreshService` is an endpoint of unknown protocol, and an untyped
+  // `termsOfUse` is a policy nobody can evaluate.
+  for (const field of TYPED_ENTRY_PROPERTIES) {
+    errors.push(...typedEntryErrors(credential[field], field));
+  }
+
+  // credentialSchema additionally REQUIRES an `id` that is a URL identifying the schema.
+  for (const entry of entriesOf(credential.credentialSchema)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const id = (entry as Record<string, unknown>).id;
+    if (typeof id !== 'string' || !isUri(id)) {
+      errors.push('credentialSchema must have an id that is a URL');
+    }
+  }
+
+  errors.push(...relatedResourceErrors(credential.relatedResource, options));
+
+  return errors;
+}
+
+/** Properties whose every entry MUST specify a `type`, per VC Data Model 2.0. */
+const TYPED_ENTRY_PROPERTIES = [
+  'credentialStatus',
+  'credentialSchema',
+  'termsOfUse',
+  'evidence',
+  'refreshService',
+  'proof',
+] as const;
+
+/** Normalize a "one or more" property into a list. Absent yields an empty list. */
+function entriesOf(value: unknown): unknown[] {
+  if (value == null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function typedEntryErrors(value: unknown, field: string): string[] {
+  const errors: string[] = [];
+  for (const entry of entriesOf(value)) {
+    if (!entry || typeof entry !== 'object') {
+      errors.push(`${field} must be an object`);
+    } else if (!(entry as Record<string, unknown>).type) {
+      errors.push(`${field} must have a type`);
+    }
+  }
+  return errors;
+}
+
+/** How a caller supplies the bytes behind a `relatedResource` id, if it holds them. */
+export interface CredentialShapeOptions {
+  /**
+   * Return the exact bytes a consumer would retrieve for `url`, or undefined if unknown.
+   * Undefined means "cannot check", not "does not match": a resource we do not hold is
+   * left unverified rather than rejected, because refusing it would make an unpinned but
+   * perfectly valid resource unusable.
+   */
+  resolveResourceBytes?: (url: string) => Buffer | undefined;
+}
+
+/**
+ * VCDM 2.0 §5.3, Integrity of Related Resources.
+ *
+ * Each entry MUST be an object with a unique `id` and at least one digest. Where we can
+ * resolve the resource offline, the digest is checked against it -- a stated digest that
+ * does not match the thing it names is worse than no digest at all, because it looks like
+ * an integrity guarantee while providing none.
+ */
+function relatedResourceErrors(value: unknown, options: CredentialShapeOptions = {}): string[] {
+  const errors: string[] = [];
+  const entries = entriesOf(value);
+  const seen = new Set<string>();
+
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      errors.push('relatedResource must be one or more objects');
+      continue;
+    }
+    const resource = entry as Record<string, unknown>;
+
+    const id = resource.id;
+    if (typeof id !== 'string' || !isUri(id)) {
+      errors.push('relatedResource must have an id that is a URI');
+    } else if (seen.has(id)) {
+      errors.push(`relatedResource id must be unique among the list: '${id}' is repeated`);
+    } else {
+      seen.add(id);
+    }
+
+    const sri = resource.digestSRI;
+    const multibase = resource.digestMultibase;
+    if (sri == null && multibase == null) {
+      errors.push('relatedResource must have at least a digestSRI or a digestMultibase');
+      continue;
+    }
+
+    const bytes = typeof id === 'string' ? options.resolveResourceBytes?.(id) : undefined;
+    if (!bytes) continue;
+
+    if (sri != null && !digestSriMatches(String(sri), bytes)) {
+      errors.push(`relatedResource digestSRI does not match the resource at '${String(id)}'`);
+    }
+    if (multibase != null && !digestMultibaseMatches(String(multibase), bytes)) {
+      errors.push(
+        `relatedResource digestMultibase does not match the resource at '${String(id)}'`,
+      );
+    }
+  }
+
+  return errors;
+}
+
+/** Hash lengths, in bytes, of the SHA-2 functions a digest may use. */
+const HASH_BY_LENGTH: Record<number, 'sha256' | 'sha384' | 'sha512'> = {
+  32: 'sha256',
+  48: 'sha384',
+  64: 'sha512',
+};
+
+/** Subresource Integrity: `<algorithm>-<base64 digest>`, per the SRI specification. */
+function digestSriMatches(sri: string, bytes: Buffer): boolean {
+  const match = /^(sha256|sha384|sha512)-(.+)$/.exec(sri.trim());
+  if (!match) return false;
+  const [, algorithm, encoded] = match;
+  let expected: Buffer;
+  try {
+    expected = Buffer.from(encoded, 'base64');
+  } catch {
+    return false;
+  }
+  return createHash(algorithm).update(bytes).digest().equals(expected);
+}
+
+/**
+ * `digestMultibase`: a multibase-encoded digest. The algorithm is not named, so it is
+ * inferred from the digest length -- which is unambiguous across SHA-256/384/512.
+ */
+function digestMultibaseMatches(multibase: string, bytes: Buffer): boolean {
+  const value = multibase.trim();
+  let expected: Buffer;
+  if (value.startsWith('u')) {
+    expected = Buffer.from(value.slice(1), 'base64url');
+  } else if (value.startsWith('z')) {
+    try {
+      expected = Buffer.from(base58btcDecode(value.slice(1)));
+    } catch {
+      return false;
+    }
+  } else {
+    return false;
+  }
+
+  const algorithm = HASH_BY_LENGTH[expected.length];
+  if (!algorithm) return false;
+  return createHash(algorithm).update(bytes).digest().equals(expected);
+}
+
+/**
+ * Validate a presentation against the VC Data Model 2.0.
+ *
+ * A presentation carries the same `@context` requirements as a credential, and they are
+ * requirements for the same reason: the context fixes what every term in the document
+ * means, so a presentation that omits it -- or lets another context be consulted first --
+ * is one whose claims can be reinterpreted after the fact.
+ */
+export function validatePresentationShape(presentation: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+
+  const context = presentation['@context'];
+  if (context == null) {
+    errors.push('@context is required');
+  } else {
+    const list = Array.isArray(context) ? context : [context];
+    if (list.length === 0) {
+      errors.push('@context is required');
+    } else if (list[0] !== CREDENTIALS_V2_CONTEXT) {
+      errors.push(`the first @context value must be ${CREDENTIALS_V2_CONTEXT}`);
+    }
+    // Subsequent entries must each be something a JSON-LD processor can treat as a
+    // context: a URL, or an inline context object.
+    for (const entry of list.slice(1)) {
+      if (typeof entry === 'string') {
+        if (!isUri(entry)) errors.push(`@context entry '${entry}' is not a URL`);
+      } else if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        errors.push('every @context entry must be a URL or a JSON-LD context object');
       }
+    }
+  }
+
+  if (!typesOf(presentation).includes('VerifiablePresentation')) {
+    errors.push('type must include VerifiablePresentation');
+  }
+
+  if (presentation.id != null) {
+    if (typeof presentation.id !== 'string' || !isUri(presentation.id)) {
+      errors.push('id must be a URI');
     }
   }
 

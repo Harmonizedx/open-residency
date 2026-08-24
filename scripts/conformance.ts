@@ -34,9 +34,11 @@ import { ResidencyService } from '../src/core/residency/residency-service';
 import { buildDidWebDocument, didKeyFromJwk, didKeyToJwk } from '../src/core/credentials/did';
 import {
   validateCredentialShape,
+  validatePresentationShape,
   validateStatusEntry,
   validateStatusListCredential,
 } from '../src/core/credentials/data-model';
+import { pinnedResourceBytes } from '../src/core/credentials/jsonld/document-loader';
 
 let pass = 0;
 let fail = 0;
@@ -184,6 +186,177 @@ async function main() {
     { ...validCredential(), credentialStatus: { id: 'https://x.test/1#0' } },
     /credentialStatus must have a type/,
   );
+  console.log('');
+
+  // ---- Typed sub-objects -------------------------------------------------
+  // An untyped sub-object is one a consumer cannot act on: an untyped refreshService is
+  // an endpoint of unknown protocol, an untyped termsOfUse a policy nobody can evaluate.
+  console.log('Sub-objects MUST specify a type:');
+
+  for (const field of ['termsOfUse', 'evidence', 'refreshService', 'credentialSchema'] as const) {
+    mustReject(
+      `${field} without a type is rejected`,
+      { ...validCredential(), [field]: { id: 'https://x.test/thing' } },
+      new RegExp(`${field} must have a type`),
+    );
+    check(
+      `${field} with a type is accepted`,
+      validateCredentialShape({
+        ...validCredential(),
+        [field]: { id: 'https://x.test/thing', type: 'ExampleType' },
+      }).length === 0,
+    );
+  }
+  mustReject(
+    'a proof without a type is rejected',
+    { ...validCredential(), proof: { proofValue: 'z1' } },
+    /proof must have a type/,
+  );
+  mustReject(
+    'credentialSchema without an id is rejected',
+    { ...validCredential(), credentialSchema: { type: 'JsonSchema' } },
+    /credentialSchema must have an id/,
+  );
+  // A set of subjects where one member is empty: as meaningless as a single empty
+  // subject, and easier to miss.
+  mustReject(
+    'a credentialSubject set containing an empty member is rejected',
+    { ...validCredential(), credentialSubject: [{ id: 'did:key:z6Mk' }, {}] },
+    /every credentialSubject must be a non-empty object/,
+  );
+  console.log('');
+
+  // ---- Integrity of related resources (VCDM 2.0 s5.3) --------------------
+  // The digest checks run against the PINNED bytes, so they need no network -- the same
+  // terms the JSON-LD loader works on. A resource we do not hold is left unverified
+  // rather than fetched or rejected.
+  console.log('relatedResource integrity:');
+
+  const V2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2';
+  const resourceOptions = { resolveResourceBytes: pinnedResourceBytes };
+  const goodSri = 'sha384-l/HrjlBCNWyAX91hr6LFV2Y3heB5Tcr6IeE4/Tje8YyzYBM8IhqjHWiWpr8+ZbYU';
+  const goodMultibase = 'uWZVc7WaX1h4D8rJVb-vlMIqxaEKEb1tYbX8fet7JJzQ';
+
+  const relatedRejects = (name: string, relatedResource: unknown, expected: RegExp) => {
+    const errors = validateCredentialShape(
+      { ...validCredential(), relatedResource } as Record<string, unknown>,
+      resourceOptions,
+    );
+    check(name, errors.some((e) => expected.test(e)), `errors were: ${JSON.stringify(errors)}`);
+  };
+
+  check(
+    'a correct digestSRI over a pinned resource is accepted',
+    validateCredentialShape(
+      { ...validCredential(), relatedResource: { id: V2_CONTEXT_URL, digestSRI: goodSri } },
+      resourceOptions,
+    ).length === 0,
+  );
+  check(
+    'a correct digestMultibase over a pinned resource is accepted',
+    validateCredentialShape(
+      { ...validCredential(), relatedResource: { id: V2_CONTEXT_URL, digestMultibase: goodMultibase } },
+      resourceOptions,
+    ).length === 0,
+  );
+  relatedRejects('an array of strings is rejected', [V2_CONTEXT_URL], /must be one or more objects/);
+  relatedRejects('a resource with no id is rejected', [{ digestSRI: goodSri }], /must have an id/);
+  relatedRejects(
+    'a duplicate id is rejected',
+    [
+      { id: V2_CONTEXT_URL, digestSRI: goodSri },
+      { id: V2_CONTEXT_URL, digestMultibase: goodMultibase },
+    ],
+    /must be unique/,
+  );
+  relatedRejects('a resource with no digest is rejected', [{ id: V2_CONTEXT_URL }], /at least a digest/);
+  // The one that actually matters: a stated digest that does not match the bytes it names
+  // looks like an integrity guarantee while providing none.
+  relatedRejects(
+    'a digestSRI that does not match the resource is rejected',
+    [{ id: V2_CONTEXT_URL, digestSRI: 'sha384-' + 'A'.repeat(64) }],
+    /digestSRI does not match/,
+  );
+  relatedRejects(
+    'a digestMultibase that does not match the resource is rejected',
+    [{ id: V2_CONTEXT_URL, digestMultibase: 'uM4RgWQc3RUDtjJCSgTJtTfvpZ7SPEg_LNO0ESlovQC0' }],
+    /digestMultibase does not match/,
+  );
+  check(
+    'an unpinned resource is left unverified rather than refused',
+    validateCredentialShape(
+      { ...validCredential(), relatedResource: { id: 'https://example.test/x', digestSRI: goodSri } },
+      resourceOptions,
+    ).length === 0,
+  );
+  console.log('');
+
+  // ---- Presentations ------------------------------------------------------
+  console.log('Verifiable presentations:');
+
+  const validPresentation = () => ({
+    '@context': ['https://www.w3.org/ns/credentials/v2'],
+    type: ['VerifiablePresentation'],
+  });
+  const vpRejects = (name: string, vp: Record<string, unknown>, expected: RegExp) => {
+    const errors = validatePresentationShape(vp);
+    check(name, errors.some((e) => expected.test(e)), `errors were: ${JSON.stringify(errors)}`);
+  };
+
+  check('a valid presentation passes cleanly', validatePresentationShape(validPresentation()).length === 0);
+  vpRejects(
+    'a presentation without @context is rejected',
+    { type: ['VerifiablePresentation'] },
+    /@context is required/,
+  );
+  vpRejects(
+    'a presentation with the v2 context out of first place is rejected',
+    { ...validPresentation(), '@context': ['https://example.org/other', 'https://www.w3.org/ns/credentials/v2'] },
+    /first @context/,
+  );
+  vpRejects(
+    'a presentation with an unprocessable @context entry is rejected',
+    { ...validPresentation(), '@context': ['https://www.w3.org/ns/credentials/v2', 'not a url'] },
+    /is not a URL/,
+  );
+  vpRejects(
+    'a presentation without the VerifiablePresentation type is rejected',
+    { ...validPresentation(), type: ['SomethingElse'] },
+    /VerifiablePresentation/,
+  );
+  console.log('');
+
+  // ---- Language and base direction (VCDM 2.0 s11.1) ----------------------
+  // These MUST be signable. `@direction` has no home in the RDF unless the canonicalizer
+  // is told to carry it, and safe mode then refuses the document rather than dropping the
+  // direction silently -- so getting this wrong makes a spec-VALID credential unissuable.
+  console.log('Language value objects:');
+
+  // Only terms the pinned v2 context defines, so that a safe-mode failure here can mean
+  // one thing only: the base direction was dropped. `validCredential()` carries residency
+  // terms and is deliberately NOT used -- it is unsignable against the bare v2 context,
+  // which is safe mode working correctly and would mask what this is testing.
+  const languageValue = { '@value': 'Katsina State Residency', '@language': 'en', '@direction': 'ltr' };
+  for (const field of ['name', 'description'] as const) {
+    const withLanguage: Record<string, unknown> = {
+      '@context': ['https://www.w3.org/ns/credentials/v2'],
+      type: ['VerifiableCredential'],
+      issuer: CONFIG.credential.issuerDid,
+      credentialSubject: { id: 'did:key:z6Mk' },
+      [field]: languageValue,
+    };
+    check(
+      `${field} as a language value object passes the data model`,
+      validateCredentialShape(withLanguage).length === 0,
+    );
+    let signingError: string | undefined;
+    try {
+      await ldpIssuer.sign(withLanguage, CONFIG.credential.issuerDid);
+    } catch (e) {
+      signingError = e instanceof Error ? e.message : String(e);
+    }
+    check(`${field} as a language value object can be signed`, signingError === undefined, signingError);
+  }
   console.log('');
 
   // ---- Bitstring Status List 1.0 -----------------------------------------
