@@ -108,6 +108,27 @@ export function loadContexts(): Record<string, unknown> {
   return loaded;
 }
 
+/**
+ * The raw, unparsed bytes of a pinned document, or undefined if we do not hold it.
+ *
+ * `relatedResource` integrity (VCDM 2.0 §5.3) is a digest over the bytes a consumer would
+ * retrieve, so it cannot be computed from the parsed object -- reserialising JSON does not
+ * reproduce the original whitespace or key order. This reads the pinned file as bytes.
+ *
+ * Only pinned resources can be checked. Fetching an arbitrary URL to digest it is exactly
+ * what `staticDocumentLoader` refuses to do, and for the same reasons; an unpinned resource
+ * is therefore left unverified rather than fetched.
+ */
+export function pinnedResourceBytes(url: string): Buffer | undefined {
+  const file = CONTEXT_FILES[url];
+  if (!file) return undefined;
+  try {
+    return readFileSync(join(contextsDir(), file));
+  } catch {
+    return undefined;
+  }
+}
+
 /** The context document we publish at RESIDENCY_V1_CONTEXT_URL. */
 export function residencyContextDocument(): unknown {
   return loadContexts()[RESIDENCY_V1_CONTEXT_URL];
