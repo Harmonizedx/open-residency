@@ -14,18 +14,29 @@
  * never "ORCS-conformant", and keep the unmeasured findings in the tracker where a person has
  * to look at them.
  *
- * IT IS EXPECTED TO FAIL TODAY. Five criteria fail outright and two partially, all traced to
- * findings in the gap analysis. A red suite that names exactly what is missing is worth more
- * than a green one that tests only what already works -- and it is what turns each migration
- * phase from "we think we're done" into "criterion 1 went green".
+ * IT DOES NOT ALL PASS YET, and the criteria that do not are traced to findings in the gap
+ * analysis. A red suite that names exactly what is missing is worth more than a green one that
+ * tests only what already works -- and it is what turns each migration phase from "we think
+ * we're done" into "criterion 1 went green".
  *
- * Run with `npm run conformance:orcs`. It is deliberately NOT in `npm test` or CI until it
- * passes; a permanently-red required check trains people to ignore red checks.
+ * IT RUNS IN CI AS A RATCHET rather than as a pass/fail gate. `scripts/orcs-baseline.json`
+ * records the verdict each criterion is currently expected to hold, and this build fails when
+ * one of them drops. That answers the objection that kept it out of CI -- a permanently-red
+ * required check trains people to ignore red checks -- because the ratchet is GREEN today and
+ * only reddens when something regresses.
+ *
+ * It also fails when a criterion IMPROVES and the baseline was not updated. That is
+ * deliberate: a baseline nobody maintains is stale documentation, which is the failure that
+ * left criterion 9 asserting nothing while its own prose drifted from six adapters to eight.
+ * Run with ORCS_UPDATE_BASELINE=1 to record an improvement.
+ *
+ * When every criterion reaches PASS, the baseline is all-PASS and the ratchet IS the gate --
+ * no separate step, and nothing to remember to switch on.
  *
  * Each criterion prints PASS, FAIL or PARTIAL with the finding id, so the output doubles as
  * a progress report against the gap analysis.
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { InMemoryStore } from '../src/core/residency/ports';
@@ -751,10 +762,80 @@ async function main() {
       : `\nORCS §15 not satisfied. Open findings: ${[...new Set(results.filter((r) => r.finding).map((r) => r.finding))].join(', ')}\n`,
   );
 
-  // Exit 0 regardless: this suite reports conformance, it does not gate the build yet. It
-  // becomes a gate (exit 1 on any non-PASS) when the migration is complete -- see the
-  // implementation tracker.
-  process.exit(0);
+  process.exit(ratchet(results));
+}
+
+/**
+ * Compare this run against the committed baseline.
+ *
+ * Returns the process exit code. Three outcomes, and the second is the point of the whole
+ * mechanism:
+ *
+ *   - every criterion holds its baseline verdict  -> 0
+ *   - one has REGRESSED                           -> 1, naming which
+ *   - one has IMPROVED and the baseline is stale  -> 1, naming which, with the command to fix
+ *
+ * Failing on improvement looks unfriendly and is not. An unmaintained baseline stops being a
+ * record of where the work is and becomes a number nobody trusts -- exactly how criterion 9
+ * came to assert nothing while claiming six adapters against a tree that shipped eight.
+ */
+function ratchet(current: Result[]): number {
+  // process.cwd(), not __dirname: this runs compiled from dist-core/scripts, so a path
+  // relative to the module lands in the build output and the committed baseline is never read.
+  const path = join(process.cwd(), 'scripts', 'orcs-baseline.json');
+
+  const observed: Record<string, Verdict> = {};
+  for (const r of current) observed[String(r.n)] = r.verdict;
+
+  if (process.env.ORCS_UPDATE_BASELINE === '1') {
+    writeFileSync(path, JSON.stringify(observed, null, 2) + '\n');
+    console.log(`Baseline updated: ${path}\n`);
+    return 0;
+  }
+
+  let baseline: Record<string, Verdict>;
+  try {
+    baseline = JSON.parse(readFileSync(path, 'utf8')) as Record<string, Verdict>;
+  } catch {
+    console.log(
+      `No baseline at ${path}. Record one with ORCS_UPDATE_BASELINE=1 npm run conformance:orcs\n`,
+    );
+    return 1;
+  }
+
+  const rank: Record<Verdict, number> = { FAIL: 0, PARTIAL: 1, PASS: 2 };
+  const regressed: string[] = [];
+  const improved: string[] = [];
+
+  for (const r of current) {
+    const was = baseline[String(r.n)];
+    if (!was) {
+      improved.push(`criterion ${r.n} is new (${r.verdict})`);
+      continue;
+    }
+    if (rank[r.verdict] < rank[was]) regressed.push(`criterion ${r.n}: ${was} -> ${r.verdict}`);
+    else if (rank[r.verdict] > rank[was]) improved.push(`criterion ${r.n}: ${was} -> ${r.verdict}`);
+  }
+
+  if (regressed.length > 0) {
+    console.log('REGRESSION against scripts/orcs-baseline.json:\n');
+    for (const line of regressed) console.log(`  ${line}`);
+    console.log('\nA criterion that passed no longer does. Fix it, or say why in the tracker.\n');
+    return 1;
+  }
+
+  if (improved.length > 0) {
+    console.log('The baseline is out of date -- criteria improved:\n');
+    for (const line of improved) console.log(`  ${line}`);
+    console.log(
+      '\nRecord it:  ORCS_UPDATE_BASELINE=1 npm run conformance:orcs\n' +
+        'Then commit scripts/orcs-baseline.json with the change that earned it.\n',
+    );
+    return 1;
+  }
+
+  console.log('Ratchet: every criterion holds its baseline verdict.\n');
+  return 0;
 }
 
 main().catch((e) => {
