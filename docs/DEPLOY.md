@@ -80,6 +80,23 @@ limits, request size caps, and tighter limits on `/admin` and `/audit`. The app 
 rate-limits every route and enforces the admin key, so it is safe if reached directly.
 Swap the ingress for Kong / APISIX / a cloud gateway without changing the app.
 
+### `TRUSTED_PROXY_HOPS` — set this, or the app's own limit counts the wrong thing
+
+**Set it to the number of proxies between the internet and this service.** Both shipped
+deployment paths put one ingress in front, so both set it to `1`.
+
+The app's rate limit counts per client address. Behind a proxy the only way to know the
+client is `X-Forwarded-For`, which is client-supplied — so the service believes exactly this
+many entries of it, counted from the right, where they were appended by infrastructure you
+control. Left at the default `0`, every request presents the proxy's address and **all your
+anonymous callers share one budget**: one client can 429 everyone, including registrars
+mid-enrolment. The service logs a warning when it sees a forwarded header with no hops
+declared, so this is visible rather than silent.
+
+Do not set it higher than the real number of proxies. Each extra hop is one more
+caller-supplied entry believed, and declaring two where one exists would let a caller choose
+the address they are counted as. See [ADR-0013](adr/0013-rate-limiting-identifies-the-caller.md).
+
 ## Deployment-wide profiles come from the FIRST country config
 
 `operatorAuth`, `messaging`, `contactDirectory`, `presentation` and `oidc.subjectType`

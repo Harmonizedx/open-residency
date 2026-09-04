@@ -6,10 +6,16 @@ import { urlencoded, json } from 'express';
 import { join } from 'node:path';
 import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { AppModule } from './app.module';
+import { trustedProxyHops } from './common/caller-throttler.guard';
 import { OIDC_PROVIDER } from './sso/oidc.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+
+  // Express reads X-Forwarded-For only when told how far to trust it. Declared by the
+  // deployment rather than guessed: blanket trust would let any caller forge the address a
+  // rate limit counts against (ADR-0013). 0 means this service is exposed directly.
+  app.set('trust proxy', trustedProxyHops());
 
   // Body parsing: JSON for the residency API, urlencoded for the OIDC interaction forms.
   app.use(json());

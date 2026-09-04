@@ -7,6 +7,7 @@ data:
   PUBLIC_BASE_URL: {{ .Values.config.publicBaseUrl | quote }}
   COUNTRY_CONFIG_DIR: {{ .Values.config.countryConfigDir | quote }}
   RATE_LIMIT_PER_MINUTE: {{ .Values.config.rateLimitPerMinute | quote }}
+  TRUSTED_PROXY_HOPS: {{ .Values.config.trustedProxyHops | quote }}
 {{- if not .Values.secrets.existingSecret }}
 ---
 apiVersion: v1
