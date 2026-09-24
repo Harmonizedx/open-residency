@@ -12,51 +12,9 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
-### Added
+Nothing yet.
 
-- **Health endpoints.** `GET /health/live` and `GET /health/ready`; readiness asks the
-  database and answers 503 when it does not. Unauthenticated, exempt from rate limiting.
-  The Helm chart and raw manifests probe these instead of `/residency/countries`, which
-  read from memory and reported a pod healthy with its database gone.
-- **Operations log.** JSON lines to stdout through one logger (`LOG_LEVEL`), Nest's own
-  messages included. Every response carries an `x-request-id`; each request is logged as
-  method, route pattern, status, duration and that id — never the URL, body or a header.
-  Sensitive keys (`identifiers`, `nin`, `sample`, `authorization`, …) are redacted wherever
-  they appear in a logged object. `npm run smoke:observability` asserts that a submitted
-  identifier reaches neither the log nor a metric label.
-- **Prometheus metrics** on a separate `METRICS_PORT` (unset = off), so the ingress never
-  routes to it: HTTP duration by route pattern and status; issuance outcomes by status,
-  refusal-reason class and declared unit; foundational verification outcome and duration
-  by provider; last-success timestamps for the three background jobs. Every label value is
-  drawn from a bounded set.
-- `SIGTERM` now runs the module shutdown hooks (timers stop, the HSM session is released)
-  rather than ending the process mid-request.
-- **The container image is published.** A tag push builds
-  `ghcr.io/harmonizedx/open-residency:vX.Y.Z` from the tag, scans it, pushes it, signs it by
-  digest (keyless) and attests provenance and an SBOM in the registry; the release notes name
-  the digest. Version tags only — no `latest`. The Helm chart defaults to the chart's
-  `appVersion` and accepts `image.digest` to pin the bytes; the raw manifests pin `v0.1.0`.
-  Previously every manifest pointed at `ghcr.io/your-org/openresidency:latest`, which did not
-  exist.
-
-### Changed
-
-- Startup output is a single JSON line rather than a printed banner. A boot refusal is a
-  `fatal` log line in the same stream.
-
-### Security
-
-- The runtime dependency audit is clean again at the CI gate (`npm audit --omit=dev
-  --audit-level=moderate`). `@nestjs/common`, `@nestjs/core` and `@nestjs/platform-express`
-  move to 11.2.6, taking `multer` to 2.4.0 past three denial-of-service advisories
-  (GHSA-wc9g-mqfw-jrwm, GHSA-qfvm-cv95-jqjf, GHSA-535w-7cp7-47q4); `qs` (GHSA-x5fp-wj9c-mxmx,
-  GHSA-4mjr-xmp4-gh2g) and `fast-uri` (four SSRF/host-confusion advisories, fixed in 3.1.6) are
-  updated in place. `mysql2`,
-  which the Prisma CLI pins at a version with a credential-leaking auth-plugin downgrade, is
-  overridden to `^3.24.4` — the reasoning and the removal condition are in `SECURITY.md`'s
-  override table. Nothing in this deployment opens a MySQL connection.
-
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-09-24
 
 The first release. Everything is new, so this section describes what the release *contains*
 rather than what changed in it.
@@ -113,6 +71,31 @@ the number bound to the record rather than back down the USSD session.
 **Operations.** Role-scoped operator identity with per-operator API keys and rotation, a
 tamper-evident hash-chained audit log with anchoring, non-PII statistics export with small-cell
 suppression, Kubernetes manifests and a Helm chart, OpenAPI 3.1, and a typed SDK.
+- **Health endpoints.** `GET /health/live` and `GET /health/ready`; readiness asks the
+  database and answers 503 when it does not. Unauthenticated, exempt from rate limiting.
+  The Helm chart and raw manifests probe these instead of `/residency/countries`, which
+  read from memory and reported a pod healthy with its database gone.
+- **Operations log.** JSON lines to stdout through one logger (`LOG_LEVEL`), Nest's own
+  messages included. Every response carries an `x-request-id`; each request is logged as
+  method, route pattern, status, duration and that id — never the URL, body or a header.
+  Sensitive keys (`identifiers`, `nin`, `sample`, `authorization`, …) are redacted wherever
+  they appear in a logged object. `npm run smoke:observability` asserts that a submitted
+  identifier reaches neither the log nor a metric label. Startup is one JSON line in the same
+  stream; a boot refusal is a `fatal` line there too.
+- **Prometheus metrics** on a separate `METRICS_PORT` (unset = off), so the ingress never
+  routes to it: HTTP duration by route pattern and status; issuance outcomes by status,
+  refusal-reason class and declared unit; foundational verification outcome and duration
+  by provider; last-success timestamps for the three background jobs. Every label value is
+  drawn from a bounded set.
+- `SIGTERM` now runs the module shutdown hooks (timers stop, the HSM session is released)
+  rather than ending the process mid-request.
+- **The container image is published.** A tag push builds
+  `ghcr.io/harmonizedx/open-residency:vX.Y.Z` from the tag, scans it, pushes it, signs it by
+  digest (keyless) and attests provenance and an SBOM in the registry; the release notes name
+  the digest. Version tags only — no `latest`. The Helm chart defaults to the chart's
+  `appVersion` and accepts `image.digest` to pin the bytes; the raw manifests pin `v0.1.0`.
+  Previously every manifest pointed at `ghcr.io/your-org/openresidency:latest`, which did not
+  exist.
 
 ### Security
 
@@ -123,6 +106,15 @@ suppression, Kubernetes manifests and a Helm chart, OpenAPI 3.1, and a typed SDK
 - One-time code attempts bounded per resident, closing an unbounded-guess path (#94).
 - A federated peer's status list is authenticated before it is believed (#90).
 - The audit chain is anchored, so truncation is detectable rather than merely unlikely (#119).
+- The runtime dependency audit is clean again at the CI gate (`npm audit --omit=dev
+  --audit-level=moderate`). `@nestjs/common`, `@nestjs/core` and `@nestjs/platform-express`
+  move to 11.2.6, taking `multer` to 2.4.0 past three denial-of-service advisories
+  (GHSA-wc9g-mqfw-jrwm, GHSA-qfvm-cv95-jqjf, GHSA-535w-7cp7-47q4); `qs` (GHSA-x5fp-wj9c-mxmx,
+  GHSA-4mjr-xmp4-gh2g) and `fast-uri` (four SSRF/host-confusion advisories, fixed in 3.1.6) are
+  updated in place. `mysql2`,
+  which the Prisma CLI pins at a version with a credential-leaking auth-plugin downgrade, is
+  overridden to `^3.24.4` — the reasoning and the removal condition are in `SECURITY.md`'s
+  override table. Nothing in this deployment opens a MySQL connection.
 
 ### Notes
 
