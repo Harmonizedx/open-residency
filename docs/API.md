@@ -151,6 +151,20 @@ release as needing its own disclosure review.
 - Interaction (login/consent) pages under `/interaction/*`.
 - Issuer DID document: `GET /.well-known/did.json`.
 
+## Health
+
+Unauthenticated and exempt from the rate limiter; what the orchestrator's probes use.
+
+- `GET /health/live` — the process answers HTTP. Nothing else is asserted.
+- `GET /health/ready` — the database answers within two seconds. `503` with
+  `{ "status": "unavailable", "checks": { "database": "failed" } }` otherwise. The body names
+  the check, never the error.
+
+Every response carries an `x-request-id` header. A well-formed inbound `x-request-id`
+(`[A-Za-z0-9._-]{1,64}`, as an ingress sets) is echoed so a request can be followed from the
+edge; anything else is replaced with a fresh id. Quote it when reporting a problem — it is
+the key into the operations log.
+
 ## Auth model
 
 Endpoints that are public by specification (wallet-facing OpenID4VCI/VP routes,

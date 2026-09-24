@@ -189,6 +189,13 @@ jobs:
       - name: Operator identity, roles, and per-operator API keys
         run: npm run smoke:operator
 
+      # Operations logging and metrics. Gated for one reason above the others: it asserts
+      # that a national identifier submitted to the service reaches neither the log nor a
+      # metric label -- not in a request line, not in a redacted object, not via the query
+      # string. A structured request logger is the easiest way to build exactly that leak.
+      - name: Observability (redaction, request log shape, bounded metric labels)
+        run: npm run smoke:observability
+
       # Issuer-key custody. A deployment signing with a key it does not hold in an HSM or KMS
       # is the single failure that invalidates every credential it ever issued, so the
       # custody adapters are gated rather than trusted. All three are hermetic: the KMS

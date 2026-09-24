@@ -12,6 +12,14 @@ spec:
   template:
     metadata:
       labels: {{- include "openresidency.labels" . | nindent 8 }}
+      {{- if .Values.metrics.enabled }}
+      # Pod-level scrape target. The metrics port is deliberately NOT on the Service, so the
+      # ingress cannot route to it; a Prometheus that discovers pods finds it here.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/path: /metrics
+      {{- end }}
     spec:
       {{- if .Values.migrations.enabled }}
       initContainers:
@@ -26,16 +34,25 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - containerPort: {{ .Values.service.targetPort }}
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+            {{- end }}
           envFrom:
             - configMapRef: { name: {{ include "openresidency.name" . }}-config }
             - secretRef: { name: {{ include "openresidency.secretName" . }} }
+          # Readiness asks the database (a pod that cannot reach Postgres must not take
+          # traffic); liveness asks only whether the process answers. Both are unauthenticated
+          # and exempt from the application rate limit.
           readinessProbe:
-            httpGet: { path: /residency/countries, port: {{ .Values.service.targetPort }} }
+            httpGet: { path: /health/ready, port: http }
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
           livenessProbe:
-            httpGet: { path: /residency/countries, port: {{ .Values.service.targetPort }} }
+            httpGet: { path: /health/live, port: http }
             initialDelaySeconds: 20
             periodSeconds: 20
           resources: {{- toYaml .Values.resources | nindent 12 }}

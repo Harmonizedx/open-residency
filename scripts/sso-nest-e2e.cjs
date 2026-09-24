@@ -321,6 +321,16 @@ biometric:
   });
   check('a resident exists in the real store', !!(await prisma.resident.findUnique({ where: { residentId: RESIDENT_ID } })));
 
+  // --- Health, as the orchestrator sees it ---------------------------------
+  // Readiness asks the database; with the service container up it must say so. Liveness
+  // asserts only that the process answers. Neither needs an operator key.
+  const live = await req('GET', `${base}/health/live`, new CookieJar());
+  check('GET /health/live answers 200 without credentials', live.status === 200, `status ${live.status}`);
+  const ready = await req('GET', `${base}/health/ready`, new CookieJar());
+  const readyBody = JSON.parse(ready.body || '{}');
+  check('GET /health/ready answers 200 when the database is reachable', ready.status === 200, `status ${ready.status}`);
+  check('readiness names the database check as ok', readyBody.checks?.database === 'ok', ready.body);
+
   // --- Discovery is served by the real provider ----------------------------
   const jar = new CookieJar();
   const disco = await req('GET', `${base}/oidc/.well-known/openid-configuration`, jar);
