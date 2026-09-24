@@ -57,14 +57,34 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cyclonedx.json
 
+      # The suite's build (`tsc -p tsconfig.core.json`) compiles every script, and the
+      # persistence contract script imports the generated Prisma client. Without this the
+      # compile fails, the suite never runs, and -- the first dry run proved it -- an EMPTY
+      # verdict gets signed and shipped.
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
       # The ORCS §15 position, recorded by running the suite against the tagged tree and
       # shipped with the release -- as a signed asset and verbatim in the notes. RELEASING.md
       # requires the verbatim result; before this it had to be pasted in by hand after the
-      # workflow ran, and nothing checked that it was. The suite does not gate the release
-      # (an honest count is the requirement, not all-PASS), so `|| true` keeps a FAIL verdict
-      # in the record rather than turning it into a missing file.
+      # workflow ran, and nothing checked that it was.
+      #
+      # Two different things must not be confused here. A FAIL verdict is a RESULT: the suite
+      # exits non-zero when any criterion is not PASS, and an honest count is the release
+      # requirement, not all-PASS -- so its exit code is ignored. A MISSING verdict is an
+      # ERROR: the file would be signed and attached looking complete, which is the failure
+      # this workflow's header exists to prevent -- so the step fails unless the summary line
+      # is actually there.
       - name: Record the ORCS §15 conformance position
-        run: npm run conformance:orcs 2>&1 | sed -n '/== ORCS §15 acceptance criteria ==/,$p' > ORCS-CONFORMANCE.txt || true
+        run: |
+          npm run conformance:orcs > conformance.log 2>&1 || true
+          sed -n '/== ORCS .15 acceptance criteria ==/,$p' conformance.log > ORCS-CONFORMANCE.txt
+          if ! grep -qE '^== ORCS .15: [0-9]+ pass' ORCS-CONFORMANCE.txt; then
+            echo "::error::the conformance suite produced no verdict; refusing to sign an empty record"
+            cat conformance.log
+            exit 1
+          fi
+          cat ORCS-CONFORMANCE.txt
 
       # A manual run from a branch has a ref name with a slash in it (feat/x), which `git
       # archive` would read as a directory that does not exist -- so the one path this
