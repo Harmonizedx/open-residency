@@ -1,43 +1,46 @@
 # Publishing OpenResidency
 
-Everything is built and packaged. Publishing is now a sequence of pushes, done with
-HarmonizedX's accounts. This is the runbook.
+The one-time mechanics, done with HarmonizedX's accounts. `RELEASING.md` covers the
+recurring policy: versioning, what a release contains, and the per-release checklist.
 
-## 1. Create the public repository
+## 1. The public repository
 
-Create `openresidency` under the HarmonizedX GitHub org (confirm the exact org handle;
-the metadata currently assumes `harmonizedx`). Then:
+`https://github.com/Harmonizedx/open-residency` is public. CI (`.github/workflows/ci.yml`)
+runs on pull request and on push to `main`: typecheck, the smoke suites, the ORCS §15
+ratchet, and a Docker image build and scan. The W3C suite needs a running server and stays
+opt-in (`npm run test:w3c`). A tag push runs `release.yml`, which
+attaches the signed SBOM, source archive and conformance record to the GitHub release and
+publishes the signed image to `ghcr.io/harmonizedx/open-residency`. The first release needed
+the package made public by hand — see `RELEASING.md`.
 
-```bash
-git init
-git add .
-git commit -m "OpenResidency: initial public release"
-git branch -M main
-git remote add origin https://github.com/Harmonizedx/open-residency.git
-git push -u origin main
-```
+If the org handle ever changes, update it in: root `package.json`, `sdk/package.json`, the
+image references in `deploy/`, `SECURITY.md`, `RELEASING.md`, `docs/DEPLOY.md`, and the URLs
+in `docs/`. The workflow derives the image name from the repository, so it needs no edit.
 
-CI (`.github/workflows/ci.yml`) runs on pull request and on push to `main`: typecheck, W3C
-conformance, and the core, OpenID4VCI, OpenID4VP, SSO, and foundational-source suites, plus
-a Docker image build and scan. Confirm it is green. A tag push runs `release.yml`, which
-publishes the signed image to `ghcr.io/harmonizedx/open-residency` — see `RELEASING.md`,
-including the one-time step of making the package public. Note CI does **not** build or
-publish the SDK — that is the manual step below.
+## 2. The SDK on npm
 
-If the org handle is not `harmonizedx`, update it in: root `package.json`, `sdk/package.json`,
-the image references in `deploy/`, `SECURITY.md`, `RELEASING.md`, `docs/DEPLOY.md`, and the
-URLs in `docs/`. The workflow itself derives the image name from the repository, so it needs
-no edit.
+`@openresidency/sdk` is published under the `openresidency` npm organisation, owned by
+HarmonizedX. Version 0.1.0 shipped on 2026-09-24.
 
-## 2. Publish the SDK to npm
-
-Create the `@openresidency` org/scope on npm (owned by HarmonizedX). Publishing is manual —
-there is no release workflow in this repository yet, so tagging alone does not ship
-anything:
+**Publishing is manual.** `release.yml` does not build or publish the SDK, so a tag push
+alone ships nothing to npm. Each release, after the tag:
 
 ```bash
-cd sdk && npm run build && npm publish --access public
+cd sdk
+npm run build
+npm pack --dry-run    # expect four files: dist/index.js, dist/index.d.ts, package.json, README.md
+npm publish --access public
 ```
+
+`npm publish` triggers the account's second factor. Run it from a real terminal: npm opens
+the browser to complete it, which works whether the account enrolled a passkey or an
+authenticator app. Passing `--otp` is only needed when no browser is available.
+
+No publish token is stored anywhere. The next step for this is npm **trusted publishing**,
+which lets the release workflow's own OIDC identity publish on tag push, the same way the
+container image is signed today — no secret to store, rotate or leak. Enable it on the
+package's settings page on npmjs.com, pointing at `release.yml`, then add a job that runs
+`npm publish --provenance` with `id-token: write`.
 
 ## 3. Submit to the DPG Registry
 
@@ -46,18 +49,18 @@ and the "Registry submission pack" section at the end carries the project basics
 attachments list, and a pre-submission checklist. Submit at digitalpublicgoods.net with
 the public repo URL. The ownership indicator is satisfied by `NOTICE` and `GOVERNANCE.md`.
 
-Indicators 7 and 8 are both closed now — erasure and retention ship, as do Dependabot,
-CodeQL and a CycloneDX SBOM. Two limits are worth stating rather than omitting: the
-retention sweep covers residency records only, and nothing schedules it.
+Indicators 7 and 8 are both closed — erasure and retention ship, as do Dependabot, CodeQL
+and a CycloneDX SBOM. Two limits are worth stating rather than omitting: the retention
+sweep covers residency records only, and nothing schedules it.
 
 ## 4. First deployment (optional, to have a live reference)
 
 See `docs/DEPLOY.md`. A live instance at, for example, `https://id.katsina.gov.ng`
 strengthens the DPG submission and gives partners something to try.
 
-## Before you publish, confirm
+## Before you submit, confirm
 
-- Org handle is correct across metadata (default assumed: `harmonizedx`).
-- `NPM_TOKEN` secret is set for the SDK publish.
+- The release you cite exists, with every asset attached and the image digest in its notes.
+- The SDK version on npm matches the tag: `npm view @openresidency/sdk version`.
 - The production caveats in `README.md` are either addressed or clearly labeled, so the
   DPG do-no-harm review sees an honest, not oversold, project.
