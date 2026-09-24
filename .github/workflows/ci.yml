@@ -55,6 +55,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Nothing built the SDK in CI, so its build broke under TypeScript 6 and stayed broken
+      # for weeks with a stale dist/ hiding it. The release workflow now publishes it, and
+      # a tag push is the worst moment to learn it does not compile. The dry-run pack
+      # catches the other failure: a build that succeeds into the wrong directory.
+      - name: SDK builds and packs
+        run: cd sdk && npm run build && npm pack --dry-run
+
       - name: W3C conformance (VC Data Model 2.0, Bitstring Status List, Data Integrity)
         run: npm run test:conformance
 

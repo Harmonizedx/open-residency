@@ -10,12 +10,14 @@
 # by this repository's release workflow", which is the claim that actually matters and is
 # stronger than "signed by whoever holds a secret in repository settings".
 #
-# Two jobs. `release` signs what the source release ships. `image` builds the container from
+# Three jobs. `release` signs what the source release ships. `image` builds the container from
 # the same ref, scans it, pushes it to GHCR, signs it BY DIGEST and attests its provenance --
 # so the artifact a deployment actually runs is covered by the same claims as the tarball,
 # rather than being whatever the adopter's own build produced. Version tags only, never
 # `latest`: RELEASING.md defines a release as "never a moving pointer", and a floating tag is
-# exactly that.
+# exactly that. `sdk` publishes the npm client through npm's trusted publishing, which is the
+# same idea again: the registry trusts this workflow's OIDC identity, so there is no publish
+# token in repository settings to leak, and npm attaches provenance on its own.
 name: Release
 
 on:
@@ -305,3 +307,86 @@ jobs:
           \`\`\`
           EOF
           gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+
+  sdk:
+    name: SDK to npm, by the workflow's own identity
+    # After `release`, so a tree whose conformance suite could not even produce a verdict
+    # does not ship a client. Not after `image`: the two are independent, and a registry
+    # scan failure is not a reason to withhold a dependency-free TypeScript client.
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # append the npm version to the release notes
+      id-token: write # the OIDC token npm exchanges for publish rights
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10. Upgrade the CLI
+      # rather than the runtime, so the SDK is still built on the Node line `engines` names.
+      - name: npm that can exchange an OIDC token
+        run: |
+          npm install -g npm@11
+          npm --version
+
+      # The SDK's build script is `tsc`, which resolves from the root's node_modules.
+      - name: Install dependencies
+        run: npm ci
+
+      # RELEASING.md step 7 says sdk/package.json is bumped to match the tag. Enforced here,
+      # because the alternative is a registry version that silently trails the release.
+      - name: The SDK version is the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          SDK_VERSION="$(node -p "require('./sdk/package.json').version")"
+          if [ "v${SDK_VERSION}" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::sdk/package.json is ${SDK_VERSION} but the tag is ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Build and inspect the tarball
+        working-directory: sdk
+        run: |
+          npm run build
+          npm pack --dry-run
+
+      # Published only on a tag. A manual run builds and packs, so the job can be exercised
+      # before it first matters, and publishes nothing. No token: npm sees the OIDC token,
+      # checks it against the trusted publisher configured for the package on npmjs.com
+      # (this repository, this workflow file), and attaches provenance itself.
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: sdk
+        run: npm publish --access public
+
+      # The release page names the exact version, alongside the image digest, so the
+      # release notes are the one place an adopter reads for everything it shipped.
+      - name: Record the SDK on the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release view "$GITHUB_REF_NAME" --json body --jq .body > notes.md
+          if ! grep -q '^## SDK' notes.md; then
+            cat >> notes.md <<EOF
+
+          ## SDK
+
+          \`\`\`
+          npm install @openresidency/sdk@${VERSION}
+          \`\`\`
+
+          Published by this workflow through npm trusted publishing, with provenance; the
+          registry page shows the commit and workflow run that built it.
+          EOF
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          fi
