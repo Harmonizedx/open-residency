@@ -19,11 +19,15 @@ git push -u origin main
 
 CI (`.github/workflows/ci.yml`) runs on pull request and on push to `main`: typecheck, W3C
 conformance, and the core, OpenID4VCI, OpenID4VP, SSO, and foundational-source suites, plus
-a Docker image build. Confirm it is green. Note CI does **not** build or publish the SDK —
-that is the manual step below.
+a Docker image build and scan. Confirm it is green. A tag push runs `release.yml`, which
+publishes the signed image to `ghcr.io/harmonizedx/open-residency` — see `RELEASING.md`,
+including the one-time step of making the package public. Note CI does **not** build or
+publish the SDK — that is the manual step below.
 
 If the org handle is not `harmonizedx`, update it in: root `package.json`, `sdk/package.json`,
-the image references in `deploy/`, and the URLs in `docs/`.
+the image references in `deploy/`, `SECURITY.md`, `RELEASING.md`, `docs/DEPLOY.md`, and the
+URLs in `docs/`. The workflow itself derives the image name from the repository, so it needs
+no edit.
 
 ## 2. Publish the SDK to npm
 

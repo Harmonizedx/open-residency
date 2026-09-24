@@ -9,6 +9,13 @@
 # signature is bound to this workflow's OIDC identity, so what a verifier checks is "produced
 # by this repository's release workflow", which is the claim that actually matters and is
 # stronger than "signed by whoever holds a secret in repository settings".
+#
+# Two jobs. `release` signs what the source release ships. `image` builds the container from
+# the same ref, scans it, pushes it to GHCR, signs it BY DIGEST and attests its provenance --
+# so the artifact a deployment actually runs is covered by the same claims as the tarball,
+# rather than being whatever the adopter's own build produced. Version tags only, never
+# `latest`: RELEASING.md defines a release as "never a moving pointer", and a floating tag is
+# exactly that.
 name: Release
 
 on:
@@ -50,25 +57,56 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: npm sbom --sbom-format cyclonedx --sbom-type application > sbom.cyclonedx.json
 
+      # The suite's build (`tsc -p tsconfig.core.json`) compiles every script, and the
+      # persistence contract script imports the generated Prisma client. Without this the
+      # compile fails, the suite never runs, and -- the first dry run proved it -- an EMPTY
+      # verdict gets signed and shipped.
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      # The ORCS §15 position, recorded by running the suite against the tagged tree and
+      # shipped with the release -- as a signed asset and verbatim in the notes. RELEASING.md
+      # requires the verbatim result; before this it had to be pasted in by hand after the
+      # workflow ran, and nothing checked that it was.
+      #
+      # Two different things must not be confused here. A FAIL verdict is a RESULT: the suite
+      # exits non-zero when any criterion is not PASS, and an honest count is the release
+      # requirement, not all-PASS -- so its exit code is ignored. A MISSING verdict is an
+      # ERROR: the file would be signed and attached looking complete, which is the failure
+      # this workflow's header exists to prevent -- so the step fails unless the summary line
+      # is actually there.
+      - name: Record the ORCS §15 conformance position
+        run: |
+          npm run conformance:orcs > conformance.log 2>&1 || true
+          sed -n '/== ORCS .15 acceptance criteria ==/,$p' conformance.log > ORCS-CONFORMANCE.txt
+          if ! grep -qE '^== ORCS .15: [0-9]+ pass' ORCS-CONFORMANCE.txt; then
+            echo "::error::the conformance suite produced no verdict; refusing to sign an empty record"
+            cat conformance.log
+            exit 1
+          fi
+          cat ORCS-CONFORMANCE.txt
+
+      # A manual run from a branch has a ref name with a slash in it (feat/x), which `git
+      # archive` would read as a directory that does not exist -- so the one path this
+      # workflow exists to let you rehearse on failed on the filename. Slashes become dashes.
       - name: Package the source archive
         run: |
           VERSION="${GITHUB_REF_NAME:-untagged}"
+          VERSION="${VERSION//\//-}"
           git archive --format=tar.gz --prefix="open-residency-${VERSION}/" \
             -o "open-residency-${VERSION}.tar.gz" HEAD
           echo "ARCHIVE=open-residency-${VERSION}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Checksums
-        run: sha256sum sbom.cyclonedx.json "$ARCHIVE" > SHA256SUMS
+        run: sha256sum sbom.cyclonedx.json ORCS-CONFORMANCE.txt "$ARCHIVE" > SHA256SUMS
 
       - uses: sigstore/cosign-installer@v3
 
-      # sign-blob rather than sign: the container image is built in CI but never pushed to a
-      # registry, and cosign signs images by digest IN a registry. Publishing images is a
-      # separate decision with its own consequences, so this signs what the release actually
-      # ships. See the note in SECURITY.md.
+      # sign-blob for the files; the image is signed by digest in the `image` job below,
+      # because cosign signs images IN a registry and this job has nothing in one yet.
       - name: Sign the release artifacts
         run: |
-          for f in sbom.cyclonedx.json "$ARCHIVE" SHA256SUMS; do
+          for f in sbom.cyclonedx.json ORCS-CONFORMANCE.txt "$ARCHIVE" SHA256SUMS; do
             cosign sign-blob --yes \
               --output-signature "${f}.sig" \
               --output-certificate "${f}.pem" \
@@ -81,6 +119,7 @@ jobs:
         with:
           subject-path: |
             sbom.cyclonedx.json
+            ORCS-CONFORMANCE.txt
             ${{ env.ARCHIVE }}
 
       # Pushing a tag creates a TAG. It does not create a RELEASE -- they are separate objects,
@@ -113,9 +152,23 @@ jobs:
 
           gh release upload "$GITHUB_REF_NAME" \
             sbom.cyclonedx.json sbom.cyclonedx.json.sig sbom.cyclonedx.json.pem \
+            ORCS-CONFORMANCE.txt ORCS-CONFORMANCE.txt.sig ORCS-CONFORMANCE.txt.pem \
             "$ARCHIVE" "${ARCHIVE}.sig" "${ARCHIVE}.pem" \
             SHA256SUMS SHA256SUMS.sig SHA256SUMS.pem \
             --clobber
+
+          # The verbatim suite output goes into the notes, once. Idempotent so a re-run of the
+          # workflow against the same tag does not append it twice.
+          gh release view "$GITHUB_REF_NAME" --json body --jq .body > notes.md
+          if ! grep -q '^## ORCS §15 conformance' notes.md; then
+            {
+              printf '\n## ORCS §15 conformance\n\n'
+              printf 'Recorded by `npm run conformance:orcs` against this tag. A criterion is met when the suite says PASS; this is a sample of the specification, not a certificate.\n\n```\n'
+              cat ORCS-CONFORMANCE.txt
+              printf '```\n'
+            } >> notes.md
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          fi
 
       # Kept when the run was manual, so a dry run is inspectable without a tag existing.
       - uses: actions/upload-artifact@v7
@@ -123,6 +176,132 @@ jobs:
           name: release-artifacts
           path: |
             sbom.cyclonedx.json*
+            ORCS-CONFORMANCE.txt*
             SHA256SUMS*
             *.tar.gz*
           if-no-files-found: error
+
+  image:
+    name: Container image, signed by digest
+    # The release must exist before the digest can be recorded on it.
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # append the digest to the release notes
+      packages: write # push to GHCR
+      id-token: write # keyless signing and provenance
+      attestations: write
+    env:
+      # GHCR requires a lowercase path; the owner is `Harmonizedx`. Computed, not typed, so a
+      # rename of the repository cannot leave this publishing to a name that no longer exists.
+      IMAGE: ghcr.io/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Lowercase the image name
+        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Tags are the release version and nothing else. `latest=false` is load-bearing: the
+      # metadata action adds a `latest` tag on every tag push unless told not to.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: type=ref,event=tag
+
+      # Build once, locally, and scan BEFORE anything is pushed. The same gate CI applies to
+      # every merge -- fixable findings at High and above, see ci.yml for why only-fixed is
+      # the design -- so an advisory published between the merge and the tag is caught here
+      # rather than shipped. The second build step below reuses this one's layers.
+      - name: Build the image for scanning
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan the image for vulnerabilities
+        uses: anchore/scan-action@v7
+        with:
+          image: ${{ env.IMAGE }}:scan
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+
+      - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed only on a tag. A manual run builds and scans -- so the job can be exercised
+      # before it first matters -- and publishes nothing.
+      - name: Build and push
+        id: push
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+
+      - uses: sigstore/cosign-installer@v3
+        if: startsWith(github.ref, 'refs/tags/')
+
+      # By digest, not by tag. A tag can be moved; a digest is the bytes.
+      - name: Sign the image
+        if: startsWith(github.ref, 'refs/tags/')
+        run: cosign sign --yes "${IMAGE}@${{ steps.push.outputs.digest }}"
+
+      - uses: actions/attest-build-provenance@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      # The release page names the exact digest, so an adopter pins to it rather than to a
+      # tag, and the verification commands are one copy-paste away from the download.
+      - name: Record the image on the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          gh release view "$GITHUB_REF_NAME" --json body --jq .body > notes.md
+          cat >> notes.md <<EOF
+
+          ## Container image
+
+          \`\`\`
+          ${IMAGE}:${GITHUB_REF_NAME}
+          ${IMAGE}@${DIGEST}
+          \`\`\`
+
+          Verify before you run it:
+
+          \`\`\`bash
+          cosign verify "${IMAGE}@${DIGEST}" \\
+            --certificate-identity-regexp '^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@' \\
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "${GITHUB_REPOSITORY}"
+          \`\`\`
+          EOF
+          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md

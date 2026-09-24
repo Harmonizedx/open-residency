@@ -31,6 +31,13 @@ current ORCS §15 position; where the two disagree, the suite is right.
   drawn from a bounded set.
 - `SIGTERM` now runs the module shutdown hooks (timers stop, the HSM session is released)
   rather than ending the process mid-request.
+- **The container image is published.** A tag push builds
+  `ghcr.io/harmonizedx/open-residency:vX.Y.Z` from the tag, scans it, pushes it, signs it by
+  digest (keyless) and attests provenance and an SBOM in the registry; the release notes name
+  the digest. Version tags only — no `latest`. The Helm chart defaults to the chart's
+  `appVersion` and accepts `image.digest` to pin the bytes; the raw manifests pin `v0.1.0`.
+  Previously every manifest pointed at `ghcr.io/your-org/openresidency:latest`, which did not
+  exist.
 
 ### Changed
 

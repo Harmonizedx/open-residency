@@ -74,7 +74,7 @@ spec:
     spec:
       containers:
         - name: app
-          image: ghcr.io/your-org/openresidency:latest
+          image: ghcr.io/harmonizedx/open-residency:v0.1.0
           ports:
             - name: http
               containerPort: 3000
@@ -101,7 +101,7 @@ spec:
       # Run DB migrations before the app starts serving.
       initContainers:
         - name: migrate
-          image: ghcr.io/your-org/openresidency:latest
+          image: ghcr.io/harmonizedx/open-residency:v0.1.0
           command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
           envFrom:
             - secretRef: { name: openresidency-secrets }
