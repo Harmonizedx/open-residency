@@ -49,6 +49,9 @@ attaches to the GitHub release:
   provenance and an SBOM attested in the registry. The release notes name the digest. Version
   tags only: there is no `latest`, because a release is never a moving pointer, and the
   manifests in `deploy/` pin a version for the same reason.
+- **The SDK**, `@openresidency/sdk`, published to npm through trusted publishing: the
+  registry checks the workflow's OIDC identity rather than a stored token, and records
+  provenance naming the commit and run that built it. The release notes name the version.
 
 ## Cadence
 
@@ -104,12 +107,13 @@ this one.
     visibility. Repository → Packages → `open-residency` → Package settings → Change
     visibility → Public. Then `docker pull` it from a machine with no GitHub credentials to
     confirm.
-12. **Publish the SDK.** The workflow does not do this; a tag push ships nothing to npm.
+12. **Confirm the SDK landed.** The `sdk` job publishes it through npm trusted publishing
+    and refuses when `sdk/package.json` does not match the tag, so a failure here is step 7
+    skipped. The registry lags the publish by a minute or so.
     ```bash
-    cd sdk && npm run build && npm pack --dry-run && npm publish --access public
+    npm view @openresidency/sdk version
     ```
-    Then confirm the registry agrees with the tag: `npm view @openresidency/sdk version`.
-    The mechanics, including the second-factor prompt, are in `docs/PUBLISHING.md`.
+    If the job could not publish, the manual fallback is in `docs/PUBLISHING.md`.
 
 ## Security releases
 

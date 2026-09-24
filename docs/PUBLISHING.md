@@ -20,10 +20,33 @@ in `docs/`. The workflow derives the image name from the repository, so it needs
 ## 2. The SDK on npm
 
 `@openresidency/sdk` is published under the `openresidency` npm organisation, owned by
-HarmonizedX. Version 0.1.0 shipped on 2026-09-24.
+HarmonizedX. Version 0.1.0 shipped on 2026-09-24, by hand, from a maintainer's login.
 
-**Publishing is manual.** `release.yml` does not build or publish the SDK, so a tag push
-alone ships nothing to npm. Each release, after the tag:
+**Every version after that is published by `release.yml`**, through npm's trusted
+publishing: the registry trusts the workflow's OIDC identity, so there is no publish token in
+repository settings to leak, no second-factor prompt, and npm attaches provenance on its own
+— the registry page shows the commit and workflow run that built the tarball. The `sdk` job
+also refuses to publish when `sdk/package.json` does not match the tag.
+
+### One-time setup, on npmjs.com
+
+Package page → Settings → **Trusted Publisher** → GitHub Actions:
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `Harmonizedx` |
+| Repository | `open-residency` |
+| Workflow filename | `release.yml` |
+| Environment name | leave empty |
+
+Every field is case-sensitive and must be exact; the filename includes the extension. Then,
+on the same settings page, set publishing access to **require two-factor authentication and
+disallow tokens**. Trusted publishers are unaffected by that setting, and it closes the
+token route for good.
+
+### If the workflow cannot publish
+
+A manual publish from a maintainer's login still works, and is the fallback:
 
 ```bash
 cd sdk
@@ -34,13 +57,9 @@ npm publish --access public
 
 `npm publish` triggers the account's second factor. Run it from a real terminal: npm opens
 the browser to complete it, which works whether the account enrolled a passkey or an
-authenticator app. Passing `--otp` is only needed when no browser is available.
-
-No publish token is stored anywhere. The next step for this is npm **trusted publishing**,
-which lets the release workflow's own OIDC identity publish on tag push, the same way the
-container image is signed today — no secret to store, rotate or leak. Enable it on the
-package's settings page on npmjs.com, pointing at `release.yml`, then add a job that runs
-`npm publish --provenance` with `id-token: write`.
+authenticator app. Passing `--otp` is only needed when no browser is available. If tokens
+have been disallowed as above, a manual publish is still allowed — that setting restricts
+tokens, not logins.
 
 ## 3. Submit to the DPG Registry
 
