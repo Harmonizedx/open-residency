@@ -66,9 +66,13 @@ jobs:
       - name: Record the ORCS §15 conformance position
         run: npm run conformance:orcs 2>&1 | sed -n '/== ORCS §15 acceptance criteria ==/,$p' > ORCS-CONFORMANCE.txt || true
 
+      # A manual run from a branch has a ref name with a slash in it (feat/x), which `git
+      # archive` would read as a directory that does not exist -- so the one path this
+      # workflow exists to let you rehearse on failed on the filename. Slashes become dashes.
       - name: Package the source archive
         run: |
           VERSION="${GITHUB_REF_NAME:-untagged}"
+          VERSION="${VERSION//\//-}"
           git archive --format=tar.gz --prefix="open-residency-${VERSION}/" \
             -o "open-residency-${VERSION}.tar.gz" HEAD
           echo "ARCHIVE=open-residency-${VERSION}.tar.gz" >> "$GITHUB_ENV"
