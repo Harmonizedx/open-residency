@@ -24,14 +24,14 @@ spec:
       {{- if .Values.migrations.enabled }}
       initContainers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "openresidency.image" . | quote }}
           command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
           envFrom:
             - secretRef: { name: {{ include "openresidency.secretName" . }} }
       {{- end }}
       containers:
         - name: app
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "openresidency.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

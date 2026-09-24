@@ -78,9 +78,21 @@ Build provenance is attested separately and can be checked with
 `gh attestation verify <file> --repo Harmonizedx/open-residency`. A signature says *who*;
 provenance says *how*.
 
-**The container image is not signed**, because it is built in CI and never pushed to a
-registry, and cosign signs images by digest in a registry. Publishing images is a separate
-decision; until it is taken, build the image yourself from a verified source archive.
+**The container image is published and signed by digest.** Every tagged release pushes
+`ghcr.io/harmonizedx/open-residency:vX.Y.Z` — version tags only, never `latest` — signed with
+the same keyless identity and carrying a build-provenance attestation and an SBOM attestation
+in the registry. The release page names the exact digest. Verify the digest, not the tag: a
+tag can be moved, a digest is the bytes.
+
+```bash
+cosign verify ghcr.io/harmonizedx/open-residency@sha256:<digest> \
+  --certificate-identity-regexp '^https://github.com/Harmonizedx/open-residency/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify oci://ghcr.io/harmonizedx/open-residency@sha256:<digest> --repo Harmonizedx/open-residency
+```
+
+The image is scanned with Grype before it is pushed, at the same gate CI applies to every
+merge, so an advisory published between the merge and the tag is caught rather than shipped.
 
 ### Vulnerability scanning
 

@@ -1,8 +1,12 @@
 replicaCount: 2
 
 image:
-  repository: ghcr.io/your-org/openresidency
-  tag: latest
+  repository: ghcr.io/harmonizedx/open-residency
+  # Empty means the chart's appVersion, as `v<appVersion>` -- the tag the release workflow
+  # publishes. There is no `latest`: a release is a fixed version, never a moving pointer.
+  # Pin to a digest instead by setting `digest: sha256:...`, which takes precedence.
+  tag: ""
+  digest: ""
   pullPolicy: IfNotPresent
 
 service:

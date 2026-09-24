@@ -14,6 +14,17 @@ App on `http://localhost:3000`. Reference UI at `/app/index.html`, docs at `/doc
 
 ## Container image
 
+Every release publishes `ghcr.io/harmonizedx/open-residency:vX.Y.Z` — the same Dockerfile CI
+scans on every merge, signed by digest, with provenance attested. The manifests below pull
+it. **Verify the digest before you run it** (the commands are in `SECURITY.md` and on the
+release page), and pin to the digest rather than the tag in anything that matters:
+
+```bash
+docker pull ghcr.io/harmonizedx/open-residency:v0.1.0
+```
+
+To build locally instead:
+
 ```bash
 docker build -t openresidency:local .
 docker compose up --build
@@ -63,8 +74,6 @@ secret, external-secrets operator, or cloud KMS, and use a managed Postgres.
 ```bash
 helm install openres deploy/helm/openresidency \
   --namespace openresidency --create-namespace \
-  --set image.repository=ghcr.io/your-org/openresidency \
-  --set image.tag=1.0.0 \
   --set-string secrets.subjectPepper="$(openssl rand -hex 32)" \
   --set-string secrets.adminApiKey="$(openssl rand -hex 24)" \
   --set ingress.host=id.yourstate.gov
@@ -72,6 +81,10 @@ helm install openres deploy/helm/openresidency \
 
 To reference an existing secret instead of chart-managed values, set
 `secrets.existingSecret=<name>`.
+
+The image defaults to the chart's `appVersion` (`v0.1.0` → `ghcr.io/harmonizedx/open-residency:v0.1.0`).
+Set `image.tag` to run a different release, or `image.digest=sha256:…` to pin the exact bytes
+named on the release page — a digest wins over a tag when both are set.
 
 ## The gateway / edge
 

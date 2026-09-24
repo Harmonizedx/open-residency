@@ -44,9 +44,11 @@ attaches to the GitHub release:
   signature binds to the workflow's OIDC identity, so a verifier checks *"produced by this
   repository's release workflow"* rather than *"signed by whoever held a secret"*.
 - **Build provenance attestations.**
-
-Container images are built in CI but not pushed to a registry. Publishing images is a separate
-decision with its own consequences, so the release signs what it actually ships.
+- **The container image**, `ghcr.io/harmonizedx/open-residency:vX.Y.Z`, built from the tag,
+  scanned before it is pushed, signed by digest with the same keyless identity, with build
+  provenance and an SBOM attested in the registry. The release notes name the digest. Version
+  tags only: there is no `latest`, because a release is never a moving pointer, and the
+  manifests in `deploy/` pin a version for the same reason.
 
 ## Cadence
 
@@ -67,9 +69,11 @@ this one.
 2. **Regenerate the Prisma client first** if the schema has changed: `npx prisma generate`. A
    stale client produces dozens of misleading `Property does not exist on PrismaService` errors
    that look like broken code and are not.
-3. **Record the conformance position.** Run `npm run conformance:orcs` and put the result in the
-   release notes verbatim. All nine passing is **not** a release requirement — an honest count
-   is. Do not quote a number from the tracker or from a previous release.
+3. **Know the conformance position.** Run `npm run conformance:orcs`. All nine passing is
+   **not** a release requirement — an honest count is. The release workflow runs the suite
+   against the tagged tree and ships the verbatim output as a signed asset
+   (`ORCS-CONFORMANCE.txt`) and in the release notes, so it cannot be pasted from the tracker
+   or from a previous release. Running it here is so nothing in the result surprises you.
 4. **`npm run conformance:mosip`** passes. It gates the build and exits non-zero on any non-PASS.
 5. **No known unfixed high-severity advisory.** `npm audit` at the CI gate's level.
 6. **CHANGELOG updated.** Move `[Unreleased]` into the new version with today's date. Every
@@ -81,13 +85,25 @@ this one.
    git push origin v0.1.0
    ```
    The tag is signed; this repository signs its commits and its tags are no exception.
-9. **Verify the release workflow succeeded** and that the SBOM, checksums, signatures and
-   provenance are attached. A release whose artifacts silently failed to attach is worse than no
-   release, because it looks complete.
-10. **Verify one signature yourself** before announcing:
+9. **Verify the release workflow succeeded** — both jobs — and that the SBOM, checksums,
+   signatures and provenance are attached, and the release notes carry the image digest. A
+   release whose artifacts silently failed to attach is worse than no release, because it looks
+   complete.
+10. **Verify one file signature and the image signature yourself** before announcing. The
+    workflow emits a `.sig` and a `.pem` per asset, not a bundle:
     ```bash
-    cosign verify-blob --bundle <asset>.sigstore <asset>
+    cosign verify-blob SHA256SUMS --signature SHA256SUMS.sig --certificate SHA256SUMS.pem \
+      --certificate-identity-regexp '^https://github.com/Harmonizedx/open-residency/\.github/workflows/release\.yml@' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    cosign verify ghcr.io/harmonizedx/open-residency@sha256:<digest from the release notes> \
+      --certificate-identity-regexp '^https://github.com/Harmonizedx/open-residency/\.github/workflows/release\.yml@' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```
+11. **First release only: make the package public.** A container package created by a
+    workflow is private until someone changes it — GHCR does not inherit the repository's
+    visibility. Repository → Packages → `open-residency` → Package settings → Change
+    visibility → Public. Then `docker pull` it from a machine with no GitHub credentials to
+    confirm.
 
 ## Security releases
 
