@@ -1,7 +1,7 @@
 {
   "name": "open-residency",
   "version": "0.1.0",
-  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions \u2014 giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
+  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
   "author": "Chinonso Williams <nonso@harmonizedx.com>",
   "contributors": [
@@ -72,10 +72,10 @@
     "smoke:identifier-namespace": "tsc -p tsconfig.core.json && node dist-core/scripts/identifier-namespace-smoke.js"
   },
   "dependencies": {
-    "@nestjs/common": "^11.2.1",
+    "@nestjs/common": "^11.2.6",
     "@nestjs/config": "^4.0.4",
-    "@nestjs/core": "^11.2.1",
-    "@nestjs/platform-express": "^11.2.1",
+    "@nestjs/core": "^11.2.6",
+    "@nestjs/platform-express": "^11.2.6",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
@@ -110,6 +110,7 @@
     "pkcs11js": "^2.1.7"
   },
   "overrides": {
-    "deepmerge-ts": "^8.0.1"
+    "deepmerge-ts": "^8.0.1",
+    "mysql2": "^3.24.4"
   }
 }

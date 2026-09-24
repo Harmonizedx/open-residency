@@ -12,7 +12,17 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
-Nothing yet. The entries below become `0.1.0` when the first tag is cut.
+### Security
+
+- The runtime dependency audit is clean again at the CI gate (`npm audit --omit=dev
+  --audit-level=moderate`). `@nestjs/common`, `@nestjs/core` and `@nestjs/platform-express`
+  move to 11.2.6, taking `multer` to 2.4.0 past three denial-of-service advisories
+  (GHSA-wc9g-mqfw-jrwm, GHSA-qfvm-cv95-jqjf, GHSA-535w-7cp7-47q4); `qs` (GHSA-x5fp-wj9c-mxmx,
+  GHSA-4mjr-xmp4-gh2g) and `fast-uri` (four SSRF/host-confusion advisories, fixed in 3.1.6) are
+  updated in place. `mysql2`,
+  which the Prisma CLI pins at a version with a credential-leaking auth-plugin downgrade, is
+  overridden to `^3.24.4` — the reasoning and the removal condition are in `SECURITY.md`'s
+  override table. Nothing in this deployment opens a MySQL connection.
 
 ## 0.1.0 — unreleased
 
