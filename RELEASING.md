@@ -2,8 +2,8 @@
 
 What a release of this project *is*, what it promises, and the checklist for cutting one.
 
-[`docs/PUBLISHING.md`](docs/PUBLISHING.md) covers the one-time mechanics — creating the public
-repository, publishing the SDK, submitting to the DPG Registry. This document covers the
+[`docs/PUBLISHING.md`](docs/PUBLISHING.md) covers the one-time mechanics — the public
+repository, the npm organisation, submitting to the DPG Registry. This document covers the
 recurring policy: versioning, what a release contains, and what an adopter can rely on.
 
 ## Versioning
@@ -104,6 +104,12 @@ this one.
     visibility. Repository → Packages → `open-residency` → Package settings → Change
     visibility → Public. Then `docker pull` it from a machine with no GitHub credentials to
     confirm.
+12. **Publish the SDK.** The workflow does not do this; a tag push ships nothing to npm.
+    ```bash
+    cd sdk && npm run build && npm pack --dry-run && npm publish --access public
+    ```
+    Then confirm the registry agrees with the tag: `npm view @openresidency/sdk version`.
+    The mechanics, including the second-factor prompt, are in `docs/PUBLISHING.md`.
 
 ## Security releases
 
