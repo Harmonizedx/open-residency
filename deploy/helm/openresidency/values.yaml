@@ -13,6 +13,16 @@ config:
   publicBaseUrl: https://id.example.gov
   countryConfigDir: /app/config/countries
   rateLimitPerMinute: "120"
+  # Operations log level: fatal | error | warn | info | debug | trace. Lines are JSON, one
+  # per record, to stdout. Request lines carry method, route pattern, status, duration and a
+  # request id -- never a body, query string or header.
+  logLevel: info
+
+# Prometheus metrics on a second container port that is NOT exposed by the Service, so the
+# ingress cannot reach it. Enable it and point a pod-discovering scraper at the annotation.
+metrics:
+  enabled: false
+  port: 9464
 
 # Provide these via `--set-string` or a values file kept out of version control,
 # or reference an existing secret with existingSecret.

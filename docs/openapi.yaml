@@ -48,7 +48,48 @@ tags:
       residency credential bound to a key on their device. Both OpenID4VCI 1.0 and
       Draft 13 request/response shapes are accepted; the response matches the dialect
       of the request.
+  - name: health
+    description: >
+      Liveness and readiness for the orchestrator. Unauthenticated and exempt from rate
+      limiting; readiness asks the database.
 paths:
+  /health/live:
+    get:
+      tags: [health]
+      summary: The process answers HTTP
+      description: Nothing else is asserted. Used as the liveness probe.
+      security: []
+      responses:
+        '200':
+          description: Up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+  /health/ready:
+    get:
+      tags: [health]
+      summary: The process can serve requests
+      description: >
+        The database answers within two seconds. Used as the readiness probe: a pod that
+        cannot reach its database must not receive traffic. The failure body names the check
+        that failed, never the underlying error.
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
   /enrolment/upstream/start:
     post:
       tags: [identity]
@@ -1064,6 +1105,15 @@ components:
         credential offer: it authorizes only the credential configurations that offer
         named, for the resident that offer was created for.
   schemas:
+    HealthReport:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        checks:
+          type: object
+          properties:
+            database: { type: string, enum: [ok, failed] }
     ChallengeRequest:
       type: object
       required: [countryCode, identifiers]

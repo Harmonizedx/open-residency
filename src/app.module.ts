@@ -17,6 +17,7 @@ import { MetaModule } from './meta/meta.module';
 import { OperatorModule } from './operator/operator.module';
 import { UpstreamModule } from './upstream/upstream.module';
 import { AssuranceModule } from './assurance/assurance.module';
+import { ObservabilityModule } from './observability/observability.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { AssuranceModule } from './assurance/assurance.module';
     OperatorModule,
     AssuranceModule,
     UpstreamModule,
+    ObservabilityModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

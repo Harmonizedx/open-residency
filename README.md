@@ -323,6 +323,7 @@ This repository is the generic public infrastructure, not a single-country app:
 | Interoperability SDK | typed client in `sdk/` (`@openresidency/sdk`) |
 | Reference UI | enrollment, verify, and admin consoles at `/app` |
 | Kubernetes deployment | raw manifests in `deploy/k8s` and a Helm chart in `deploy/helm` |
+| Operability | `/health/live`, `/health/ready` (asks the database); JSON operations log with identifier redaction; Prometheus metrics on `METRICS_PORT` — see `docs/DEPLOY.md` |
 | API specifications | OpenAPI 3.1 in `docs/openapi.yaml`, served at `/openapi.yaml` and `/docs` |
 | Developer documentation | `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/DEPLOY.md`, `docs/SDK.md`, `docs/DPG.md` |
 

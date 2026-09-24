@@ -12,6 +12,31 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
+### Added
+
+- **Health endpoints.** `GET /health/live` and `GET /health/ready`; readiness asks the
+  database and answers 503 when it does not. Unauthenticated, exempt from rate limiting.
+  The Helm chart and raw manifests probe these instead of `/residency/countries`, which
+  read from memory and reported a pod healthy with its database gone.
+- **Operations log.** JSON lines to stdout through one logger (`LOG_LEVEL`), Nest's own
+  messages included. Every response carries an `x-request-id`; each request is logged as
+  method, route pattern, status, duration and that id — never the URL, body or a header.
+  Sensitive keys (`identifiers`, `nin`, `sample`, `authorization`, …) are redacted wherever
+  they appear in a logged object. `npm run smoke:observability` asserts that a submitted
+  identifier reaches neither the log nor a metric label.
+- **Prometheus metrics** on a separate `METRICS_PORT` (unset = off), so the ingress never
+  routes to it: HTTP duration by route pattern and status; issuance outcomes by status,
+  refusal-reason class and declared unit; foundational verification outcome and duration
+  by provider; last-success timestamps for the three background jobs. Every label value is
+  drawn from a bounded set.
+- `SIGTERM` now runs the module shutdown hooks (timers stop, the HSM session is released)
+  rather than ending the process mid-request.
+
+### Changed
+
+- Startup output is a single JSON line rather than a printed banner. A boot refusal is a
+  `fatal` log line in the same stream.
+
 ### Security
 
 - The runtime dependency audit is clean again at the CI gate (`npm audit --omit=dev

@@ -13,6 +13,11 @@ data:
   PUBLIC_BASE_URL: "https://id.example.gov"
   COUNTRY_CONFIG_DIR: "/app/config/countries"
   RATE_LIMIT_PER_MINUTE: "120"
+  # Operations log level (JSON lines to stdout). fatal | error | warn | info | debug | trace.
+  LOG_LEVEL: "info"
+  # Prometheus metrics on a second container port. It is not on the Service below, so the
+  # ingress cannot route to it; scrape pods directly. Remove the line to disable.
+  METRICS_PORT: "9464"
 ---
 # Example only. In production, source these from a sealed secret / external secrets
 # operator / cloud KMS, never commit real values.
@@ -62,21 +67,32 @@ spec:
   template:
     metadata:
       labels: { app: openresidency }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9464"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: app
           image: ghcr.io/your-org/openresidency:latest
           ports:
-            - containerPort: 3000
+            - name: http
+              containerPort: 3000
+            - name: metrics
+              containerPort: 9464
           envFrom:
             - configMapRef: { name: openresidency-config }
             - secretRef: { name: openresidency-secrets }
+          # Readiness asks the database (a pod that cannot reach Postgres must not take
+          # traffic); liveness asks only whether the process answers. Both are unauthenticated
+          # and exempt from the application rate limit.
           readinessProbe:
-            httpGet: { path: /residency/countries, port: 3000 }
+            httpGet: { path: /health/ready, port: http }
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
           livenessProbe:
-            httpGet: { path: /residency/countries, port: 3000 }
+            httpGet: { path: /health/live, port: http }
             initialDelaySeconds: 20
             periodSeconds: 20
           resources:
