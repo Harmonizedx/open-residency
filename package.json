@@ -71,7 +71,9 @@
     "smoke:address-anchor": "tsc -p tsconfig.core.json && node dist-core/scripts/address-anchor-smoke.js",
     "test:store-e2e": "bash scripts/run-store-e2e.sh",
     "smoke:identifier-namespace": "tsc -p tsconfig.core.json && node dist-core/scripts/identifier-namespace-smoke.js",
-    "smoke:observability": "tsc -p tsconfig.core.json && node dist-core/scripts/observability-smoke.js"
+    "smoke:observability": "tsc -p tsconfig.core.json && node dist-core/scripts/observability-smoke.js",
+    "lint:openapi": "tsc -p tsconfig.core.json && node dist-core/scripts/openapi-drift.js",
+    "sdk:generate": "bash scripts/sdk-generate.sh"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.6",
