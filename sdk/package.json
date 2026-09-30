@@ -1,6 +1,6 @@
 {
   "name": "@openresidency/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed client for the OpenResidency API (identity verification, residency, consent, SSO helpers).",
   "license": "Apache-2.0",
   "author": "Chinonso Williams <nonso@harmonizedx.com>",

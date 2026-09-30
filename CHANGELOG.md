@@ -14,6 +14,69 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 Nothing yet.
 
+## 0.2.0 — 2026-09-30
+
+The SDK now reaches the whole API, and the API description it is generated from is held to
+the server by CI. Under the pre-1.0 rules a minor bump may change behaviour; the one
+behavioural change is listed under **Changed**.
+
+### Added
+
+**The SDK covers every operation.** `@openresidency/sdk` 0.1.0 had 14 methods against 80
+routes; the relationship and credential lifecycle, assurance, OpenID4VP, VC-API and the
+offline surface were unreachable through it. It now has named methods for the
+integrator-facing surface (lifecycle transitions, refusals, reconcile, assurance, legal bases,
+operator identity, statistics, offline, OpenID4VCI, OpenID4VP, VC-API, trust material) and a
+`request(method, path, opts)` that reaches every operation, typed from the OpenAPI contract.
+The 0.1.0 methods and their return types are unchanged. Per-call credentials cover the
+wallet access token and the USSD secret. (#169)
+
+**`docs/openapi.yaml` documents every route** (80, from 43), and two CI checks keep it that
+way: a controller route missing from the spec fails the build, and so does a stale generated
+SDK contract. (#169)
+
+**The SDK is published by the release workflow** through npm trusted publishing, with
+provenance naming the commit and run that built it. 0.1.0 was published by hand and has
+none. (#165)
+
+### Changed
+
+**`POST /operator/operators/{id}/disable` acts on the operator in its path.** It previously
+read `operatorId` from the body and ignored the path, so a request could name one operator
+in the URL and disable another. A body `operatorId` is still accepted but must equal the
+path id; a different value is now a 400. (#171)
+
+**The OpenAPI description was corrected against the controllers in 59 places.** Every POST
+without an explicit status answers 201, not the 200 the spec claimed; each guarded operation
+states its required role; the 400/401/403/404/503 responses the code returns are listed;
+request constraints and `required` lists match the DTOs; response schemas carry the fields
+the code returns (the resident record on issue, `offline` on verification, `subjectRef` on
+consents, the audit chain's anchoring fields); `POST /offline/qr` is documented as the JSON
+it returns rather than SVG. Server behaviour is unchanged; a client generated from the old
+spec would have mis-parsed some of it. (#169)
+
+### Deprecated
+
+- `operatorId` in the body of `POST /operator/operators/{id}/disable`; the path names the
+  operator. (#171)
+- `authority` in the body of `POST /consent/legal-bases/{id}/deactivate`. It was required
+  and ignored; it is now optional and ignored. The authenticated operator is recorded. (#172)
+
+### Fixed
+
+- The SDK did not build under TypeScript 6 and `npm pack` shipped a stale `dist/` from July
+  alongside the sources. The root package is marked private so the server cannot be
+  published by accident. (#164)
+
+### Security
+
+- undici 6.28.0 to 6.29.0 for GHSA-3wwx-pv8p-q78v, GHSA-r53p-7pc4-xj5r and
+  GHSA-rfgv-xxqx-mfg5, and js-yaml 5.3.0 to 5.4.2 for GHSA-r3ph-w7gj-g6xm. Both are
+  transitive: undici reaches this tree only through jsonld's HTTP client, which uses neither
+  WebSockets nor the retry interceptor the advisories concern, and js-yaml is read on
+  configuration files the deployer controls. No exposure is known; the bump keeps the
+  dependency audit clean. (#170)
+
 ## 0.1.0 — 2026-09-24
 
 The first release. Everything is new, so this section describes what the release *contains*
