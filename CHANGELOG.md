@@ -12,6 +12,13 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## 0.2.1 — 2026-09-30
+
+A security patch, cut as soon as the fix was available, as RELEASING.md asks. It also
+carries the rewritten `@openresidency/sdk` package page, which reaches npm with this publish.
+
 ### Security
 
 **Rate limiting counted the proxy, not the caller.** The in-app limit (120 requests a minute
@@ -24,6 +31,13 @@ request carries `X-Forwarded-For` while no hop is declared, the application logs
 is behind a proxy it was not told about. The manifests set one hop to match their ingress.
 Per-operator budgets, which would stop a busy office behind one address sharing a bucket,
 are a separate change and are recorded as deferred in ADR-0013. (#147)
+
+### Changed
+
+- The npm page for `@openresidency/sdk` now opens with what OpenResidency is and which
+  reader you are (a service checking a credential, a registrar, a wallet), says that
+  refusals and invalid credentials are results rather than exceptions, and tables which
+  role each call needs. The client itself is unchanged. (#175)
 
 ## 0.2.0 — 2026-09-30
 
