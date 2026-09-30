@@ -912,8 +912,8 @@ paths:
 
         The recorded authority is the AUTHENTICATED OPERATOR (`operator:<operator id>`),
         never a value from the body: taking it from the request would let any admin type a
-        colleague's name into the one record whose purpose is attribution. The `authority`
-        body field must still be present to pass validation, and its value is ignored.
+        colleague's name into the one record whose purpose is attribution. An `authority`
+        body field is accepted for older callers and ignored.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - name: id
@@ -926,16 +926,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [reason, authority]
+              required: [reason]
               properties:
                 reason: { type: string, maxLength: 512, example: By-law repealed by the 2027 consolidation }
                 authority:
                   type: string
                   maxLength: 256
-                  example: 'operator:commissioner'
+                  deprecated: true
                   description: >-
-                    Required by validation but IGNORED. The authority written to the basis and
-                    the audit log is the authenticated operator's id, not this value.
+                    Ignored. The authority written to the basis and the audit log is the
+                    authenticated operator's id. Accepted so callers written when it was
+                    required keep working.
       responses:
         '201':
           description: The deactivated basis
@@ -946,7 +947,7 @@ paths:
                 required: [legalBasis]
                 properties:
                   legalBasis: { $ref: '#/components/schemas/LegalBasis' }
-        '400': { description: "Missing reason or authority, or already deactivated" }
+        '400': { description: "Missing reason, or already deactivated" }
         '401': { description: Missing or invalid operator credential }
         '403': { description: The operator lacks the admin role }
         '404': { description: Unknown legal basis }

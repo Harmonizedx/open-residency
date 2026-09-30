@@ -82,13 +82,21 @@ export class GrantConsentDto {
   legalBasisReference?: string;
 }
 
-/** Request body for `POST /legal-bases/:id/deactivate`. */
+/**
+ * Request body for `POST /legal-bases/:id/deactivate`.
+ *
+ * The recorded authority is the authenticated operator, never a body value (see the
+ * controller). `authority` was once required here anyway, so a caller had to send a field
+ * that was then ignored. It stays accepted so those callers keep working, and is ignored.
+ */
 export class DeactivateLegalBasisDto {
   @IsString()
   @MaxLength(512)
   reason!: string;
 
+  /** @deprecated Ignored. The authenticated operator is recorded. */
+  @IsOptional()
   @IsString()
   @MaxLength(256)
-  authority!: string;
+  authority?: string;
 }
