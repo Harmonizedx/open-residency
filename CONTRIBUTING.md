@@ -176,7 +176,9 @@ why.
 - Sign your commits (see above) and write a descriptive commit body — say *why*, not what.
 - Add or update a check in the relevant `scripts/*.ts` suite when you change core logic.
 - Run `npm test` before pushing. CI runs the same thing.
-- Update `docs/openapi.yaml` when you change the HTTP surface, and the SDK to match.
+- Update `docs/openapi.yaml` when you change the HTTP surface, then `npm run sdk:generate`
+  and commit `sdk/src/openapi.ts`. CI fails on a route the spec misses (`npm run lint:openapi`)
+  and on a stale generated file.
 - Update `docs/INTEROP.md` when you change anything a wallet sees.
 - Describe privacy or security implications explicitly in the PR.
 
