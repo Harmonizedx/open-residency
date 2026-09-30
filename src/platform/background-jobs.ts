@@ -2,6 +2,7 @@
 import { Logger } from '@nestjs/common';
 import { AuditLog } from '../core/audit/audit-log';
 import { PrismaOidcStore } from '../prisma/prisma.service';
+import { recordJobSuccess } from '../observability/metrics';
 
 /**
  * What this deployment does on a timer, and when it stops.
@@ -15,6 +16,10 @@ import { PrismaOidcStore } from '../prisma/prisma.service';
  * unref'd so it cannot hold the process open, and `stop()` clears all of them. A background
  * job whose only stop path is a scattered clearInterval in a destructor is how a test suite
  * ends up hanging for reasons nobody can find.
+ *
+ * Each successful run sets its `openresidency_background_job_last_success_timestamp_seconds`
+ * gauge. A job that has silently stopped is a timestamp that has stopped advancing, which is
+ * the thing to alert on -- a warning line in the log is not.
  */
 export interface BackgroundJobDeps {
   audit: AuditLog;
@@ -70,6 +75,7 @@ export class BackgroundJobs {
     const write = () =>
       void this.deps.audit
         .checkpoint()
+        .then(() => recordJobSuccess('audit_checkpoint'))
         .catch((e) => this.log.warn(`Audit checkpoint failed: ${(e as Error).message}`));
     write();
     this.auditCheckpointTimer = setInterval(write, seconds * 1000);
@@ -86,9 +92,12 @@ export class BackgroundJobs {
     const seconds = Number(process.env.FEDERATION_STATUS_REFRESH_SECONDS ?? 900);
     if (!Number.isFinite(seconds) || seconds <= 0) return;
     this.federationTimer = setInterval(() => {
-      void this.deps.syncFederatedStatusLists().catch((e) =>
-        this.log.warn(`Federation: status refresh failed: ${(e as Error).message}`),
-      );
+      void this.deps
+        .syncFederatedStatusLists()
+        .then(() => recordJobSuccess('federation_status_refresh'))
+        .catch((e) =>
+          this.log.warn(`Federation: status refresh failed: ${(e as Error).message}`),
+        );
     }, seconds * 1000);
     // Do not hold the process open for a cache refresh.
     this.federationTimer.unref?.();
@@ -114,6 +123,7 @@ export class BackgroundJobs {
       void this.deps.oidcStore
         .purgeExpired(new Date())
         .then((n) => {
+          recordJobSuccess('oidc_purge');
           if (n > 0) this.log.log(`OIDC: swept ${n} expired provider record(s)`);
         })
         .catch((e) => this.log.warn(`OIDC: expiry sweep failed: ${(e as Error).message}`));

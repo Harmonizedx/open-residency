@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * The credential's ORCS §10 lifecycle, and the four things a revocation must preserve.

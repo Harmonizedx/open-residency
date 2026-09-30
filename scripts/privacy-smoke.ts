@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Erasure and retention (DPG Standard indicator 7, ORCS §14).

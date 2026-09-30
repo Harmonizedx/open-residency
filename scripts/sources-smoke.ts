@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Smoke test for the multi-source foundational layer: XML/SOAP and imported-dataset

@@ -163,7 +163,9 @@ export, a full-stack run of the real application against PostgreSQL, and a conta
 
 Secure development: Dependabot covers the application, the SDK and the GitHub Actions
 themselves; CodeQL runs `security-and-quality` on every pull request and weekly; a CycloneDX
-SBOM is generated from the installed tree and published as a build artifact.
+SBOM is generated from the installed tree and attached to every release, signed, alongside the
+source archive; the container image is scanned before it is pushed, published to GHCR, signed
+by digest, and carries build-provenance and SBOM attestations (`SECURITY.md`).
 
 **Stated plainly:** the dependency audit gate fails the build at *moderate* severity on
 runtime dependencies, and the tree currently reports **zero advisories at every severity,
@@ -272,7 +274,9 @@ sections above — answer the form from those sections, not from the old caveat:
   covers residency records only, and nothing schedules it.
 - **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
   analysis all run in CI. The audit gate fails the build at *moderate* on runtime
-  dependencies, and the tree reports zero advisories at every severity.
+  dependencies, and the tree reports zero advisories at every severity. Releases ship a
+  signed SBOM and a signed, attested container image, so the supply-chain claim covers the
+  artifact a government actually runs, not only the source.
 
 ## Attachments to reference
 

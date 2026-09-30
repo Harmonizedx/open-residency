@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Google Cloud KMS signer test, against a mock Cloud KMS service.

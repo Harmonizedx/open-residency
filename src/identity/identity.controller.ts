@@ -18,6 +18,7 @@ import { operatorActor } from '../core/operator/operator';
 import { PlatformService } from '../platform/platform.service';
 import { NormalizedIdentity, ProviderNotConfiguredError } from '../core/foundational/types';
 import { ChallengeDto, VerifyIdentityDto } from './dto/identity.dto';
+import { elapsedMs, observeVerification } from '../observability/metrics';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/identity.dto.ts.
 
@@ -98,6 +99,7 @@ export class IdentityController {
     const provider = this.platform.getResidency().getProvider(cfg);
     const audit = this.platform.getAudit();
 
+    const started = process.hrtime.bigint();
     let result;
     try {
       result = await provider.verify({
@@ -106,8 +108,18 @@ export class IdentityController {
         challengeRef: body.challengeRef,
       });
     } catch (e) {
+      observeVerification({
+        provider: cfg.foundational.provider,
+        outcome: 'error',
+        durationMs: elapsedMs(started),
+      });
       throw asServiceUnavailable(e);
     }
+    observeVerification({
+      provider: cfg.foundational.provider,
+      outcome: result.verified ? 'verified' : result.pendingChallenge ? 'challenge' : 'rejected',
+      durationMs: elapsedMs(started),
+    });
 
     if (!result.verified && result.pendingChallenge) {
       return {

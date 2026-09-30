@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * End-to-end OIDC flow test: boots the REAL oidc-provider from

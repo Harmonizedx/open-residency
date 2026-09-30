@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Full-stack end-to-end: an OpenID Connect provider acting as the foundational REGISTER,

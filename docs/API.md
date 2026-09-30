@@ -51,6 +51,20 @@ Both routes require an authenticated operator (`registrar`; `admin` satisfies it
   supersededBy }` — suspend, reinstate, revoke or replace a credential. A revocation missing a
   reason, authority or appeal path is **refused**, not recorded blank (ORCS §10). **Requires
   `x-admin-key`** (`revoker`).
+- `POST /residency/{residentId}/reconcile` — re-check a resident against the foundational
+  source and record the outcome (`confirmed`, `already-confirmed`, `unconfirmed`, `mismatch`,
+  `unknown`). Operator action (`registrar`).
+- `POST /residency/provisional/sweep` — expire provisional registrations that were never
+  completed. Dry run by default; the report lists what is due. Operator action (`admin`).
+- `POST /residency/{residentId}/erase` and `POST /residency/retention/sweep` — erasure on
+  request and by retention period; see `PRIVACY.md`. Operator action (`admin`).
+
+## Assurance (ORCS §7)
+
+- `GET /assurance/profiles` — the ORCS assurance profiles this deployment recognises.
+- `GET /assurance/mappings` — how each foundational source's assurance values map onto them.
+- `GET /assurance/resolve/{value}` — resolve one source value to a profile.
+- `GET /residency/{residentId}/assurance` — a resident's assurance, as a profile.
 
 ## Consent
 
@@ -85,8 +99,9 @@ platform and must not be redeclared.
 - `GET /consent/legal-bases/{id}` — one basis, **whatever its state**, plus an `inForce` flag.
   A consent citing a since-repealed instrument stays followable; deactivating a basis must not
   blank the history that cites it.
-- `POST /consent/legal-bases/{id}/deactivate` — withdraw a basis. Requires `reason` and
-  `authority`, and is refused without them. There is no reactivation: a basis relied on again
+- `POST /consent/legal-bases/{id}/deactivate` — withdraw a basis. Requires a `reason` and is
+  refused without one; the authority recorded is the authenticated operator, never a body
+  value. There is no reactivation: a basis relied on again
   is a new entry with its own version, so the gap during which processing was unauthorised
   stays visible. **Requires `x-admin-key`** (`admin`).
 
@@ -145,11 +160,61 @@ release as needing its own disclosure review.
   `USSD_GATEWAY_SECRET`** as `x-ussd-secret`: the handler trusts the caller's word for
   `phoneNumber`, so only the aggregator may call it.
 
+## Presentation: OpenID4VP
+
+A relying party asks a wallet to present the residency credential. Creating and reading a
+request needs the `support` role; the wallet-facing routes are unauthenticated.
+
+- `POST /openid4vp/request` — create a presentation request. Returns the `request_uri` a
+  wallet fetches and the `id` to poll.
+- `GET /openid4vp/request/{id}` — the signed Request Object
+  (`application/oauth-authz-req+jwt`) the wallet fetches.
+- `POST /openid4vp/response/{id}` — the wallet's `direct_post` response, form-encoded or JSON.
+  Always answers `accepted`; the verification outcome is read from the result.
+- `GET /openid4vp/result/{id}` — the outcome and the claims the wallet presented.
+
+## W3C VC-API
+
+The standard issuer and verifier interfaces, used by the W3C conformance suites. Requires the
+`registrar` role.
+
+- `POST /credentials/issue` — issue a Data Integrity credential.
+- `POST /credentials/verify` — verify a credential (JWT or Data Integrity).
+- `POST /presentations/verify` — verify a presentation.
+
+## Trust and discovery
+
+- `GET /.well-known/did.json` — the issuer's `did:web` document.
+- `GET /.well-known/did/{countryCode}.json` — the document for one country's issuer key.
+- `GET /.well-known/status/{file}` — a signed Bitstring Status List credential (revocation, or
+  `-suspension`), for offline revocation checks.
+- `GET /.well-known/openid-credential-issuer`, `GET /.well-known/oauth-authorization-server` —
+  OpenID4VCI issuer and authorization-server metadata.
+- `GET /openapi.yaml`, `GET /docs` — this API's OpenAPI 3.1 spec and Swagger UI.
+
 ## SSO
 
-- OIDC discovery: `GET /oidc/.well-known/openid-configuration`.
-- Interaction (login/consent) pages under `/interaction/*`.
-- Issuer DID document: `GET /.well-known/did.json`.
+- OIDC discovery: `GET /oidc/.well-known/openid-configuration`. The provider under `/oidc`
+  serves the routes that document names (`auth`, `token`, `me`, `jwks`, revocation,
+  introspection, `session/end`, PAR).
+- Interaction (login/consent) pages under `/interaction/{uid}/*`: the credential-presentation,
+  one-time-code and WebAuthn factors, then `confirm` and `abort`. Browser-driven; the provider
+  redirects here when `/oidc/auth` needs a prompt.
+- WebAuthn enrolment for residents: `POST /webauthn/register/start`, `POST /webauthn/register/finish`.
+
+## Health
+
+Unauthenticated and exempt from the rate limiter; what the orchestrator's probes use.
+
+- `GET /health/live` — the process answers HTTP. Nothing else is asserted.
+- `GET /health/ready` — the database answers within two seconds. `503` with
+  `{ "status": "unavailable", "checks": { "database": "failed" } }` otherwise. The body names
+  the check, never the error.
+
+Every response carries an `x-request-id` header. A well-formed inbound `x-request-id`
+(`[A-Za-z0-9._-]{1,64}`, as an ingress sets) is echoed so a request can be followed from the
+edge; anything else is replaced with a fresh id. Quote it when reporting a problem — it is
+the key into the operations log.
 
 ## Rate limiting
 

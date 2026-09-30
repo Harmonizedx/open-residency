@@ -40,7 +40,10 @@ tags:
   - name: offline
     description: QR carriage and USSD for low-connectivity inclusion
   - name: sso
-    description: OpenID Connect provider (discovery served under /oidc)
+    description: >
+      OpenID Connect provider for sector services. Discovery and the protocol endpoints are
+      served under /oidc; the /interaction routes are the login and consent pages the
+      provider redirects a browser to when a sign-in needs a prompt.
   - name: oid4vci
     description: >
       OpenID for Verifiable Credential Issuance. The standards-based path by which a
@@ -48,19 +51,106 @@ tags:
       residency credential bound to a key on their device. Both OpenID4VCI 1.0 and
       Draft 13 request/response shapes are accepted; the response matches the dialect
       of the request.
+  - name: health
+    description: >
+      Liveness and readiness for the orchestrator. Unauthenticated and exempt from rate
+      limiting; readiness asks the database.
+  - name: oid4vp
+    description: >
+      OpenID for Verifiable Presentations. The standards-based path by which a relying
+      party -- a clinic, a subsidy desk, a bank -- asks a citizen's wallet to present the
+      residency credential, and gets back a verdict it did not have to integrate anything
+      OpenResidency-specific to obtain. Requests are signed, single-use, and short-lived;
+      the wallet posts back with `response_mode: direct_post`.
+  - name: vcapi
+    description: >
+      W3C CCG VC-API (https://w3c-ccg.github.io/vc-api/): the HTTP interface the official
+      W3C test suites drive an implementation through, exposed so a reviewer can point
+      `w3c/vc-data-model-2.0-test-suite` at a running instance. It is NOT how residency
+      credentials are issued in production -- that is OpenID4VCI, which binds the
+      credential to the citizen's wallet key -- and it will sign more or less whatever it
+      is handed, so every route is operator-guarded (registrar role).
+  - name: trust
+    description: >
+      Published trust material an offline verifier syncs while it has connectivity: the
+      issuer DID document (did:web) per jurisdiction, and the signed Bitstring Status
+      List credentials for revocation and suspension. Public and cacheable; once cached,
+      verification needs no further network access.
+  - name: meta
+    description: >
+      The machine-readable API description this document is, served by the running
+      instance, and a browsable Swagger UI over it.
+  - name: webauthn
+    description: >
+      Passkey enrolment, authorised by a one-time code. Signing in with an enrolled passkey
+      is not here: it completes an OIDC login, so it lives on the /interaction routes.
+  - name: assurance
+    description: >
+      The Assurance Registry as a published surface (ORCS §8): the governed profiles every
+      assurance value must resolve to, and what each identity source publishes about its own
+      verification. Deliberately unauthenticated -- a relying party has to be able to read
+      the mapping before it trusts anything, and nothing here concerns an individual.
 paths:
+  /health/live:
+    get:
+      tags: [health]
+      summary: The process answers HTTP
+      description: Nothing else is asserted. Used as the liveness probe.
+      security: []
+      responses:
+        '200':
+          description: Up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+  /health/ready:
+    get:
+      tags: [health]
+      summary: The process can serve requests
+      description: >
+        The database answers within two seconds. Used as the readiness probe: a pod that
+        cannot reach its database must not receive traffic. The failure body names the check
+        that failed, never the underlying error.
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthReport'
   /enrolment/upstream/start:
     post:
       tags: [identity]
       summary: Begin a sign-in at an external OpenID Provider
       description: >
-        Operator-only. Returns the authorization URL to send the applicant to, and the
-        `state` that identifies the request. 503 when the deployment declares no
-        `upstreamOidc` profile -- the route exists, it is simply not configured here.
+        Operator-only; requires the `registrar` role, like issuance itself. Returns the
+        authorization URL to send the applicant to, and the `state` that identifies the
+        request. 503 when the deployment declares no `upstreamOidc` profile -- the route
+        exists, it is simply not configured here. The request body is ignored.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '201':
           description: The authorization URL and its state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl, state]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+                  state: { type: string, description: Single-use; echoed back on the callback. }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the registrar role }
         '503':
           description: This deployment declares no upstream provider
   /enrolment/upstream/callback:
@@ -71,8 +161,10 @@ paths:
         The redirect target registered with the provider. Unauthenticated by necessity -- a
         resident's browser arrives here -- so `state` is required on every path, including
         the provider's error redirect (RFC 6749 s4.1.2.1 requires the provider to echo it),
-        and it is single-use. Returns an ApplicantBinding of `authoritative_authentication`
-        to hand to POST /residency/issue.
+        and it is single-use. On success returns the tokenized upstream identity and an
+        ApplicantBinding of `authoritative_authentication` to hand to POST /residency/issue
+        as `binding`. The provider's own subject identifier and any raw national identifier
+        it released never appear in the response.
       parameters:
         - { name: state, in: query, required: true, schema: { type: string } }
         - { name: code, in: query, required: false, schema: { type: string } }
@@ -80,6 +172,10 @@ paths:
       responses:
         '200':
           description: The authentication outcome and, on success, the applicant binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpstreamCallbackResult'
         '400':
           description: Missing state, or neither code nor error
         '503':
@@ -89,8 +185,8 @@ paths:
       tags: [identity]
       summary: Start a second factor (OTP) for two-step providers
       description: >
-        Operator-only. For a provider that authenticates by redirect this mints state at that
-        provider, so it is not open to anonymous callers.
+        Operator-only; requires the `registrar` role. For a provider that authenticates by
+        redirect this mints state at that provider, so it is not open to anonymous callers.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -99,18 +195,25 @@ paths:
             schema:
               $ref: '#/components/schemas/ChallengeRequest'
       responses:
-        '200':
+        '201':
           description: Whether a challenge is required and its reference
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChallengeResponse'
+        '400': { description: "Malformed body, or a field the request schema does not declare" }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the registrar role }
+        '404': { description: No configuration for `countryCode` }
+        '503': { description: The foundational provider is named but not configured on this deployment }
   /identity/verify:
     post:
       tags: [identity]
       summary: Verify a person against the foundational ID, without issuing residency
       description: >
-        Operator-only. Asks the jurisdiction's register about a named person.
+        Operator-only; requires the `registrar` role. Asks the jurisdiction's register about
+        a named person. When the provider needs a second factor first, the response carries
+        `pendingChallenge: true` with the `challengeRef` and `channel` to complete.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -119,16 +222,26 @@ paths:
             schema:
               $ref: '#/components/schemas/IdentityVerifyRequest'
       responses:
-        '200':
+        '201':
           description: Verification outcome with minimized attributes
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityVerifyResponse'
+        '400': { description: "Malformed body, or a field the request schema does not declare" }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the registrar role }
+        '404': { description: No configuration for `countryCode` }
+        '503': { description: The foundational provider is named but not configured on this deployment }
   /residency/countries:
     get:
       tags: [residency]
       summary: List served countries and the inputs each foundational check needs
+      description: >
+        Also reports each jurisdiction's applicant-binding policy, whether its foundational
+        provider authenticates the applicant itself, and the resident id format it issues
+        with a validation regex, so an enrolment UI or MDA system need not reimplement the
+        rules.
       responses:
         '200':
           description: Configured countries
@@ -143,9 +256,13 @@ paths:
       tags: [residency]
       summary: Verify foundational identity and issue a residency credential
       description: >
-        Operator action. Accepts `binding` and `residenceEvidence` attestations that a
-        self-serving caller must not be able to assert about themselves, so it is
-        admin-guarded like revocation.
+        Operator action; requires the `registrar` role (revocation, by contrast, requires
+        `revoker`). Accepts `binding` and `residenceEvidence` attestations that a
+        self-serving caller must not be able to assert about themselves, which is why it is
+        operator-guarded. `phone`, when supplied, is hashed for USSD matching and stored in
+        ciphertext only under `contactDirectory.mode: encrypted`; it is never written to the
+        credential, the audit log, or any response. The audit entry names the operator who
+        enrolled.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -154,12 +271,16 @@ paths:
             schema:
               $ref: '#/components/schemas/IssueRequest'
       responses:
-        '200':
+        '201':
           description: Issuance result (issued, exists, challenge, or rejected)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IssueResult'
+        '400': { description: "Malformed body, or a field the request schema does not declare" }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the registrar role }
+        '404': { description: No configuration for `countryCode` }
   /residency/{residentId}:
     get:
       tags: [residency]
@@ -214,12 +335,13 @@ paths:
                 reason: { type: string, example: Erasure request under NDPA s.34 }
                 legalBasis: { type: string, example: NDPA s.34 }
       responses:
-        '200':
+        '201':
           description: Erasure outcome
           content:
             application/json:
               schema:
                 type: object
+                required: [status, residentId, auditEventsRedacted, auditChainIntact]
                 properties:
                   status: { type: string, enum: [erased, already-erased, unknown] }
                   residentId: { type: string }
@@ -228,6 +350,8 @@ paths:
                   auditChainIntact:
                     type: boolean
                     description: The audit chain still verifies after the redaction.
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the admin role }
         '404': { description: Unknown residentId }
   /residency/retention/sweep:
     post:
@@ -260,12 +384,13 @@ paths:
                 confirm: { type: boolean, default: false, description: Actually erase. }
                 reason: { type: string }
       responses:
-        '200':
+        '201':
           description: Sweep report
           content:
             application/json:
               schema:
                 type: object
+                required: [dryRun, auditChainIntact, results]
                 properties:
                   dryRun: { type: boolean }
                   auditChainIntact: { type: boolean }
@@ -273,12 +398,16 @@ paths:
                     type: array
                     items:
                       type: object
+                      required: [countryCode, dueCount, due, erased]
                       properties:
                         countryCode: { type: string }
                         dueCount: { type: integer }
                         due: { type: array, items: { type: string } }
                         erased: { type: integer }
                         skipped: { type: string, enum: [legal-hold, no-policy] }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the admin role }
+        '404': { description: '`countryCode` names a country this deployment does not serve' }
   /residency/verify:
     post:
       tags: [residency]
@@ -290,32 +419,390 @@ paths:
             schema:
               $ref: '#/components/schemas/CredentialVerifyRequest'
       responses:
-        '200':
+        '201':
           description: Verification outcome
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CredentialVerifyOutcome'
+        '400': { description: "Malformed body, or a field the request schema does not declare" }
   /residency/revoke/{residentId}:
     post:
       tags: [residency]
       summary: Revoke a residency credential
+      description: >
+        Requires the `revoker` role. Flips the revocation bit and republishes the status
+        list; the audit entry names the operator who did it.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResidentId'
       responses:
-        '200':
+        '201':
           description: Revocation result
           content:
             application/json:
               schema:
                 type: object
+                required: [revoked]
                 properties:
                   revoked: { type: boolean }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the revoker role }
+        '404': { description: Unknown residentId }
+  /residency/{residentId}/relationship/transition:
+    post:
+      tags: [residency]
+      summary: Move a residency relationship to another state
+      description: >-
+        End, suspend, or reinstate a person's relationship with this jurisdiction (ORCS §6.2),
+        recording who decided, when, and why. This is the act revoking a credential cannot
+        express: revocation says a key is dead, this says the person's standing changed.
+
+
+        Permitted moves are ACTIVE -> SUSPENDED -> ACTIVE, and from either into the terminal
+        states ENDED, REVOKED or EXPIRED. Nothing leaves a terminal state. A terminal transition
+        MUST carry a `reason`; the engine refuses one without it rather than writing a blank.
+        The refusal reason is returned as the 400 message (`RELATIONSHIP_ALREADY_ENDED`,
+        `TRANSITION_NOT_PERMITTED_ACTIVE_TO_ACTIVE`, `REASON_REQUIRED_FOR_ENDED`, ...).
+
+
+        Deliberately does NOT revoke the credential as a side effect: a jurisdiction ending a
+        residency will usually want to revoke too, and makes that second call itself, so the
+        audit trail can say which act was intended (ADR-0007). Both are audited; a refused
+        transition is audited as a failure before the 400 is returned.
+
+
+        Requires the `revoker` role, matching revocation: a privileged act on somebody else's
+        identity, and resident ids are semi-public by design.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelationshipTransitionRequest'
+      responses:
+        '201':
+          description: The transition applied, and the relationship as it now stands
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residentId: { type: string }
+                  from: { $ref: '#/components/schemas/RelationshipStatus' }
+                  to: { $ref: '#/components/schemas/RelationshipStatus' }
+                  relationship: { $ref: '#/components/schemas/RelationshipAttributes' }
+        '400':
+          description: >-
+            Unknown `status` or an undeclared property, or the engine refused the transition
+            (not permitted from the current state, or a terminal state without a reason)
+        '401': { description: Operator authentication required }
+        '403': { description: The operator lacks the `revoker` role }
+        '404': { description: Unknown residentId }
+  /residency/{residentId}/relationship:
+    get:
+      tags: [residency]
+      summary: What this relationship states about itself (ORCS §4.3)
+      description: >-
+        The attributes that can change over a residency's life: status, validity, policy
+        version, evidence references, assurance profile, issuer and decision provenance.
+        Separate from `GET /residency/{residentId}`, which reports registration details that
+        cannot. A record written before the lifecycle existed reads as ACTIVE with
+        `migration:pre-lifecycle-record` as its provenance, so it is never mistaken for a
+        recorded decision. Open, like the sibling lookup.
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      responses:
+        '200':
+          description: The relationship attributes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residentId: { type: string }
+                  relationship: { $ref: '#/components/schemas/RelationshipAttributes' }
+        '404': { description: Unknown residentId }
+  /residency/{residentId}/credential/transition:
+    post:
+      tags: [residency]
+      summary: Move a credential through its ORCS §10 lifecycle
+      description: >-
+        Suspend, reinstate, revoke, expire, or record the replacement of the credential --
+        whether this key still works, as distinct from `/relationship/transition`, which says
+        whether the person still resides here. Permitted moves are ISSUED or ACTIVE ->
+        SUSPENDED -> ACTIVE, and from any of those into the terminal states REVOKED, EXPIRED or
+        REPLACED. `ISSUED` is never a target.
+
+
+        ORCS §10 requires a revocation to preserve reason, authority, timestamp and appeal
+        path. The authority is always the authenticated operator and the timestamp the clock;
+        the caller supplies the `reason` (required for every terminal state) and, for REVOKED,
+        the `appealPath`, which defaults to the jurisdiction's configured
+        `credential.appealPath` and is refused if neither is set
+        (`APPEAL_PATH_REQUIRED_FOR_REVOCATION`). REPLACED requires `supersededBy`
+        (`SUPERSEDED_BY_REQUIRED_FOR_REPLACEMENT`). The refusal reason is returned as the 400
+        message; other reasons are `CREDENTIAL_ALREADY_REVOKED`,
+        `CREDENTIAL_TRANSITION_NOT_PERMITTED_ACTIVE_TO_ACTIVE` and `REASON_REQUIRED_FOR_EXPIRED`.
+
+
+        The status-list bits are published together with the record: SUSPENDED sets the
+        suspension bit, ACTIVE clears it, and the terminal states set the revocation bit and
+        clear suspension, so a verifier can never see a state the register does not hold.
+        A refused transition is audited as a failure before the 400 is returned.
+
+
+        Requires the `revoker` role.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialTransitionRequest'
+      responses:
+        '201':
+          description: The transition applied, and the credential status record as it now stands
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residentId: { type: string }
+                  from: { $ref: '#/components/schemas/CredentialStatus' }
+                  to: { $ref: '#/components/schemas/CredentialStatus' }
+                  credentialStatus: { $ref: '#/components/schemas/CredentialStatusRecord' }
+        '400':
+          description: >-
+            Unknown `status` or an undeclared property, or the engine refused the transition
+            (not permitted from the current state, missing reason, appeal path or superseding
+            credential)
+        '401': { description: Operator authentication required }
+        '403': { description: The operator lacks the `revoker` role }
+        '404': { description: Unknown residentId }
+  /residency/refusals/{reference}:
+    get:
+      tags: [residency]
+      summary: Look up a refused application by the reference the applicant was given
+      description: >-
+        Answers "why was I refused" for somebody at the desk with their slip. The reference is
+        the lookup key rather than a name or number, and it is unguessable (100 bits, Crockford
+        alphabet), so nobody can enumerate who a jurisdiction has turned away. A refusal raised
+        before an identity was established carries no `subjectRef` at all -- the refusal log is
+        not a database of people who failed verification.
+
+
+        Requires the `registrar` role.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          schema: { type: string, example: REF-7K3Q-9M2P-4XWZ-A1BC-D5EF }
+      responses:
+        '200':
+          description: The refusal record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefusalRecord'
+        '401': { description: Operator authentication required }
+        '403': { description: The operator lacks the `registrar` role }
+        '404': { description: Unknown refusal reference }
+  /residency/refusals/{reference}/review:
+    post:
+      tags: [residency]
+      summary: Record that a person reconsidered a refusal, and what they concluded
+      description: >-
+        The human intervention NDPA 2023 s.37, GDPR Art.22 and Convention 108+ require when
+        software refused somebody on its own. The reviewer is the authenticated operator, named
+        on the record with the time of review; `overturned` is a genuine outcome, because a
+        review that could only ever uphold would not be one.
+
+
+        Overturning does not itself enrol the applicant. It records that the refusal no longer
+        stands; the operator then issues normally through `POST /residency/issue`. Recording a
+        review again replaces the previous outcome on the record.
+
+
+        Requires the `registrar` role.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          schema: { type: string, example: REF-7K3Q-9M2P-4XWZ-A1BC-D5EF }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefusalReviewRequest'
+      responses:
+        '201':
+          description: The refusal record with the review recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefusalRecord'
+        '400':
+          description: Unknown `status`, `note` over 1024 characters, or an undeclared property
+        '401': { description: Operator authentication required }
+        '403': { description: The operator lacks the `registrar` role }
+        '404': { description: Unknown refusal reference }
+  /residency/{residentId}/credential:
+    get:
+      tags: [residency]
+      summary: The credential's ORCS §10 status
+      description: >-
+        Why the credential was suspended or revoked, by whom, when, and how the holder
+        contests it. A record written before the lifecycle existed is read from its revocation
+        bit: ACTIVE if clear, otherwise REVOKED with `migration:pre-lifecycle-record` as the
+        authority and a reason saying the original one is not recoverable. Open, like the
+        sibling lookup.
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      responses:
+        '200':
+          description: The credential status record
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  residentId: { type: string }
+                  credentialStatus: { $ref: '#/components/schemas/CredentialStatusRecord' }
+        '404': { description: Unknown residentId }
+  /residency/{residentId}/reconcile:
+    post:
+      tags: [residency]
+      summary: Confirm a provisionally-issued residency against the live foundational authority
+      description: >-
+        Completes an enrolment that could not reach the authority at the desk. The identifiers
+        are submitted again rather than replayed from the record, because the raw national id
+        is never stored: the live lookup derives a subjectRef under the same provider and
+        pepper, and it must equal the stored one.
+
+
+        The outcome is deliberately five-valued. `confirmed` clears the provisional flag and
+        records the assurance the authority returned; `already-confirmed` is idempotent
+        success; `unconfirmed` means no verdict was reached (the gateway was down, or the
+        assurance returned was below the jurisdiction's minimum -- `reason` says which) and the
+        record stays provisional; `mismatch` means the authority verified a DIFFERENT person
+        (`SUBJECT_MISMATCH`), which is a data-quality incident left for an identity-link
+        decision, not corrected here; `unknown` is returned for a record whose personal data
+        has been erased. A mismatch or unconfirmed check is audited as a failure.
+
+
+        Clearing the flag does not reissue the credential the holder already carries, which
+        still asserts `provisional`. Requires the `registrar` role, like issuance.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconcileRequest'
+      responses:
+        '201':
+          description: The reconciliation outcome
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconcileOutcome'
+        '400': { description: '`identifiers` missing or not an object of strings, or an undeclared property' }
+        '401': { description: Operator authentication required }
+        '403': { description: The operator lacks the `registrar` role }
+        '404':
+          description: Unknown residentId, or no country config for this record
+  /residency/provisional/sweep:
+    post:
+      tags: [residency]
+      summary: Revoke provisional credentials never confirmed within the policy window
+      description: >-
+        DRY RUN unless `confirm: true`, for the same reason as the retention sweep: it acts in
+        bulk on other people's credentials, and an operator should see the list before it
+        happens. Each expired credential goes through the §10 lifecycle as a REVOKED
+        transition with the jurisdiction's issuer as the authority and its configured appeal
+        path, and the status list is republished. Revocation, not deletion: the record and its
+        status index survive, so a genuine resident whose reconciliation never happened can
+        re-enrol.
+
+
+        A jurisdiction with no `residency.provisionalMaxAgeDays` is reported as `skipped`
+        rather than as an empty success. Note the two report shapes: a dry run reports
+        `dueCount`, `due` and `dryRun: true`; a confirmed run reports `dueCount`, `expired` and
+        the revoked ids under `residents`. Each confirmed jurisdiction is audited as
+        `residency.provisional.expire`.
+
+
+        Requires the `admin` role.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                countryCode: { type: string, description: Limit to one jurisdiction. }
+                confirm: { type: boolean, default: false, description: Actually revoke. }
+      responses:
+        '201':
+          description: Per-jurisdiction sweep report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ProvisionalSweepEntry'
+        '401': { description: Operator authentication required }
+        '403': { description: The operator lacks the `admin` role }
+        '404': { description: No matching country config }
+  /residency/{residentId}/assurance:
+    get:
+      tags: [residency]
+      summary: What this resident's recorded assurance actually establishes
+      description: >-
+        The stored `assuranceLevel`, resolved through the governed registry as the recording
+        provider means it, then qualified by what the enrolment itself achieved: identity is
+        the LOWER of the profile's and what the binding method proved (a lookup alone caps at
+        IAL1), evidence comes from the residence assurance level reached, and the limitations
+        are the profile's plus the provider mapping's. Authentication assurance is stated as
+        not applicable -- it describes a sign-in event, not a person, and is issued per session
+        as the OIDC `acr` claim.
+
+
+        Open, to match `GET /residency/{residentId}`, which already returns `assuranceLevel`
+        for the same identifier; this adds only the public governance behind that value.
+      parameters:
+        - $ref: '#/components/parameters/ResidentId'
+      responses:
+        '200':
+          description: The resolved assurance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResidentAssurance'
+        '404':
+          description: >-
+            Unknown residentId, or the record carries an assurance value that does not
+            resolve to a governed profile (a register written before a profile was retired)
   /consent/resident/{residentId}:
     get:
       tags: [consent]
       summary: List consents a resident has granted
+      description: Requires the `support` role.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - $ref: '#/components/parameters/ResidentId'
@@ -326,15 +813,21 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [residentId, consents]
                 properties:
                   residentId: { type: string }
                   consents:
                     type: array
                     items: { $ref: '#/components/schemas/ConsentRecord' }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
   /consent/grant:
     post:
       tags: [consent]
       summary: Grant consent to a relying party and mint a signed receipt
+      description: >
+        Requires the `support` role. A refused grant is audited and answered 400 with the
+        refusal reason (for example `UNKNOWN_LEGAL_BASIS` or `LEGAL_BASIS_NOT_IN_FORCE`).
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -343,19 +836,25 @@ paths:
             schema:
               $ref: '#/components/schemas/ConsentGrantRequest'
       responses:
-        '200':
+        '201':
           description: The consent record and its signed receipt (JWT)
           content:
             application/json:
               schema:
                 type: object
+                required: [consent, receipt]
                 properties:
                   consent: { $ref: '#/components/schemas/ConsentRecord' }
                   receipt: { type: string, description: Signed consent receipt (EdDSA JWT) }
+        '400': { description: "Malformed body, an undeclared field, or the grant was refused (body carries the reason)" }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
+        '404': { description: Unknown residentId }
   /consent/legal-bases:
     get:
       tags: [consent]
       summary: Every registered legal basis (ORCS §9)
+      description: Requires the `support` role.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
@@ -364,10 +863,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [legalBases]
                 properties:
                   legalBases:
                     type: array
                     items: { $ref: '#/components/schemas/LegalBasis' }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
   /consent/legal-bases/{id}:
     get:
       tags: [consent]
@@ -376,6 +878,7 @@ paths:
         Served whether or not the basis is still in force: a consent citing a since-repealed
         instrument must stay followable, so deactivating a basis never blanks the history that
         cites it. `inForce` reports separately whether it still authorises processing.
+        Requires the `support` role.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - name: id
@@ -389,19 +892,29 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [legalBasis, inForce]
                 properties:
                   legalBasis: { $ref: '#/components/schemas/LegalBasis' }
                   inForce: { type: boolean }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
         '404': { description: Unknown legal basis }
   /consent/legal-bases/{id}/deactivate:
     post:
       tags: [consent]
       summary: Withdraw a legal basis
       description: >-
-        Stops every consent citing it. Requires a reason and an authority, and is refused
-        without them. There is no reactivation — a basis relied on again is a new entry with
-        its own version, so the gap during which processing was unauthorised stays visible.
-      security: [{ adminKey: [] }]
+        Stops every consent citing it. Requires the `admin` role and a `reason`, and is
+        refused without them. There is no reactivation — a basis relied on again is a new
+        entry with its own version, so the gap during which processing was unauthorised
+        stays visible.
+
+
+        The recorded authority is the AUTHENTICATED OPERATOR (`operator:<operator id>`),
+        never a value from the body: taking it from the request would let any admin type a
+        colleague's name into the one record whose purpose is attribution. An `authority`
+        body field is accepted for older callers and ignored.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - name: id
           in: path
@@ -413,25 +926,39 @@ paths:
           application/json:
             schema:
               type: object
-              required: [reason, authority]
+              required: [reason]
               properties:
-                reason: { type: string, example: By-law repealed by the 2027 consolidation }
-                authority: { type: string, example: 'operator:commissioner' }
+                reason: { type: string, maxLength: 512, example: By-law repealed by the 2027 consolidation }
+                authority:
+                  type: string
+                  maxLength: 256
+                  deprecated: true
+                  description: >-
+                    Ignored. The authority written to the basis and the audit log is the
+                    authenticated operator's id. Accepted so callers written when it was
+                    required keep working.
       responses:
-        '200':
+        '201':
           description: The deactivated basis
           content:
             application/json:
               schema:
                 type: object
+                required: [legalBasis]
                 properties:
                   legalBasis: { $ref: '#/components/schemas/LegalBasis' }
-        '400': { description: Missing reason or authority, or already deactivated }
+        '400': { description: "Missing reason, or already deactivated" }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the admin role }
         '404': { description: Unknown legal basis }
   /consent/{id}/revoke:
     post:
       tags: [consent]
       summary: Revoke a consent record
+      description: >
+        Requires the `support` role. When the consent was created through the SSO consent
+        step it is linked to an OIDC grant; that grant and every access, refresh and
+        authorization code issued under it are revoked too, reported as `sessionRevoked`.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - name: id
@@ -439,22 +966,35 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200':
+        '201':
           description: The updated consent record
           content:
             application/json:
               schema:
                 type: object
+                required: [consent, sessionRevoked]
                 properties:
                   consent: { $ref: '#/components/schemas/ConsentRecord' }
+                  sessionRevoked:
+                    type: boolean
+                    description: >-
+                      True when a linked OIDC grant existed and was destroyed along with its
+                      tokens. False for consents granted directly over this API, which
+                      authorize no session.
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
+        '404': { description: Unknown consent id }
   /operator/login:
     post:
       tags: [operator]
       summary: Local operator sign-in (password + TOTP)
       description: >
-        Only when operatorAuth.mode is `local`. Returns a short-lived session token.
-        Answers vaguely on failure so it cannot be used to enumerate staff accounts;
-        the one exception is mfaRequired, which the console needs in order to prompt.
+        Only when operatorAuth.mode is `local`; any other mode answers 400 and points the
+        caller at the configured identity provider. Returns a short-lived session token.
+        Answers vaguely on failure so it cannot be used to enumerate staff accounts; the one
+        exception is mfaRequired, which the console needs in order to prompt. Unauthenticated
+        by nature. The body is validated: an unknown property is a 400.
+      security: []
       requestBody:
         required: true
         content:
@@ -463,11 +1003,11 @@ paths:
               type: object
               required: [email, password]
               properties:
-                email: { type: string }
-                password: { type: string }
-                totp: { type: string, description: 6-digit code from the authenticator app }
+                email: { type: string, maxLength: 256 }
+                password: { type: string, maxLength: 256 }
+                totp: { type: string, maxLength: 16, description: 6-digit code from the authenticator app }
       responses:
-        '200':
+        '201':
           description: A session token, or a signal that a second factor is needed
           content:
             application/json:
@@ -477,22 +1017,31 @@ paths:
                     properties:
                       accessToken: { type: string }
                       tokenType: { type: string, example: Bearer }
-                      expiresIn: { type: integer }
+                      expiresIn: { type: integer, description: Seconds until the token expires }
                       operator:
                         type: object
                         properties:
                           id: { type: string }
                           displayName: { type: string }
-                          roles: { type: array, items: { type: string } }
+                          roles:
+                            type: array
+                            items: { $ref: '#/components/schemas/OperatorRole' }
                   - type: object
                     properties:
-                      mfaRequired: { type: boolean }
+                      mfaRequired: { type: boolean, enum: [true] }
+        '400':
+          description: >-
+            operatorAuth.mode is not `local`; email or password missing; or an unknown
+            property or over-long field in the body
         '401':
-          description: Sign-in failed
+          description: Sign-in failed (no such account, wrong password, wrong code, disabled, or locked out)
   /operator/me:
     get:
       tags: [operator]
       summary: The calling operator's identity and roles
+      description: >
+        Any authenticated operator; no role required. Useful for a console to render itself.
+        `via` says which credential form authenticated the call.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
@@ -504,22 +1053,41 @@ paths:
                 properties:
                   id: { type: string }
                   displayName: { type: string }
-                  roles: { type: array, items: { type: string } }
+                  roles:
+                    type: array
+                    items: { $ref: '#/components/schemas/OperatorRole' }
                   via: { type: string, enum: [oidc, local, apiKey, sharedKey] }
+        '401':
+          description: Missing or invalid operator credential
   /operator/operators:
     get:
       tags: [operator]
       summary: List operators (admin)
+      description: Requires the `admin` role. Never includes password hashes or TOTP secrets.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
-          description: Operators. Never includes password hashes or TOTP secrets.
+          description: Every operator account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  operators:
+                    type: array
+                    items: { $ref: '#/components/schemas/OperatorSummary' }
+        '401':
+          description: Missing or invalid operator credential
+        '403':
+          description: The caller lacks the admin role
     post:
       tags: [operator]
       summary: Create an operator (admin)
       description: >
-        The TOTP secret is returned exactly once, here, because it has to reach an
-        authenticator app and is never recoverable afterwards.
+        Requires the `admin` role. The TOTP secret is returned exactly once, here, because it
+        has to reach an authenticator app and is never recoverable afterwards. `roles` is
+        filtered to the known role names; at least one must survive. The body is validated:
+        an unknown property is a 400.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -529,41 +1097,93 @@ paths:
               type: object
               required: [email, roles]
               properties:
-                email: { type: string }
-                displayName: { type: string }
-                password: { type: string }
+                email: { type: string, maxLength: 256 }
+                displayName: { type: string, maxLength: 128 }
+                password: { type: string, maxLength: 256 }
                 roles:
                   type: array
-                  items:
-                    type: string
-                    enum: [admin, registrar, revoker, auditor, support]
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/OperatorRole' }
       responses:
-        '200':
+        '201':
           description: The new operator, with its one-time TOTP enrolment secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string }
+                  roles:
+                    type: array
+                    items: { $ref: '#/components/schemas/OperatorRole' }
+                  totpSecret: { type: string, description: Shown once; never recoverable. }
+                  totpUri: { type: string, description: "otpauth:// URI for the authenticator app, shown once." }
+        '400':
+          description: >-
+            email missing; no recognised role in `roles`; the account could not be created
+            (for example the email is already registered); or an unknown property or
+            over-long field in the body
+        '401':
+          description: Missing or invalid operator credential
+        '403':
+          description: The caller lacks the admin role
   /operator/keys:
     get:
       tags: [operator]
       summary: List the calling operator's API keys
+      description: Any authenticated operator; no role required. Key metadata only, never the keys themselves.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
-          description: Key metadata. Never the keys themselves.
+          description: The caller's keys, including revoked and expired ones
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items: { $ref: '#/components/schemas/OperatorKeySummary' }
+        '401':
+          description: Missing or invalid operator credential
     post:
       tags: [operator]
       summary: Mint an API key for the calling operator
-      description: The plaintext key is shown once. Defaults to a 90-day life.
+      description: >
+        Any authenticated operator with an identity to attach the key to; no role required.
+        The plaintext key is shown once. Defaults to a 90-day life, because a credential with
+        no expiry is one nobody gets round to retiring. A caller authenticated by the legacy
+        shared admin key has no operator identity and is refused. The body is validated: an
+        unknown property is a 400.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
+        required: false
         content:
           application/json:
             schema:
               type: object
               properties:
-                label: { type: string }
-                expiresInDays: { type: integer, default: 90 }
+                label: { type: string, maxLength: 128, default: unnamed }
+                expiresInDays: { type: integer, minimum: 1, maximum: 3650, default: 90 }
       responses:
-        '200':
+        '201':
           description: The new key, in plaintext, once
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  key: { type: string, description: The plaintext key (ork_...). Not stored; not shown again. }
+                  expiresAt: { type: string, format: date-time }
+        '400':
+          description: >-
+            The caller is the shared admin key (configure operatorAuth.mode oidc or local
+            first); the key could not be issued; or an unknown property or out-of-range
+            field in the body
+        '401':
+          description: Missing or invalid operator credential
   /operator/keys/rotate:
     post:
       tags: [operator]
@@ -571,6 +1191,8 @@ paths:
       description: >
         Issues a replacement and shortens the old key's expiry rather than killing it, so
         callers cut over one at a time. This is what the shared static key could not do.
+        An operator rotates their own keys; the `admin` role may rotate anyone's. The body
+        is validated: an unknown property is a 400.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -580,15 +1202,34 @@ paths:
               type: object
               required: [keyId]
               properties:
-                keyId: { type: string }
-                overlapHours: { type: integer, default: 24 }
+                keyId: { type: string, maxLength: 64 }
+                overlapHours: { type: integer, minimum: 1, maximum: 720, default: 24 }
       responses:
-        '200':
+        '201':
           description: The replacement key and when the old one retires
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, description: The replacement key's id }
+                  key: { type: string, description: "The replacement's plaintext (ork_...), shown once." }
+                  oldKeyRetiresAt: { type: string, format: date-time }
+        '400':
+          description: >-
+            keyId missing; unknown or already revoked key; or an unknown property or
+            out-of-range field in the body
+        '401':
+          description: >-
+            Missing or invalid operator credential, or the key belongs to another operator
+            and the caller is not an admin
   /operator/keys/revoke:
     post:
       tags: [operator]
       summary: Revoke a key immediately
+      description: >
+        An operator revokes their own keys; the `admin` role may revoke anyone's. The body
+        is validated: an unknown property is a 400.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       requestBody:
         required: true
@@ -598,14 +1239,78 @@ paths:
               type: object
               required: [keyId]
               properties:
-                keyId: { type: string }
+                keyId: { type: string, maxLength: 64 }
       responses:
-        '200':
+        '201':
           description: Whether the key was revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: boolean, description: False when the key was not found. }
+        '400':
+          description: keyId missing, or an unknown property or over-long field in the body
+        '401':
+          description: >-
+            Missing or invalid operator credential, or the key belongs to another operator
+            and the caller is not an admin
+  /operator/operators/{id}/disable:
+    post:
+      tags: [operator]
+      summary: Disable or re-enable an operator (admin)
+      description: >
+        Sets or clears the account's `disabledAt`. `disabled` defaults to true; send
+        `false` to re-enable. The operator is the `id` in the path. Audited as
+        `operator.disable` or `operator.enable` with the acting operator's name. Under
+        `operatorAuth.mode: oidc` this is the local disable switch for an account the
+        directory still vouches for.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: The operator to disable or re-enable.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                operatorId:
+                  type: string
+                  maxLength: 64
+                  deprecated: true
+                  description: >-
+                    Older callers named the operator here. Still accepted, but it must equal
+                    the path `id`; a different value is a 400.
+                disabled: { type: boolean, default: true }
+      responses:
+        '201':
+          description: Whether the operator was found and updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, description: False when the operator is unknown }
+        '400':
+          description: A body `operatorId` that differs from the path, or an unknown property in the body
+        '401':
+          description: Missing or invalid operator credential
+        '403':
+          description: The caller lacks the admin role
   /audit:
     get:
       tags: [audit]
-      summary: Read the audit log (admin)
+      summary: Read the audit log (auditor)
+      description: >
+        Requires the `auditor` role. `limit` and `offset` are coerced with `Number()` and
+        not bounded or validated; a non-numeric value is not rejected. Events whose subject
+        has been erased are returned redacted: `actor` and `target` read `[redacted]`,
+        `metadata` is absent, and `redactedAt` is set.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - { name: limit, in: query, schema: { type: integer } }
@@ -618,16 +1323,23 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [count, events]
                 properties:
                   count: { type: integer }
                   events:
                     type: array
                     items: { $ref: '#/components/schemas/AuditEvent' }
-        '401': { description: Missing or invalid admin key }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the auditor role }
   /audit/verify:
     get:
       tags: [audit]
-      summary: Verify the audit hash chain is intact (admin)
+      summary: Verify the audit hash chain is intact (auditor)
+      description: >
+        Requires the `auditor` role. Checks every link, then the signed checkpoint that
+        binds the tail against the deployment's own public keys (retired keys included, so
+        a rotation does not invalidate earlier checkpoints). `anchored` is false when no
+        trustworthy checkpoint covered the tail; `anchorProblem` says why.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
@@ -636,6 +1348,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [ok, length, redacted, anchored, checkpoints]
                 properties:
                   ok: { type: boolean }
                   length: { type: integer }
@@ -647,15 +1360,33 @@ paths:
                       recomputable, so the chain verifies its LINK but not its content, and
                       an auditor is entitled to know how much of the log that applies to.
                   brokenAtSeq: { type: integer, nullable: true }
+                  anchored:
+                    type: boolean
+                    description: A signed checkpoint was available and verified against the tail.
+                  checkpoints: { type: integer, description: How many checkpoints were examined. }
+                  truncatedAfterSeq:
+                    type: integer
+                    nullable: true
+                    description: Set when a checkpoint proves events after this seq were removed.
+                  anchorProblem:
+                    type: string
+                    enum: [unsigned, untrusted, no-checkpoint]
+                    nullable: true
+                    description: Set when the anchor itself could not be trusted.
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the auditor role }
   /admin/residents:
     get:
       tags: [admin]
       summary: List residents in the registry (admin)
+      description: >
+        Requires the `support` role. Returns only non-sensitive registry fields. Each read is
+        audited against the operator who made it.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
-        - { name: countryCode, in: query, schema: { type: string } }
-        - { name: limit, in: query, schema: { type: integer } }
-        - { name: offset, in: query, schema: { type: integer } }
+        - { name: countryCode, in: query, schema: { type: string, pattern: '^[A-Za-z]{2}$' } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
       responses:
         '200':
           description: Registry page
@@ -663,15 +1394,20 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [total, residents]
                 properties:
                   total: { type: integer }
                   residents:
                     type: array
-                    items: { $ref: '#/components/schemas/ResidencyStatus' }
+                    items: { $ref: '#/components/schemas/RegistryResident' }
+        '400': { description: A query parameter is out of range or malformed }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
   /admin/stats:
     get:
       tags: [admin]
       summary: Deployment statistics (admin)
+      description: Requires the `support` role.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
@@ -680,23 +1416,26 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [countries, residentsByCountry]
                 properties:
                   countries: { type: integer }
                   residentsByCountry:
                     type: object
                     additionalProperties: { type: integer }
+        '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
   /admin/statistics:
     get:
       tags: [statistics]
       summary: Aggregate non-PII residency statistics (JSON)
       description: >
-        Residency counts grouped by country, subnational unit, provider, assurance level,
-        and provisional status. No personal data: no identifiers, names, dates of birth,
-        or contact details are present in the response by construction. Cells counting
-        fewer residents than the deployment's suppression threshold
-        (`STATISTICS_SUPPRESSION_THRESHOLD`, default 5) are withheld, as is a second cell
-        whenever exactly one would otherwise be withheld -- publishing a single gap next to
-        a truthful total would give the withheld figure away by subtraction.
+        Requires the `support` role. Residency counts grouped by country, subnational unit,
+        provider, assurance level, and provisional status. No personal data: no identifiers,
+        names, dates of birth, or contact details are present in the response by
+        construction. Cells counting fewer residents than the deployment's suppression
+        threshold (`STATISTICS_SUPPRESSION_THRESHOLD`, default 5) are withheld, as is a
+        second cell whenever exactly one would otherwise be withheld -- publishing a single
+        gap next to a truthful total would give the withheld figure away by subtraction.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
@@ -705,6 +1444,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [generatedAt, suppressionThreshold, totalResidents, countries, cells]
                 properties:
                   generatedAt: { type: string, format: date-time }
                   suppressionThreshold: { type: integer }
@@ -718,6 +1458,7 @@ paths:
                     type: array
                     items:
                       type: object
+                      required: [countryCode, subnationalUnit, providerCode, assuranceLevel, provisional, count, suppressed]
                       properties:
                         countryCode: { type: string }
                         subnationalUnit: { type: string }
@@ -729,18 +1470,26 @@ paths:
                           description: Null when this cell is suppressed.
                         suppressed: { type: boolean }
         '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
   /admin/statistics.csv:
     get:
       tags: [statistics]
       summary: Aggregate non-PII residency statistics (RFC 4180 CSV)
       description: >
-        The same report as `/admin/statistics`, serialized as RFC 4180 CSV for deployers
-        publishing an open-data file or loading it into an analysis tool. A suppressed
-        cell's `count` is an empty field and its `suppressed` column reads `true`.
+        Requires the `support` role. The same report as `/admin/statistics`, serialized as
+        RFC 4180 CSV for deployers publishing an open-data file or loading it into an
+        analysis tool. Rows are CRLF-terminated, including the last. A suppressed cell's
+        `count` is an empty field and its `suppressed` column reads `true`.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       responses:
         '200':
           description: CSV report
+          headers:
+            Content-Type:
+              schema: { type: string, enum: ['text/csv; charset=utf-8'] }
+            Content-Disposition:
+              schema: { type: string, enum: ['attachment; filename="openresidency-statistics.csv"'] }
+              description: Served as a download rather than rendered inline.
           content:
             text/csv:
               schema: { type: string }
@@ -750,32 +1499,48 @@ paths:
                 NG,KT,NIMC,verified,false,9877,false
                 NG,ZM,NIMC,verified,false,,true
         '401': { description: Missing or invalid operator credential }
+        '403': { description: The operator lacks the support role }
   /offline/qr:
     post:
       tags: [offline]
-      summary: Render a residency credential as a scannable QR (SVG)
+      summary: Render a residency credential as a scannable QR (SVG, wrapped in JSON)
+      description: >
+        Returns a JSON object carrying the SVG, not the SVG itself. `mode` is `full` when
+        the whole credential fits in the code and `pointer` when the code carries a
+        reference instead.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [credential, residentId]
               properties:
-                credential: { type: string }
-                residentId: { type: string }
+                credential: { type: string, maxLength: 16384, description: VC-JWT }
+                residentId: { type: string, maxLength: 128 }
       responses:
-        '200':
-          description: SVG QR
+        '201':
+          description: The rendered QR
           content:
-            image/svg+xml:
-              schema: { type: string }
+            application/json:
+              schema:
+                type: object
+                required: [mode, svg]
+                properties:
+                  mode: { type: string, enum: [full, pointer] }
+                  svg: { type: string, description: SVG markup of the QR code }
+        '400': { description: "Malformed body, or a field the request schema does not declare" }
   /offline/ussd:
     post:
       tags: [offline]
       summary: USSD webhook for feature phones
       description: >
         Called by the USSD aggregator only. The handler trusts the caller's word for
-        `phoneNumber`, so it requires the shared gateway secret.
+        `phoneNumber` and `sessionId`, so it requires the shared gateway secret, presented
+        either as the `x-ussd-secret` header or in `Authorization` (raw, or
+        `Bearer <secret>`). Fails closed with 401 when `USSD_GATEWAY_SECRET` is unset. Only
+        the three fields below are accepted; any other field the aggregator sends (for
+        example `serviceCode` or `networkCode`) is rejected with 400.
       security: [{ ussdSecret: [] }]
       requestBody:
         required: true
@@ -784,14 +1549,17 @@ paths:
             schema:
               type: object
               properties:
-                text: { type: string }
-                phoneNumber: { type: string }
+                sessionId: { type: string, maxLength: 128 }
+                phoneNumber: { type: string, maxLength: 32 }
+                text: { type: string, maxLength: 256 }
       responses:
-        '200':
+        '201':
           description: USSD CON/END response
           content:
             text/plain:
               schema: { type: string }
+        '400': { description: "A field exceeds its limit, or an undeclared field was sent" }
+        '401': { description: "Missing or invalid gateway secret, or no secret configured on this deployment" }
   /.well-known/openid-credential-issuer:
     get:
       tags: [oid4vci]
@@ -814,26 +1582,33 @@ paths:
       description: >
         Only the pre-authorized code grant is supported. There is no interactive
         authorization-code flow, because the citizen was already authenticated in person
-        against their foundational ID at the enrollment desk.
+        against their foundational ID at the enrollment desk. The same document is also
+        served at `/.well-known/openid-configuration` for wallets that look there first.
       responses:
         '200':
           description: Authorization Server Metadata
           content:
             application/json:
-              schema: { type: object }
+              schema:
+                $ref: '#/components/schemas/AuthorizationServerMetadata'
   /openid4vci/offer:
     post:
       tags: [oid4vci]
-      summary: Create a Credential Offer for an enrolled resident (operator; admin key)
+      summary: Create a Credential Offer for an enrolled resident (operator; registrar role)
       description: >
         Called by the enrollment desk after the foundational ID check has passed. Returns
-        an `openid-credential-offer://` deep link to render as a QR, and a 6-digit
-        transaction code to read out to the citizen.
+        an `openid-credential-offer://` deep link to render as a QR, and a transaction
+        code of the configured length (default 6 digits) to read out to the citizen.
+        Requires the `registrar` role: being able to mint offers for arbitrary residents
+        is equivalent to being able to issue their credentials.
 
         The offer is passed BY VALUE: the pre-authorized code travels inside the QR, and
         only its SHA-256 hash is stored. A photographed QR is not sufficient on its own,
         because the transaction code is a separate factor, the code is single-use, and it
-        expires in 15 minutes.
+        expires after `wallet.offer.ttlSeconds` (default 15 minutes).
+
+        Recorded to the audit log as `oid4vci.offer.create` with the offer id only --
+        never the pre-authorized code or the transaction code.
       security:
         - operatorKey: []
         - operatorToken: []
@@ -846,72 +1621,77 @@ paths:
               type: object
               required: [residentId]
               properties:
-                residentId: { type: string, example: KT-7F3A-9K2P }
+                residentId: { type: string, maxLength: 128, example: KT-7F3A-9K2P }
       responses:
-        '200':
+        '201':
           description: A credential offer, its deep link, and the transaction code
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  offerId: { type: string }
-                  offerUri:
-                    type: string
-                    example: openid-credential-offer://?credential_offer=%7B...%7D
-                  offer: { type: object }
-                  txCode:
-                    type: string
-                    description: Read out to the citizen. Returned once; stored only as a hash.
-                    example: '402913'
-                  expiresAt: { type: string, format: date-time }
-                  credentialConfigurationIds:
-                    type: array
-                    items: { type: string }
-        '401': { description: Missing or invalid admin key }
-        '404': { description: Unknown residentId }
+                $ref: '#/components/schemas/CredentialOfferCreated'
+        '400':
+          description: >
+            `invalid_request` when `residentId` is missing; a validation error when the
+            body carries any other property.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '401': { description: Operator authentication required }
+        '403': { description: The caller lacks the registrar role }
+        '404':
+          description: Unknown residentId, or no jurisdiction config for the resident's country (`invalid_request`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
   /openid4vci/token:
     post:
       tags: [oid4vci]
       summary: Token Endpoint (pre-authorized code grant)
       description: >
-        Exchanges the pre-authorized code plus the transaction code for an access token.
-        The code is single-use, and wrong transaction codes are counted so a 6-digit PIN
-        cannot be walked through.
+        Exchanges the pre-authorized code plus the transaction code for an access token
+        (OpenID4VCI 1.0 §6, RFC 6749 §4). The code is single-use, and wrong transaction
+        codes are counted so a 6-digit PIN cannot be walked through; after
+        `wallet.offer.maxTxCodeAttempts` failures the offer is locked.
+
+        Form-encoded per OAuth 2.0; a JSON body with the same fields is accepted too.
+        `grant_type` may be omitted and defaults to the pre-authorized code grant -- any
+        other value is refused. The response is sent with `Cache-Control: no-store`.
 
         The access token is a signed JWT that also carries `c_nonce` and `client_id` as
         claims. That duplication is not in any version of the spec; it exists because the
-        Inji wallet reads the nonce from inside the token rather than from this response.
+        Inji wallet reads the nonce from inside the token rather than from this response,
+        and can be turned off with `wallet.compatibility.cNonceInAccessToken`.
       requestBody:
         required: true
         content:
           application/x-www-form-urlencoded:
             schema:
-              type: object
-              required: [grant_type, pre-authorized_code]
-              properties:
-                grant_type:
-                  type: string
-                  enum: ['urn:ietf:params:oauth:grant-type:pre-authorized_code']
-                pre-authorized_code: { type: string }
-                tx_code: { type: string, example: '402913' }
+              $ref: '#/components/schemas/TokenRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
       responses:
         '200':
           description: Access token
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  access_token: { type: string }
-                  token_type: { type: string, example: bearer }
-                  expires_in: { type: integer, example: 600 }
-                  c_nonce: { type: string }
-                  c_nonce_expires_in: { type: integer }
+                $ref: '#/components/schemas/TokenResponse'
         '400':
           description: >
-            invalid_grant (unknown, expired, reused, or PIN-locked code) or
-            invalid_request (missing tx_code)
+            `unsupported_grant_type` (a grant_type other than the pre-authorized code
+            grant), `invalid_request` (missing pre-authorized_code, or missing tx_code for
+            an offer that has one), or `invalid_grant` (unknown, expired, reused, or
+            PIN-locked code, or an incorrect transaction code)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
   /openid4vci/nonce:
     post:
       tags: [oid4vci]
@@ -934,17 +1714,24 @@ paths:
       tags: [oid4vci]
       summary: Credential Endpoint
       description: >
-        Issues a residency credential bound to the key the wallet proves possession of.
-        A key proof is REQUIRED: this issuer will not mint an unbound credential, because
-        a credential with no holder binding is a bearer token.
+        Issues a residency credential bound to the key the wallet proves possession of
+        (OpenID4VCI 1.0 §8). A key proof is REQUIRED: this issuer will not mint an unbound
+        credential, because a credential with no holder binding is a bearer token. The
+        proof is a JWT with `typ: openid4vci-proof+jwt`, an `alg` from the jurisdiction's
+        `wallet.proofAlgs` (default EdDSA, ES256, RS256), exactly one of `jwk` or `kid` in
+        the header (`x5c` is refused), `aud` equal to the Credential Issuer Identifier, and
+        a fresh `nonce` claim; nonces are single-use.
 
-        Accepts both dialects and answers in kind. Draft 13 sends `format` +
-        `credential_definition` with a singular `proof`, and receives a singular
-        `credential`. OpenID4VCI 1.0 sends `credential_configuration_id` with a plural
-        `proofs`, and receives a `credentials` array.
+        Accepts both dialects and answers in kind. Draft 13 sends `format` with a singular
+        `proof`, and receives a singular `credential` plus a fresh `c_nonce`. OpenID4VCI 1.0
+        sends `credential_configuration_id` with a plural `proofs`, and receives a
+        `credentials` array -- one entry per proof, each bound to that proof's key. A
+        deployment can refuse the Draft 13 shape with `wallet.compatibility.draft13: false`.
+        The response is sent with `Cache-Control: no-store`.
 
         The credential subject is a did:key for Ed25519 holders and a did:jwk otherwise
         (including the RSA keys Inji generates). Both resolve with no network access.
+        Every attempt is recorded to the audit log as `oid4vci.credential.issue`.
       security:
         - walletToken: []
       requestBody:
@@ -952,48 +1739,41 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                credential_configuration_id:
-                  type: string
-                  example: NG_StateResidencyCredential_ldp_vc
-                format:
-                  type: string
-                  enum: [ldp_vc, jwt_vc_json]
-                  description: Draft 13 alternative to credential_configuration_id
-                proofs:
-                  type: object
-                  properties:
-                    jwt:
-                      type: array
-                      items: { type: string }
-                proof:
-                  type: object
-                  description: Draft 13 singular key proof
-                  properties:
-                    proof_type: { type: string, enum: [jwt] }
-                    jwt: { type: string }
+              $ref: '#/components/schemas/CredentialRequest'
       responses:
         '200':
           description: The issued credential, in the dialect of the request
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  credentials:
-                    type: array
-                    description: OpenID4VCI 1.0 response
-                    items:
-                      type: object
-                      properties:
-                        credential: {}
-                  credential:
-                    description: Draft 13 response (a JWT string, or a JSON-LD object)
-                  c_nonce: { type: string }
+                $ref: '#/components/schemas/CredentialResponse'
         '400':
-          description: invalid_proof, invalid_nonce, or unknown_credential_configuration
-        '401': { description: invalid_token }
+          description: >
+            `invalid_proof` (missing, malformed, wrongly typed, unsupported alg, bad
+            signature, stale iat, or bad key material), `invalid_nonce` (missing, unknown,
+            expired, or already-used nonce), `unknown_credential_configuration` (no
+            configuration matches the id or format), `credential_request_denied` (the
+            access token does not authorize that configuration), or
+            `invalid_credential_request` (Draft 13 shape while Draft 13 is disabled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '401':
+          description: '`invalid_token`: no Bearer token, or one that is invalid or expired'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '404':
+          description: '`credential_request_denied`: the resident record no longer exists'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
   /contexts/residency/v1:
     get:
       tags: [oid4vci]
@@ -1018,6 +1798,893 @@ paths:
           content:
             application/json:
               schema: { type: object }
+  /.well-known/did/{countryCode}.json:
+    get:
+      tags: [trust]
+      summary: Issuer DID document for one jurisdiction (did:web)
+      description: >
+        The DID document for the jurisdiction's issuer DID, in the shape did:web resolution
+        expects (DID Core §5; did:web method spec §"Read"). Publishes every key the issuer
+        has signed with -- the current one first, then retired ones -- each as two
+        verification methods: `JsonWebKey2020` with `publicKeyJwk` (what VC-JWT verifiers
+        resolve) and `Multikey` with `publicKeyMultibase` (what the `eddsa-rdfc-2022`
+        Data Integrity cryptosuite requires). All method ids are listed under both
+        `assertionMethod` and `authentication`. Retired keys stay published so credentials
+        already in circulation keep verifying. `countryCode` is case-insensitive.
+      parameters:
+        - name: countryCode
+          in: path
+          required: true
+          schema: { type: string, example: NG }
+      responses:
+        '200':
+          description: DID document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DidDocument'
+        '404': { description: Unknown country }
+  /.well-known/status/{file}:
+    get:
+      tags: [trust]
+      summary: Signed Bitstring Status List (revocation or suspension) for one jurisdiction
+      description: >
+        The status list credential that residency credentials name in
+        `credentialStatus.statusListCredential`, per W3C Bitstring Status List 1.0 §3.
+        `{cc}.json` is the revocation list (`statusPurpose: revocation`);
+        `{cc}-suspension.json` is the suspension list (`statusPurpose: suspension`).
+        They are separate documents because ORCS §10 treats SUSPENDED and REVOKED as
+        different states, and a verifier that read one as the other would get them
+        backwards.
+
+
+        Served as a SIGNED `BitstringStatusListCredential` -- `@context`
+        `https://www.w3.org/ns/credentials/v2`, `type` `[VerifiableCredential,
+        BitstringStatusListCredential]`, `credentialSubject.type: BitstringStatusList`,
+        `encodedList` as multibase base64url (`u` prefix) of the GZIP-compressed bitstring
+        -- with a Data Integrity proof (`eddsa-rdfc-2022`) whose `verificationMethod` is the
+        Multikey in the DID document. A verifier caches this snapshot and checks revocation
+        offline against it, so the cached artifact must be self-authenticating; TLS only
+        protects it in flight. Signing is content-addressed and cached, so a poll never
+        re-invokes the issuer key (HSM/KMS): until a bit changes, the same document, same
+        `validFrom`, same proof, comes back. `Cache-Control: public, max-age=300`.
+      parameters:
+        - name: file
+          in: path
+          required: true
+          description: >-
+            `<cc>.json` for the revocation list or `<cc>-suspension.json` for the
+            suspension list, where `<cc>` is the lower-case country code (the `.json`
+            suffix is optional and the code case-insensitive).
+          schema: { type: string, example: ng.json }
+      responses:
+        '200':
+          description: The signed status list credential
+          headers:
+            Cache-Control:
+              schema: { type: string, example: 'public, max-age=300' }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BitstringStatusListCredential'
+        '404': { description: Unknown country }
+  /.well-known/openid-configuration:
+    get:
+      tags: [oid4vci]
+      summary: Authorization Server Metadata, at the OpenID Connect discovery path
+      description: >
+        The same document as `/.well-known/oauth-authorization-server`, served here because
+        some wallets look for OpenID Connect discovery first and fall back to the OAuth path
+        only when this one 404s. It is RFC 8414 metadata for the OpenID4VCI issuer --
+        `issuer`, `token_endpoint`, `grant_types_supported` (only
+        `urn:ietf:params:oauth:grant-type:pre-authorized_code`), `response_types_supported`
+        (empty), `pre-authorized_grant_anonymous_access_supported: true`,
+        `token_endpoint_auth_methods_supported: [none]` -- not the discovery document of the
+        SSO OpenID Provider, which lives at `/oidc/.well-known/openid-configuration`.
+      responses:
+        '200':
+          description: Authorization Server Metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationServerMetadata'
+  /openid4vp/request:
+    post:
+      tags: [oid4vp]
+      summary: Open a presentation request and get an openid4vp:// URI to render as a QR
+      description: >
+        Relying-party action; requires the `support` role. Creates a pending presentation
+        request with a fresh nonce and returns the deep link the relying party shows the
+        citizen. The request is passed BY REFERENCE (OpenID4VP 1.0 §5.10, `request_uri`):
+        the URI carries only `client_id` and `request_uri`, and the wallet fetches the
+        signed Request Object from GET /openid4vp/request/{id}. Signing is what lets the
+        wallet tell the citizen who is really asking.
+
+
+        Guarded because whoever can open a request can later read its outcome, and the
+        outcome carries residency claims. The request expires after
+        `presentation.requestTtlSeconds` (default 300 s).
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresentationRequestCreate'
+      responses:
+        '201':
+          description: The pending request and the URI to render as a QR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresentationRequestCreated'
+        '400': { description: "Unknown property, or purpose/reference over their length limits" }
+        '401': { description: Operator authentication required }
+        '403': { description: The caller lacks the support role }
+  /openid4vp/request/{id}:
+    get:
+      tags: [oid4vp]
+      summary: The signed Request Object a wallet dereferences from request_uri
+      description: >
+        Wallet action; unauthenticated by necessity (the wallet is on the citizen's device),
+        protected instead by the id being an unguessable UUID that expires. Returns the
+        Request Object as a compact JWS with header `typ: oauth-authz-req+jwt` (JAR,
+        RFC 9101 §4; OpenID4VP 1.0 §5.10) in the `application/oauth-authz-req+jwt` media type.
+        The `kid` is `<client_id>#<issuer key id>`, so a wallet resolves the verifier's DID
+        to check the signature with no PKI.
+
+
+        Claims, exactly as emitted: `client_id`, `response_type: vp_token`,
+        `response_mode: direct_post`, `response_uri` (POST /openid4vp/response/{id}),
+        `nonce`, `state` (the request id), `client_metadata` (`client_name`, `purpose`),
+        `iss` (the client_id), `aud: https://self-issued.me/v2`, `iat`, `exp`. The query is
+        emitted in whichever languages the deployment advertises (`presentation.query`,
+        default both): `dcql_query` (OpenID4VP 1.0 §6, one credential query with id
+        `residency`, `format: ldp_vc`, `meta.type_values`, and `claims` paths for
+        `credentialSubject.residentId` and `credentialSubject.subnationalUnit.{name,code}`)
+        and/or `presentation_definition` (DIF Presentation Exchange, one input descriptor
+        `residency` constrained on `$.type` / `$.vc.type` containing the credential type).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The signed Request Object
+          content:
+            application/oauth-authz-req+jwt:
+              schema: { type: string, description: "Compact JWS (EdDSA), typ oauth-authz-req+jwt" }
+        '404':
+          description: >
+            Unknown or expired request (`error: invalid_request`). The body is the JSON
+            error object, but it is labelled `application/oauth-authz-req+jwt` because the
+            handler's Content-Type is set before the handler runs.
+          content:
+            application/oauth-authz-req+jwt:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+  /openid4vp/response/{id}:
+    post:
+      tags: [oid4vp]
+      summary: Response Endpoint (response_mode direct_post) where the wallet posts the vp_token
+      description: >
+        Wallet action; unauthenticated, single-use. OpenID4VP 1.0 §8.2: the wallet POSTs
+        `vp_token` (and `state`) as `application/x-www-form-urlencoded`; JSON is accepted
+        too. `vp_token` may be the presentation JWS itself, an object keyed by the DCQL
+        query id (`residency`), or an array whose first element is the JWS -- the first
+        string found is verified. The body is deliberately not schema-validated: its shape
+        is OpenID4VP's, not ours.
+
+
+        Before verifying, every jurisdiction's status list is re-read from the store, so a
+        credential revoked a moment ago is refused. The verifier checks holder binding
+        (`credentialSubject.id` equals the signing key's DID), the nonce, the audience
+        (`aud` is this verifier's `client_id`), the enclosed credential's signature, expiry
+        and revocation, and fails closed when revocation cannot be checked.
+
+
+        The wallet receives only `{ "status": "accepted" }`, whether or not the
+        presentation verified. The verdict goes to the relying party at
+        GET /openid4vp/result/{id}; telling the wallet why a presentation failed would hand
+        an attacker a debugging oracle. Recorded to the audit log as
+        `oid4vp.presentation.verify`, actor `wallet`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PresentationResponse'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresentationResponse'
+      responses:
+        '200':
+          description: Acknowledged. Says nothing about whether the presentation verified.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [accepted] }
+        '400':
+          description: >
+            `invalid_request`: the request has expired, was already answered, or carries no
+            usable `vp_token`. Expiry and a missing token are recorded as a failed outcome
+            (`REQUEST_EXPIRED`, `NO_VP_TOKEN`) for the relying party to read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+        '404':
+          description: Unknown request (`invalid_request`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+  /openid4vp/result/{id}:
+    get:
+      tags: [oid4vp]
+      summary: Poll a presentation request for its verdict
+      description: >
+        Relying-party action; requires the `support` role. `status` is `pending` until a
+        wallet answers, then `fulfilled` or `failed`, and `outcome` appears. Only the claims
+        the request asked for are released: residency id, subnational unit, full name and
+        provisional flag. The foundational `subjectRef` and date of birth never leave here.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The request's state and, once answered, the verdict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresentationResult'
+        '401': { description: Operator authentication required }
+        '403': { description: The caller lacks the support role }
+        '404':
+          description: Unknown request (`invalid_request`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthError'
+  /credentials/issue:
+    post:
+      tags: [vcapi]
+      summary: Sign an unsigned credential with the issuer key (VC-API)
+      description: >
+        VC-API issuer endpoint (VC-API §"Issue Credential", `POST /credentials/issue`):
+        takes `credential` and returns `verifiableCredential`. Requires the `registrar`
+        role: an unguarded signing oracle under a government issuer's DID would let anyone
+        mint a credential that appears to come from the state.
+
+
+        The input is validated against the VC Data Model 2.0 MUSTs (`@context` starting
+        with `https://www.w3.org/ns/credentials/v2`, `type` including
+        `VerifiableCredential`, a non-empty `credentialSubject`, a URI `issuer`,
+        `validFrom`/`validUntil` as XML Schema dateTimeStamps, `credentialSchema`,
+        `credentialStatus`, `evidence`, `refreshService`, `termsOfUse` and
+        `relatedResource` well-formed, with `relatedResource` digests checked against the
+        pinned copy of the resource). Rejecting malformed input is part of conformance.
+        The proof attached is a Data Integrity proof, `cryptosuite: eddsa-rdfc-2022`,
+        `proofPurpose: assertionMethod`, whose `verificationMethod` is the issuer DID's
+        Multikey published in the DID document. The issuer DID is the one the credential
+        names, else the deployment's first jurisdiction. `options` is accepted and ignored.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential:
+                  type: object
+                  description: An unsigned VC Data Model 2.0 credential (JSON-LD).
+                  additionalProperties: true
+                options:
+                  type: object
+                  description: Accepted for VC-API shape compatibility; not read.
+                  additionalProperties: true
+      responses:
+        '201':
+          description: The signed credential
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verifiableCredential:
+                    $ref: '#/components/schemas/DataIntegrityCredential'
+        '400':
+          description: >
+            Missing `credential`, a data-model violation, no issuer available, or a term
+            the pinned JSON-LD contexts do not define (safe-mode canonicalization refuses
+            rather than drops it).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcApiErrors'
+        '401': { description: Operator authentication required }
+        '403': { description: The caller lacks the registrar role }
+  /credentials/verify:
+    post:
+      tags: [vcapi]
+      summary: Verify a credential (VC-API)
+      description: >
+        VC-API verifier endpoint (`POST /credentials/verify`): takes `verifiableCredential`
+        and answers with `checks`, `warnings` and `errors` lists rather than a single
+        throw. A VC-JWT arrives as a compact string and goes through the residency
+        verifier (signature, expiry, revocation against the freshly synced status list);
+        `checks` then lists `proof`, `expiration` and, when revocation was checkable,
+        `credentialStatus`. A Data Integrity credential arrives as an object, is validated
+        against the data model, and its `eddsa-rdfc-2022` proof is checked against THIS
+        deployment's issuer key -- a single-issuer verifier, not a federation resolver --
+        then `validUntil` is checked; `checks` is `[proof, expiration]`. Requires the
+        `registrar` role.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verifiableCredential]
+              properties:
+                verifiableCredential:
+                  description: A Data Integrity credential (object) or a VC-JWT (string).
+                  oneOf:
+                    - $ref: '#/components/schemas/DataIntegrityCredential'
+                    - { type: string, description: Compact VC-JWT }
+                options:
+                  type: object
+                  description: Accepted for VC-API shape compatibility; not read.
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Verified. `errors` is empty.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcApiVerifyResult'
+        '400':
+          description: >
+            Not verified: missing input, a data-model violation, an unknown issuer, a proof
+            that does not verify, an expired credential, or (VC-JWT) the verifier's
+            `reason` code (BAD_SIGNATURE, EXPIRED, REVOKED, UNTRUSTED_ISSUER,
+            ISSUER_MISMATCH, MALFORMED_JWT, NO_ISSUER). `checks` is empty and `errors`
+            carries the reasons.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcApiVerifyResult'
+        '401': { description: Operator authentication required }
+        '403': { description: The caller lacks the registrar role }
+  /presentations/verify:
+    post:
+      tags: [vcapi]
+      summary: Verify a presentation's proof (VC-API)
+      description: >
+        VC-API verifier endpoint (`POST /presentations/verify`): takes
+        `verifiablePresentation` as a JSON-LD object. The Data Integrity proof is checked
+        against the key its own `proof.verificationMethod` names, which must be a `did:key`
+        -- a presentation is signed by the HOLDER, not by this issuer, and did:key carries
+        the public key in the identifier, so this resolves offline. An enveloped
+        (string) presentation is refused.
+
+
+        No challenge or domain is taken, so freshness, audience and holder binding cannot
+        be established here; `warnings` says so explicitly rather than implying assurance
+        this endpoint does not provide. The path that checks all three is OpenID4VP
+        (POST /openid4vp/response/{id}). Requires the `registrar` role.
+      security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verifiablePresentation]
+              properties:
+                verifiablePresentation:
+                  type: object
+                  description: >-
+                    A VC Data Model 2.0 presentation (`@context` starting with the v2
+                    context, `type` including `VerifiablePresentation`) carrying a
+                    DataIntegrityProof whose `verificationMethod` is a did:key.
+                  additionalProperties: true
+                options:
+                  type: object
+                  description: Accepted for VC-API shape compatibility; not read.
+                  additionalProperties: true
+      responses:
+        '200':
+          description: >
+            The proof verifies. `checks` is `[proof]`; `warnings` states that holder
+            binding, nonce and audience are checked on the OpenID4VP path, not here.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcApiVerifyResult'
+        '400':
+          description: >
+            Missing input, an enveloped presentation, a shape violation, or a proof that
+            does not verify (including an unresolvable or non-did:key verification method).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VcApiVerifyResult'
+        '401': { description: Operator authentication required }
+        '403': { description: The caller lacks the registrar role }
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      summary: This API description, as served by the running instance
+      description: >
+        `docs/openapi.yaml` from the working directory (or, failing that, relative to the
+        compiled bundle), read once and cached for the life of the process. When neither
+        copy is present a minimal stub with an empty `paths` is served instead of an error.
+        This is the document the Interoperability SDK is generated against.
+      responses:
+        '200':
+          description: The OpenAPI 3.1 document
+          content:
+            application/yaml:
+              schema: { type: string }
+  /docs:
+    get:
+      tags: [meta]
+      summary: Browsable API documentation (Swagger UI)
+      description: >
+        A single HTML page that loads Swagger UI 5 from `cdn.jsdelivr.net` and points it at
+        `/openapi.yaml`. The page itself is served locally; rendering it needs the browser
+        to reach the CDN.
+      responses:
+        '200':
+          description: Swagger UI page
+          content:
+            text/html:
+              schema: { type: string }
+  /interaction/{uid}:
+    get:
+      tags: [sso]
+      summary: The sign-in or consent page for an OIDC interaction
+      description: >
+        Browser-only. A relying party sends the citizen to the OpenID Connect provider's
+        authorization endpoint (`GET /oidc/auth`); when the provider needs a human step it
+        mints an interaction `uid`, sets its `_interaction` cookie, and redirects the browser
+        here. Renders the sign-in page for a `login` prompt (wallet QR plus a one-time-code
+        fallback) or the consent page for a `consent` prompt, under a per-response
+        Content-Security-Policy that permits only nonced inline script and style. The
+        interaction is resolved from the cookie, not from the path: a valid cookie is what
+        authorises the page.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      responses:
+        '200':
+          description: The sign-in or consent page
+          headers:
+            Content-Security-Policy:
+              description: "`default-src 'none'`; script and style permitted only by this response's nonce"
+              schema: { type: string }
+          content:
+            text/html:
+              schema: { type: string }
+        '400':
+          description: >-
+            `invalid_request` when the interaction cookie is missing, expired or unknown;
+            `Unknown prompt` (text/plain) for a prompt other than login or consent
+  /interaction/{uid}/vp/start:
+    get:
+      tags: [sso]
+      summary: Begin a wallet (Verifiable Presentation) sign-in
+      description: >
+        Called by the sign-in page's script. Creates an OpenID4VP presentation request and
+        returns its URI and an SVG QR of it for the citizen's wallet to scan. The `uid` is
+        not consulted and no interaction cookie is required; the `requestId` returned is the
+        capability that later completes the sign-in.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      responses:
+        '200':
+          description: The presentation request and its QR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VpStartResponse'
+  /interaction/{uid}/vp/poll:
+    get:
+      tags: [sso]
+      summary: Poll a wallet sign-in
+      description: >
+        Called by the sign-in page's script every two seconds. The wallet posts its
+        presentation to the OpenID4VP response endpoint out of band; this reports whether
+        it has been verified yet. Only the status is returned, never the authenticated
+        residency ID. An unknown or expired `requestId` answers `failed` with 200, not 4xx.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+        - { name: requestId, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: The presentation's state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VpPollResponse'
+  /interaction/{uid}/vp/complete:
+    get:
+      tags: [sso]
+      summary: Complete a wallet sign-in and resume the OIDC flow
+      description: >
+        Browser-only; the sign-in page navigates here once polling reports `authenticated`.
+        Re-checks server-side that the presentation for `requestId` verified, records the
+        login with `acr` `urn:openresidency:aal2` and `amr` `[pop]`, and hands the
+        interaction back to the provider, which redirects to its resume endpoint. The
+        interaction cookie must accompany the request.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+        - { name: requestId, in: query, required: true, schema: { type: string } }
+      responses:
+        '303':
+          description: Signed in; resume the authorization request at the provider
+          headers:
+            Location:
+              schema: { type: string, example: /oidc/auth/rFqvXjS3aL2x9Kp0 }
+        '200':
+          description: The presentation did not authenticate; the sign-in page re-rendered with an error
+          content:
+            text/html:
+              schema: { type: string }
+        '400':
+          description: "`invalid_request`: the presentation verified but the interaction cookie is missing, expired or unknown"
+  /interaction/{uid}/otp/start:
+    post:
+      tags: [sso]
+      summary: Send a one-time code to a residency ID's registered contact
+      description: >
+        The fallback factor, for a citizen whose wallet is not to hand. Answers `sent: true`
+        whether or not the residency ID exists, was supplied, or could be reached, so it
+        cannot be used to enumerate residency IDs; a delivery failure is written to the
+        audit log instead. Neither `uid` nor the interaction cookie is checked. Also the
+        authorisation step for passkey enrolment (see /webauthn/register/start).
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthStartRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AuthStartRequest'
+      responses:
+        '201':
+          description: Always, regardless of whether a code was sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: boolean, enum: [true] }
+        '400':
+          description: Validation failed (unknown property, non-string, or residentId over 128 characters)
+  /interaction/{uid}/otp/verify:
+    post:
+      tags: [sso]
+      summary: Verify a one-time code and resume the OIDC flow
+      description: >
+        Browser-only; the sign-in page posts its form here. On success the login is recorded
+        with `acr` `urn:openresidency:aal1` and `amr` `[otp]` and the provider redirects to
+        its resume endpoint. A wrong, expired or locked code, or a missing field, re-renders
+        the sign-in page with an error rather than returning a machine-readable reason. The
+        interaction cookie must accompany the request.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OtpVerifyRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OtpVerifyRequest'
+      responses:
+        '303':
+          description: Signed in; resume the authorization request at the provider
+          headers:
+            Location:
+              schema: { type: string, example: /oidc/auth/rFqvXjS3aL2x9Kp0 }
+        '200':
+          description: Incorrect or expired code, or missing fields; the sign-in page re-rendered with an error
+          content:
+            text/html:
+              schema: { type: string }
+        '400':
+          description: >-
+            Validation failed (unknown property, non-string, residentId over 128 or code over
+            16 characters), or `invalid_request` when the code verified but the interaction
+            cookie is missing, expired or unknown
+  /interaction/{uid}/webauthn/authenticate/start:
+    post:
+      tags: [sso]
+      summary: Begin a passkey sign-in
+      description: >
+        Returns the PublicKeyCredentialRequestOptions for `navigator.credentials.get()` and
+        the challenge id to echo back. Answers 204 when the resident has no passkey enrolled,
+        or when no `residentId` was supplied, so the page can fall back to another factor
+        without learning whether the residency ID exists. Neither `uid` nor the interaction
+        cookie is checked.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthStartRequest'
+      responses:
+        '200':
+          description: A challenge and the credentials the resident may sign with
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebAuthnAuthenticateStartResponse'
+        '204':
+          description: No passkey enrolled for that residency ID, or none supplied
+        '400':
+          description: Validation failed (unknown property, non-string, or residentId over 128 characters)
+  /interaction/{uid}/webauthn/authenticate/finish:
+    post:
+      tags: [sso]
+      summary: Complete a passkey sign-in and resume the OIDC flow
+      description: >
+        Browser-only. Verifies the assertion against the enrolled credential and consumes
+        the challenge. On success the login is recorded at `acr` `urn:openresidency:aal2`
+        with `amr` `[hwk, pop, user]` and the provider redirects to its resume endpoint.
+
+
+        The body MAY also carry `biometricSample` and `biometricModality`. When it does and
+        the deployment has a biometric authority configured, the capture is matched against
+        the authoritative source and the login is recorded at `urn:openresidency:aal3` with
+        `bio` added to `amr`. A supplied capture that fails to match fails the sign-in
+        outright rather than silently downgrading to AAL2. The sample is sent to the
+        authority and nowhere else; only the verdict and its source reach the audit log.
+        Without a configured authority the biometric fields are ignored.
+
+
+        Not validated by the global pipe (the body is read raw), so unknown properties are
+        tolerated. A missing required field, unknown credential, spent or expired challenge,
+        or failed assertion re-renders the sign-in page rather than returning a reason.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebAuthnAuthenticateFinishRequest'
+      responses:
+        '303':
+          description: Signed in; resume the authorization request at the provider
+          headers:
+            Location:
+              schema: { type: string, example: /oidc/auth/rFqvXjS3aL2x9Kp0 }
+        '200':
+          description: Passkey or biometric verification failed; the sign-in page re-rendered with an error
+          content:
+            text/html:
+              schema: { type: string }
+        '400':
+          description: "`invalid_request`: the passkey verified but the interaction cookie is missing, expired or unknown"
+  /interaction/{uid}/confirm:
+    post:
+      tags: [sso]
+      summary: Approve the consent screen and resume the OIDC flow
+      description: >
+        Browser-only; the consent page's Allow button posts here with no body. Reuses the
+        grant an active consent for this relying party already holds, or mints one, adds the
+        requested scopes, and writes a consent record with `evidence.method`
+        `sso_consent_screen` and `evidence.reference` `interaction:{uid}` (ORCS §9), so a
+        disputed grant can be checked against the session it was approved in. The
+        `openid` scope is recorded as the `subject_identifier` data category. If the consent
+        register refuses the grant, a freshly minted grant is destroyed and the interaction
+        is not finished. The interaction cookie must accompany the request.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      responses:
+        '303':
+          description: Consent recorded; resume the authorization request at the provider
+          headers:
+            Location:
+              schema: { type: string, example: /oidc/auth/rFqvXjS3aL2x9Kp0 }
+        '400':
+          description: >-
+            `Consent could not be recorded: <reason>` (for example `UNKNOWN_LEGAL_BASIS` or
+            `LEGAL_BASIS_NOT_IN_FORCE`), or `invalid_request` when the interaction cookie is
+            missing, expired or unknown
+  /interaction/{uid}/abort:
+    get:
+      tags: [sso]
+      summary: Deny the consent screen
+      description: >
+        Browser-only; the consent page's Deny link. Finishes the interaction with
+        `error=access_denied`, which the provider carries back to the relying party's
+        redirect URI. The interaction cookie must accompany the request.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InteractionUid'
+      responses:
+        '303':
+          description: Aborted; resume at the provider, which redirects to the relying party with `access_denied`
+          headers:
+            Location:
+              schema: { type: string, example: /oidc/auth/rFqvXjS3aL2x9Kp0 }
+        '400':
+          description: "`invalid_request`: the interaction cookie is missing, expired or unknown"
+  /webauthn/register/start:
+    post:
+      tags: [webauthn]
+      summary: Begin passkey enrolment, authorised by a one-time code
+      description: >
+        A passkey is a possession factor, so enrolling one for a residency ID lets its holder
+        sign in as that resident. Enrolment is therefore authorised by an already-proven
+        factor: the one-time code delivered to the resident's registered contact (request it
+        at /interaction/{uid}/otp/start or any code channel). The code is consumed here, so
+        one code authorises exactly one enrolment attempt. Returns the
+        PublicKeyCredentialCreationOptions for `navigator.credentials.create()` and the
+        challenge id to echo back.
+
+
+        Failure is reported in the body with HTTP 201, never as a 4xx, and the underlying
+        code failure (wrong, expired, locked) is audited but not returned.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebAuthnRegisterStartRequest'
+      responses:
+        '201':
+          description: A registration challenge, or the reason none was issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebAuthnRegisterStartResponse'
+  /webauthn/register/finish:
+    post:
+      tags: [webauthn]
+      summary: Complete passkey enrolment
+      description: >
+        Verifies the attestation against the challenge issued at register/start, which is
+        single-use, five-minute, purpose-bound and bound to the residency ID, and persists
+        the credential. Failure is reported in the body with HTTP 201, never as a 4xx.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebAuthnRegisterFinishRequest'
+      responses:
+        '201':
+          description: The enrolled credential id, or the reason enrolment failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebAuthnRegisterFinishResponse'
+  /assurance/profiles:
+    get:
+      tags: [assurance]
+      summary: Every canonical profile an assurance value can resolve to (ORCS §8)
+      description: >-
+        The governed records behind `assuranceLevel`. Each states, per dimension, what a value
+        means, and is versioned and attributed to the authority that governs it. The shipped
+        set is a deployment default (`orcs:profile:unverified`, `basic`, `verified`, `high`,
+        `test-only`, `federation-sso`); a deployment publishes its own.
+      responses:
+        '200':
+          description: The registered profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssuranceProfile'
+  /assurance/mappings:
+    get:
+      tags: [assurance]
+      summary: What each identity source publishes about its own verification (ORCS §8.1)
+      description: >-
+        Per provider and declared value: the canonical profile it reaches, the mapping's
+        version and issuer, how the verification is actually performed, and what it does not
+        establish. The shipped mappings are stated as published by the deployment pending the
+        authority's own, and say so in `issuer`.
+      responses:
+        '200':
+          description: The registered provider mappings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProviderAssuranceMapping'
+  /assurance/resolve/{value}:
+    get:
+      tags: [assurance]
+      summary: Resolve one declared assurance value to its governed profile
+      description: >-
+        Resolves by the value alone, through the registry's global aliases (`none`, `basic`,
+        `verified`, `high` in the shipped set). There is no provider qualifier on this route,
+        so it reports what the word means in general, not what a particular source means by
+        it; `GET /residency/{residentId}/assurance` applies the provider mapping. A value that
+        does not resolve is a 404 rather than an empty result: "not a governed value" is the
+        answer ORCS §8 wants a caller to receive.
+      parameters:
+        - name: value
+          in: path
+          required: true
+          schema: { type: string, example: verified }
+      responses:
+        '200':
+          description: The profile the value resolves to
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssuranceProfile'
+        '404': { description: Not a governed assurance value }
+  /oidc/.well-known/openid-configuration:
+    get:
+      tags: [sso]
+      summary: OpenID Connect discovery for the SSO provider
+      description: >
+        The discovery document (OpenID Connect Discovery 1.0 §4) of the "Sign in with
+        <State>" provider. It is served by the OpenID Provider mounted at `/oidc`, not by
+        an API controller, and `issuer` is `<PUBLIC_BASE_URL>/oidc`; the endpoint URLs in
+        the document are built from the request's Host header and the `/oidc` mount, so
+        they follow whatever origin the caller reached. This is the document the SDK's
+        `oidcDiscovery()` fetches, and it is distinct from `/.well-known/openid-configuration`,
+        which is the OpenID4VCI issuer's OAuth metadata.
+
+        The provider's other routes -- `/oidc/auth`, `/oidc/token`, `/oidc/me` (userinfo),
+        `/oidc/jwks`, `/oidc/token/revocation`, `/oidc/token/introspection`,
+        `/oidc/session/end`, and `/oidc/request` (pushed authorization requests) -- are
+        the standard OpenID Connect and OAuth 2.0 endpoints and are discoverable from this
+        document's `*_endpoint` fields rather than enumerated here. PKCE (S256) is required
+        of every client; relying parties are registered from the jurisdiction config with
+        `authorization_code` and `refresh_token`, `response_type` `code`, and
+        `client_secret_basic`; ID tokens are signed with EdDSA (Ed25519). Claim release is
+        gated on the consent record (ORCS §9): a withdrawn, lapsed, or unlawfully based
+        consent degrades userinfo and later tokens to `sub` alone.
+      security: []
+      responses:
+        '200':
+          description: The OpenID Provider Metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenIdConfiguration'
 components:
   parameters:
     ResidentId:
@@ -1025,6 +2692,16 @@ components:
       in: path
       required: true
       schema: { type: string, example: KT-GT1F-75WJ-6 }
+    InteractionUid:
+      name: uid
+      in: path
+      required: true
+      schema: { type: string, example: rFqvXjS3aL2x9Kp0 }
+      description: >-
+        The interaction id oidc-provider minted when the authorization request at
+        `GET /oidc/auth` needed a human step. It arrives in the redirect the provider issues
+        and is echoed in the resume URL `/oidc/auth/{uid}`; the interaction itself is looked
+        up from the provider's `_interaction` cookie, not from this value.
   securitySchemes:
     operatorKey:
       type: apiKey
@@ -1064,6 +2741,15 @@ components:
         credential offer: it authorizes only the credential configurations that offer
         named, for the resident that offer was created for.
   schemas:
+    HealthReport:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        checks:
+          type: object
+          properties:
+            database: { type: string, enum: [ok, failed] }
     ChallengeRequest:
       type: object
       required: [countryCode, identifiers]
@@ -1090,65 +2776,144 @@ components:
         purpose: { type: string }
     IdentityVerifyResponse:
       type: object
+      required: [verified]
       properties:
         verified: { type: boolean }
         assuranceLevel: { type: string, enum: [none, basic, verified, high] }
-        subjectRef: { type: string, description: Tokenized reference, never the raw ID }
+        subjectRef: { type: string, description: "Tokenized reference, never the raw ID" }
         attributes:
           type: object
           additionalProperties: true
-        pendingChallenge: { type: boolean }
-        reason: { type: string }
+          description: Minimized identity attributes; `subjectRef` and `photo` are stripped.
+        pendingChallenge:
+          type: boolean
+          description: >-
+            True when the provider needs a second factor before it will answer. The response
+            then carries `challengeRef` and `channel` and none of the identity fields.
+        challengeRef: { type: string, description: Present only with `pendingChallenge`. }
+        channel: { type: string, description: Present only with `pendingChallenge`. }
+        reason: { type: string, description: Present when `verified` is false and no challenge is pending. }
     CountrySummary:
       type: object
+      required:
+        [countryCode, countryName, provider, inputs, subnationalUnits, applicantBinding, authenticatesApplicant, residentIdFormat, residentIdPattern]
       properties:
         countryCode: { type: string }
         countryName: { type: string }
         provider: { type: string }
         inputs:
           type: array
-          items: { type: object }
+          description: The identifier fields the foundational check needs, in the order to present them.
+          items:
+            type: object
+            required: [key, label, required, secret]
+            properties:
+              key: { type: string }
+              label: { type: string }
+              required: { type: boolean }
+              pattern: { type: string, description: "Client-side validation regex, when declared." }
+              secret: { type: boolean, description: For example an OTP; never log or echo it. }
         subnationalUnits:
           type: array
-          items: { type: object }
+          items:
+            type: object
+            required: [code, name, level]
+            properties:
+              code: { type: string, example: KT }
+              name: { type: string }
+              parent: { type: string, description: Country code. }
+              level: { type: string, enum: [state, province, region, lga, ward, county] }
+              residentId:
+                $ref: '#/components/schemas/ResidentIdFormat'
+                description: Per-unit override of the country's resident id format, when declared.
+        applicantBinding:
+          type: object
+          description: >-
+            Applicant->identity binding policy, so an enrolment UI knows whether an operator
+            must attest binding and which methods this jurisdiction accepts.
+          required: [required, acceptedMethods]
+          properties:
+            required: { type: boolean }
+            acceptedMethods:
+              type: array
+              items:
+                type: string
+                enum: [authoritative_authentication, face_match, fingerprint_match, attended_comparison, none]
+        authenticatesApplicant:
+          type: boolean
+          description: >-
+            True when the foundational provider authenticates the owner itself (OTP / eID), so
+            the desk does not need to bind the applicant manually.
+        residentIdFormat: { $ref: '#/components/schemas/ResidentIdFormat' }
+        residentIdPattern:
+          type: string
+          description: A validation regex for ids this jurisdiction issues, derived from `residentIdFormat`.
     IssueRequest:
       type: object
       required: [countryCode, subnationalUnit, identifiers]
       properties:
-        countryCode: { type: string, example: ZZ }
-        subnationalUnit: { type: string, example: DX }
+        countryCode: { type: string, pattern: '^[A-Za-z]{2}$', example: ZZ }
+        subnationalUnit: { type: string, pattern: '^[A-Za-z0-9_-]{1,32}$', example: DX }
         identifiers:
           type: object
           additionalProperties: { type: string }
-        holderId: { type: string, description: did:key the holder controls }
-        challengeRef: { type: string }
-        proofOfResidence: { type: string }
+        holderId: { type: string, maxLength: 128, description: did:key the holder controls }
+        challengeRef: { type: string, maxLength: 256 }
+        proofOfResidence: { type: string, maxLength: 64 }
         binding:
-          type: object
+          $ref: '#/components/schemas/ApplicantBinding'
           description: >-
-            Applicant->identity binding performed by the enrolment channel (an agent's
-            in-person comparison, a face/fingerprint match). Combined with any binding the
-            foundational provider attested; the strongest is enforced against the
-            jurisdiction's policy and recorded in the credential. Only meaningful from a
-            trusted enrolment context.
-          properties:
-            method:
-              type: string
-              enum: [authoritative_authentication, face_match, fingerprint_match, attended_comparison, none]
-            ref: { type: string, description: opaque reference to the binding act }
-            verifiedAt: { type: string, format: date-time }
-            score: { type: number, description: biometric match score, if reported }
-          required: [method]
+            Combined with any binding the foundational provider attested; the strongest is
+            enforced against the jurisdiction's policy and recorded in the credential. Only
+            meaningful from a trusted enrolment context. Validated semantically by the engine,
+            not by the request schema.
+        residenceEvidence:
+          type: array
+          items: { $ref: '#/components/schemas/ResidenceEvidence' }
+          description: >-
+            Proof-of-residence evidence an operator attests. Only meaningful from a trusted
+            enrolment context. Validated semantically by the engine, not by the request schema.
+        phone:
+          type: string
+          pattern: '^\+?[0-9]{6,20}$'
+          description: >-
+            The applicant's contact number. Only an E.164 value (`+` followed by 7-15 digits)
+            is kept; anything else passes validation and is silently discarded. Stored as a
+            hash for USSD matching, and as ciphertext only under `contactDirectory.mode:
+            encrypted`. Never written to the credential, the audit log or any response.
         offline: { type: boolean }
     IssueResult:
       type: object
+      description: >-
+        A discriminated union on `status`. `issued` carries `residentId`, `credentialJwt` and
+        the full `record`; `exists` carries `residentId` and `record`; `challenge` carries only
+        `challenge`; `rejected` carries `reason` and, when the deployment keeps refusals,
+        `reference` and `appealPath`.
+      required: [status]
       properties:
         status: { type: string, enum: [issued, exists, challenge, rejected] }
-        residentId: { type: string }
-        credentialJwt: { type: string }
-        reason: { type: string }
+        residentId: { type: string, description: 'On `issued` and `exists`.' }
+        credentialJwt: { type: string, description: 'On `issued` only.' }
+        record:
+          $ref: '#/components/schemas/ResidentRecord'
+          description: 'On `issued` and `exists`. The persisted record, returned to the registrar who supplied the data.'
+        challenge:
+          type: object
+          description: 'On `challenge`: the second factor the provider needs before it will answer.'
+          required: [type, channel, challengeRef]
+          properties:
+            type: { type: string, description: 'Typed as a plain string; providers report `otp`, `biometric` or `push`.' }
+            channel: { type: string }
+            challengeRef: { type: string }
+        reason: { type: string, description: 'On `rejected`.' }
+        reference:
+          type: string
+          description: 'On `rejected`, when a refusal store is wired: the reference the applicant contests the refusal with (GET /residency/refusals/{reference}).'
+        appealPath: { type: string, description: 'On `rejected`, when a refusal store is wired: where to contest it.' }
     ResidencyStatus:
       type: object
+      description: Non-sensitive residency status, as returned by `GET /residency/{residentId}`.
+      required: [residentId, countryCode, subnationalUnit, assuranceLevel, provisional, createdAt]
       properties:
         residentId: { type: string }
         countryCode: { type: string }
@@ -1160,14 +2925,22 @@ components:
       type: object
       required: [credential]
       properties:
-        credential: { type: string, description: VC-JWT }
+        credential: { type: string, maxLength: 16384, description: VC-JWT }
         offline: { type: boolean }
     CredentialVerifyOutcome:
       type: object
+      required: [valid, offline, checkedRevocation]
       properties:
         valid: { type: boolean }
-        reason: { type: string }
-        checkedRevocation: { type: boolean }
+        reason:
+          type: string
+          description: 'Present when `valid` is false, e.g. `MALFORMED_JWT`, `UNTRUSTED_ISSUER`, `REVOKED`.'
+        offline: { type: boolean, description: "Whether the check ran in offline mode, as requested." }
+        checkedRevocation:
+          type: boolean
+          description: False when no status list was available (an offline check with nothing cached).
+        issuerDid: { type: string, description: "The issuer the credential named, once parsed." }
+        expiresAt: { type: string, format: date-time }
         subject:
           type: object
           additionalProperties: true
@@ -1214,10 +2987,14 @@ components:
             Defaults to the deployment's basis, which defaults to consent itself.
     ConsentRecord:
       type: object
+      required:
+        [id, subjectRef, residentId, relyingParty, purpose, scopes, status, grantedAt, receiptId, controller, dataCategories, evidence, legalBasisReference, version]
       properties:
         id: { type: string }
+        subjectRef: { type: string, description: "Tokenized resident reference, never the raw id." }
         residentId: { type: string }
         relyingParty: { type: string }
+        relyingPartyName: { type: string }
         purpose: { type: string }
         scopes:
           type: array
@@ -1247,13 +3024,24 @@ components:
           type: string
           nullable: true
           description: Who withdrew it — the citizen, or an operator acting on their request.
+        grantId:
+          type: string
+          nullable: true
+          description: >-
+            The OIDC grant this consent authorized, when it was created through the SSO consent
+            step. Revoking the consent destroys the grant and its tokens. Absent for consents
+            granted directly over this API.
     ConsentEvidence:
       type: object
+      required: [method, at, reference]
       properties:
         method:
           type: string
           enum:
-            [sso_consent_screen, operator_recorded, signed_form, ussd_confirmation, imported_record]
+            [sso_consent_screen, operator_recorded, signed_form, ussd_confirmation, imported_record, unrecorded]
+          description: >-
+            `unrecorded` is never accepted on a grant; it appears only when reading a record
+            written before evidence of agreement was captured.
         at: { type: string, format: date-time }
         reference: { type: string }
         capturedBy: { type: string, nullable: true }
@@ -1282,15 +3070,1153 @@ components:
         deactivatedBy: { type: string, nullable: true }
     AuditEvent:
       type: object
+      required: [seq, id, timestamp, action, actor, outcome, prevHash, hash]
       properties:
         seq: { type: integer }
         id: { type: string }
         timestamp: { type: string, format: date-time }
         action: { type: string }
-        actor: { type: string }
-        target: { type: string, nullable: true }
+        actor: { type: string, description: '`[redacted]` once the subject has been erased.' }
+        target: { type: string, nullable: true, description: '`[redacted]` once the subject has been erased.' }
         countryCode: { type: string, nullable: true }
         outcome: { type: string, enum: [success, failure] }
-        metadata: { type: object, additionalProperties: true, nullable: true }
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Absent on a redacted event.
         prevHash: { type: string }
-        hash: { type: string }
+        hash:
+          type: string
+          description: Commits to the ORIGINAL content; on a redacted event it is not recomputable from the row.
+        redactedAt:
+          type: string
+          format: date-time
+          description: >-
+            Set when this event's personal data was redacted under an erasure request. The row
+            and its hashes stay so the chain still verifies; only the plaintext is gone.
+    OAuthError:
+      type: object
+      description: >-
+        The OAuth-style error body the OpenID4VP and OpenID4VCI endpoints return
+        (RFC 6749 §5.2 shape).
+      required: [error]
+      properties:
+        error: { type: string, example: invalid_request }
+        error_description: { type: string, example: unknown presentation request }
+    PresentationRequestCreate:
+      type: object
+      description: Both fields optional; unknown properties are rejected.
+      properties:
+        purpose:
+          type: string
+          maxLength: 512
+          description: Shown to the citizen in the wallet's consent screen. Defaults to "Confirm state residency".
+          example: Confirm residency for a maternal health subsidy
+        reference:
+          type: string
+          maxLength: 256
+          description: The relying party's own reference, echoed back in the result.
+          example: 'clinic-visit:88213'
+    PresentationRequestCreated:
+      type: object
+      properties:
+        requestId: { type: string, format: uuid }
+        requestUri:
+          type: string
+          description: >-
+            `openid4vp://authorize?client_id=<verifier DID>&request_uri=<base>/openid4vp/request/<id>`,
+            rendered as a QR.
+          example: 'openid4vp://authorize?client_id=did%3Aweb%3Aid.katsina.gov.ng&request_uri=https%3A%2F%2Fid.katsina.gov.ng%2Fopenid4vp%2Frequest%2F3f2c...'
+        expiresAt: { type: string, format: date-time }
+    PresentationResponse:
+      type: object
+      description: >-
+        OpenID4VP direct_post body. Not schema-validated: `vp_token` is verified by the
+        presentation verifier, not by a whitelist.
+      required: [vp_token]
+      properties:
+        vp_token:
+          description: >-
+            The holder-signed presentation JWS (VP-JWT with `nonce`, `aud`, and
+            `vp.verifiableCredential`), or an object keyed by the DCQL query id `residency`
+            whose value is that JWS, or an array whose first element is it.
+          oneOf:
+            - { type: string }
+            - type: object
+              properties:
+                residency: { type: string }
+            - type: array
+              items: { type: string }
+        state: { type: string, description: "The request id, as carried in the Request Object." }
+    PresentationResult:
+      type: object
+      properties:
+        requestId: { type: string, format: uuid }
+        status: { type: string, enum: [pending, fulfilled, failed] }
+        reference: { type: string }
+        purpose: { type: string }
+        expiresAt: { type: string, format: date-time }
+        outcome:
+          $ref: '#/components/schemas/PresentationOutcome'
+    PresentationOutcome:
+      type: object
+      description: Present once a wallet has answered.
+      properties:
+        valid: { type: boolean }
+        reason:
+          type: string
+          description: >-
+            Why the presentation was refused. From the presentation verifier: MALFORMED_VP,
+            UNRESOLVABLE_HOLDER_DID, BAD_HOLDER_SIGNATURE, EXPIRED_PRESENTATION,
+            WRONG_AUDIENCE, NONCE_MISMATCH, NO_CREDENTIAL_PRESENTED, HOLDER_NOT_SUBJECT,
+            REVOCATION_UNCHECKABLE. From the credential verifier: BAD_SIGNATURE, EXPIRED,
+            REVOKED, UNTRUSTED_ISSUER, ISSUER_MISMATCH, MALFORMED_JWT, NO_ISSUER. From the
+            response endpoint: REQUEST_EXPIRED, NO_VP_TOKEN.
+        holderDid: { type: string, example: 'did:key:z6Mk...' }
+        issuerDid: { type: string, example: 'did:web:id.katsina.gov.ng' }
+        checkedRevocation: { type: boolean }
+        claims:
+          type: object
+          description: Only on a valid presentation, and only what was asked for.
+          properties:
+            residentId: { type: string, example: KT-7F3A-9K2P }
+            subnationalUnit:
+              type: object
+              properties:
+                code: { type: string }
+                name: { type: string }
+                level: { type: string }
+            fullName: { type: string }
+            provisional: { type: boolean }
+        verifiedAt: { type: string, format: date-time }
+    VcApiErrors:
+      type: object
+      properties:
+        errors:
+          type: array
+          items: { type: string }
+          example: ['type must include VerifiableCredential']
+    VcApiVerifyResult:
+      type: object
+      description: VC-API verification result; problems are reported as lists, not a single throw.
+      required: [checks, warnings, errors]
+      properties:
+        checks:
+          type: array
+          items: { type: string, enum: [proof, expiration, credentialStatus] }
+        warnings:
+          type: array
+          items: { type: string }
+        errors:
+          type: array
+          items: { type: string }
+    DataIntegrityProof:
+      type: object
+      required: [type, cryptosuite, created, verificationMethod, proofPurpose, proofValue]
+      properties:
+        type: { type: string, enum: [DataIntegrityProof] }
+        cryptosuite: { type: string, enum: [eddsa-rdfc-2022] }
+        created: { type: string, format: date-time }
+        verificationMethod:
+          type: string
+          description: '`<issuer DID>#<Multikey>`, as published in the DID document.'
+          example: 'did:web:id.katsina.gov.ng#z6Mk...'
+        proofPurpose: { type: string, enum: [assertionMethod] }
+        proofValue: { type: string, description: base58btc (`z`-prefixed) Ed25519 signature }
+    DataIntegrityCredential:
+      type: object
+      description: A VC Data Model 2.0 credential carrying a Data Integrity proof.
+      required: ['@context', type, issuer, credentialSubject, proof]
+      properties:
+        '@context':
+          type: array
+          items: { type: string }
+          description: The first entry is `https://www.w3.org/ns/credentials/v2`.
+        id: { type: string, format: uri }
+        type:
+          type: array
+          items: { type: string }
+          example: [VerifiableCredential, StateResidencyCredential]
+        issuer:
+          description: A URI, or an object whose `id` is a URI.
+          oneOf:
+            - { type: string, format: uri }
+            - type: object
+              required: [id]
+              properties:
+                id: { type: string, format: uri }
+        validFrom: { type: string, format: date-time }
+        validUntil: { type: string, format: date-time }
+        credentialSubject:
+          description: One non-empty object, or an array of them.
+          oneOf:
+            - { type: object, additionalProperties: true }
+            - type: array
+              items: { type: object, additionalProperties: true }
+        credentialStatus:
+          type: object
+          properties:
+            type: { type: string, enum: [BitstringStatusListEntry] }
+            statusPurpose: { type: string, enum: [revocation, suspension] }
+            statusListIndex: { type: string, description: "A non-negative integer, as a string." }
+            statusListCredential: { type: string, format: uri }
+        proof:
+          $ref: '#/components/schemas/DataIntegrityProof'
+      additionalProperties: true
+    BitstringStatusListCredential:
+      type: object
+      required: ['@context', id, type, issuer, validFrom, credentialSubject, proof]
+      properties:
+        '@context':
+          type: array
+          items: { type: string }
+          example: ['https://www.w3.org/ns/credentials/v2']
+        id:
+          type: string
+          format: uri
+          description: The URL this list is served at, i.e. what credentials cite in `statusListCredential`.
+          example: 'https://id.katsina.gov.ng/.well-known/status/ng.json'
+        type:
+          type: array
+          items: { type: string }
+          example: [VerifiableCredential, BitstringStatusListCredential]
+        issuer: { type: string, example: 'did:web:id.katsina.gov.ng' }
+        validFrom:
+          type: string
+          format: date-time
+          description: When this snapshot was signed. Stable until the list content changes.
+        credentialSubject:
+          type: object
+          required: [id, type, statusPurpose, encodedList]
+          properties:
+            id: { type: string, description: The list URL with `#list` appended. }
+            type: { type: string, enum: [BitstringStatusList] }
+            statusPurpose: { type: string, enum: [revocation, suspension] }
+            encodedList:
+              type: string
+              description: Multibase base64url (`u` prefix) of the GZIP-compressed bitstring.
+              example: 'uH4sIAAAAAAAA...'
+        proof:
+          $ref: '#/components/schemas/DataIntegrityProof'
+    DidDocument:
+      type: object
+      required: ['@context', id, verificationMethod, assertionMethod, authentication]
+      properties:
+        '@context':
+          type: array
+          items: { type: string }
+          example:
+            - 'https://www.w3.org/ns/did/v1'
+            - 'https://w3id.org/security/suites/jws-2020/v1'
+            - 'https://w3id.org/security/multikey/v1'
+        id: { type: string, example: 'did:web:id.katsina.gov.ng' }
+        verificationMethod:
+          type: array
+          description: >-
+            Two entries per issuer key (current first, then retired): a JsonWebKey2020 with
+            `publicKeyJwk`, and a Multikey with `publicKeyMultibase`.
+          items:
+            type: object
+            required: [id, type, controller]
+            properties:
+              id: { type: string, example: 'did:web:id.katsina.gov.ng#key-1' }
+              type: { type: string, enum: [JsonWebKey2020, Multikey] }
+              controller: { type: string }
+              publicKeyJwk:
+                type: object
+                description: Ed25519 OKP public JWK (JsonWebKey2020 entries only).
+                additionalProperties: true
+              publicKeyMultibase:
+                type: string
+                description: base58btc Ed25519 Multikey (Multikey entries only).
+                example: 'z6Mk...'
+        assertionMethod:
+          type: array
+          items: { type: string }
+          description: Every verification method id.
+        authentication:
+          type: array
+          items: { type: string }
+          description: Every verification method id.
+    AuthorizationServerMetadata:
+      type: object
+      description: RFC 8414 metadata for the OpenID4VCI issuer, exactly as emitted.
+      properties:
+        issuer: { type: string, format: uri, example: 'https://id.katsina.gov.ng' }
+        token_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/openid4vci/token' }
+        grant_types_supported:
+          type: array
+          items: { type: string, enum: ['urn:ietf:params:oauth:grant-type:pre-authorized_code'] }
+        response_types_supported:
+          type: array
+          items: { type: string }
+          description: Always empty; there is no interactive authorization flow.
+        pre-authorized_grant_anonymous_access_supported: { type: boolean, example: true }
+        token_endpoint_auth_methods_supported:
+          type: array
+          items: { type: string, enum: [none] }
+    VpStartResponse:
+      type: object
+      required: [requestId, requestUri, qrSvg]
+      properties:
+        requestId:
+          type: string
+          description: Identifies the presentation request; pass to vp/poll and vp/complete.
+        requestUri:
+          type: string
+          description: The OpenID4VP request URI the wallet opens.
+          example: openid4vp://?request_uri=http%3A%2F%2Flocalhost%3A3000%2Foid4vp%2Frequest%2F...
+        qrSvg:
+          type: string
+          description: An SVG QR encoding requestUri, for the page to render inline.
+    VpPollResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, authenticated, failed]
+          description: >-
+            `failed` covers an unknown or expired request, an invalid presentation, a
+            presentation carrying no residency ID, and a residency ID absent from this
+            register. The reason is not returned.
+    AuthStartRequest:
+      type: object
+      description: >-
+        Body for otp/start and webauthn/authenticate/start. `residentId` is deliberately
+        optional: both answer identically whether or not it was supplied or exists, so a 400
+        on absence would reveal that a well-formed id was expected. Unknown properties are
+        rejected.
+      properties:
+        residentId: { type: string, maxLength: 128, example: KT-GT1F-75WJ-6 }
+    OtpVerifyRequest:
+      type: object
+      description: >-
+        Both fields optional at validation so a missing one re-renders the sign-in page rather
+        than answering 400. Unknown properties are rejected.
+      properties:
+        residentId: { type: string, maxLength: 128, example: KT-GT1F-75WJ-6 }
+        code: { type: string, maxLength: 16, example: '123456' }
+    WebAuthnAuthenticateStartResponse:
+      type: object
+      required: [challengeId, options]
+      properties:
+        challengeId:
+          type: string
+          format: uuid
+          description: Echo back at authenticate/finish. Single-use, expires in five minutes.
+        options:
+          type: object
+          description: PublicKeyCredentialRequestOptions, with binary fields base64url-encoded.
+          properties:
+            challenge: { type: string, description: base64url }
+            rpId: { type: string, example: id.katsina.gov.ng }
+            allowCredentials:
+              type: array
+              items:
+                type: object
+                properties:
+                  type: { type: string, enum: [public-key] }
+                  id: { type: string, description: base64url credential id }
+            userVerification: { type: string, enum: [required] }
+            timeout: { type: integer, example: 300000 }
+    WebAuthnAuthenticateFinishRequest:
+      type: object
+      required: [challengeId, credentialId, authenticatorData, clientDataJSON, signature]
+      properties:
+        challengeId: { type: string, description: From authenticate/start }
+        credentialId: { type: string, description: base64url }
+        authenticatorData: { type: string, description: base64url }
+        clientDataJSON: { type: string, description: base64url }
+        signature: { type: string, description: base64url }
+        biometricSample:
+          type: string
+          description: >-
+            Optional transient capture (for example a base64 probe) for an AAL3 step-up.
+            Sent to the configured biometric authority and never stored, logged or audited.
+        biometricModality:
+          type: string
+          enum: [face, fingerprint]
+          default: face
+          description: Only read when biometricSample is present.
+    WebAuthnRegisterStartRequest:
+      type: object
+      required: [residentId, otpCode]
+      description: Not validated by the global pipe; a missing field answers `MISSING_FIELDS` in the body.
+      properties:
+        residentId: { type: string, example: KT-GT1F-75WJ-6 }
+        otpCode: { type: string, description: The one-time code delivered for this residency ID; consumed here. }
+    WebAuthnRegisterStartResponse:
+      oneOf:
+        - type: object
+          required: [ok, challengeId, options]
+          properties:
+            ok: { type: boolean, enum: [true] }
+            challengeId:
+              type: string
+              format: uuid
+              description: Echo back at register/finish. Single-use, expires in five minutes.
+            options:
+              type: object
+              description: PublicKeyCredentialCreationOptions, with binary fields base64url-encoded.
+              properties:
+                challenge: { type: string, description: base64url }
+                rp:
+                  type: object
+                  properties:
+                    id: { type: string, example: id.katsina.gov.ng }
+                    name: { type: string }
+                user:
+                  type: object
+                  description: The user handle is the residency ID, base64url-encoded; never a national identifier.
+                  properties:
+                    id: { type: string, description: base64url of residentId }
+                    name: { type: string }
+                    displayName: { type: string }
+                pubKeyCredParams:
+                  type: array
+                  description: EdDSA (-8), ES256 (-7) and RS256 (-257), in that order of preference.
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string, enum: [public-key] }
+                      alg: { type: integer, enum: [-8, -7, -257] }
+                authenticatorSelection:
+                  type: object
+                  properties:
+                    userVerification: { type: string, enum: [required] }
+                    residentKey: { type: string, enum: [preferred] }
+                excludeCredentials:
+                  type: array
+                  description: Credentials this resident already enrolled, so a device is not registered twice.
+                  items:
+                    type: object
+                    properties:
+                      type: { type: string, enum: [public-key] }
+                      id: { type: string, description: base64url credential id }
+                timeout: { type: integer, example: 300000 }
+        - type: object
+          required: [ok, reason]
+          properties:
+            ok: { type: boolean, enum: [false] }
+            reason:
+              type: string
+              enum: [MISSING_FIELDS, NOT_AUTHORIZED]
+              description: >-
+                `NOT_AUTHORIZED` covers every code failure (wrong, expired, locked, none
+                issued); which one is written to the audit log, not returned.
+    WebAuthnRegisterFinishRequest:
+      type: object
+      required: [challengeId, residentId, authData, clientDataJSON]
+      description: Not validated by the global pipe; a missing field answers `MISSING_FIELDS` in the body.
+      properties:
+        challengeId: { type: string, description: From register/start }
+        residentId: { type: string, example: KT-GT1F-75WJ-6 }
+        authData: { type: string, description: base64url authenticatorData from the attestationObject }
+        clientDataJSON: { type: string, description: base64url }
+    WebAuthnRegisterFinishResponse:
+      oneOf:
+        - type: object
+          required: [ok, credentialId]
+          properties:
+            ok: { type: boolean, enum: [true] }
+            credentialId: { type: string, description: base64url }
+        - type: object
+          required: [ok, reason]
+          properties:
+            ok: { type: boolean, enum: [false] }
+            reason:
+              type: string
+              description: >-
+                One of the listed codes, or the verifier's own message when the attestation
+                itself is malformed or does not match the challenge, origin or RP id.
+              example: CHALLENGE_EXPIRED
+              x-known-values:
+                - MISSING_FIELDS
+                - UNKNOWN_CHALLENGE
+                - CHALLENGE_ALREADY_USED
+                - CHALLENGE_PURPOSE_MISMATCH
+                - CHALLENGE_RESIDENT_MISMATCH
+                - CHALLENGE_EXPIRED
+                - CREDENTIAL_ALREADY_REGISTERED
+
+    OperatorRole:
+      type: string
+      enum: [admin, registrar, revoker, auditor, support]
+      description: A role an operator holds. `admin` satisfies every role check.
+    OperatorSummary:
+      type: object
+      description: An operator account as listed to an admin. Never carries the password hash or TOTP secret.
+      properties:
+        id: { type: string }
+        email: { type: string }
+        displayName: { type: string }
+        roles:
+          type: array
+          items: { $ref: '#/components/schemas/OperatorRole' }
+        mfaEnrolled: { type: boolean, description: The TOTP enrolment has been confirmed. }
+        disabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    OperatorKeySummary:
+      type: object
+      description: Metadata for one per-operator API key. The key itself is never returned after minting.
+      properties:
+        id: { type: string }
+        label: { type: string }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        revokedAt: { type: string, format: date-time, nullable: true }
+        rotatedFrom:
+          type: string
+          nullable: true
+          description: The id of the key this one replaced, when it was minted by a rotation.
+        createdAt: { type: string, format: date-time }
+    # ---- new: referenced by /enrolment/upstream/callback -----------------------------------
+    UpstreamIdentity:
+      type: object
+      description: >-
+        The identity an external OpenID Provider released, minimized. `authenticationRef` is an
+        HMAC of the provider's pairwise subject under the deployment pepper -- never the raw
+        `sub`, and NOT a residency `subjectRef` (ADR-0010). Any raw national identifier the
+        provider released is withheld from this object entirely.
+      required: [authenticationRef]
+      properties:
+        authenticationRef: { type: string }
+        fullName: { type: string }
+        givenName: { type: string }
+        familyName: { type: string }
+        dateOfBirth: { type: string }
+        gender: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        photo: { type: string, description: "Base64 portrait, when released." }
+        addressHint: { type: string }
+    UpstreamCallbackResult:
+      type: object
+      required: [authenticated]
+      properties:
+        authenticated: { type: boolean }
+        reason:
+          type: string
+          description: >-
+            Present when `authenticated` is false. Examples: `MISSING_STATE`, `UNKNOWN_STATE`,
+            `STATE_MISMATCH`, `NONCE_MISMATCH`, `NO_ID_TOKEN`, `UPSTREAM_ERROR:<code>`,
+            `TOKEN_REQUEST_FAILED:<message>`, `ID_TOKEN_INVALID:<message>`.
+        identity: { $ref: '#/components/schemas/UpstreamIdentity' }
+        acr: { type: string, description: "The acr the provider reported, verbatim." }
+        assurance: { type: string, enum: [none, basic, verified, high] }
+        binding:
+          $ref: '#/components/schemas/ApplicantBinding'
+          description: Hand this to POST /residency/issue as `binding`.
+    # ---- replacements ---------------------------------------------------------------------
+    ResidentIdFormat:
+      type: object
+      description: The resident id numbering scheme a jurisdiction (or one of its units) issues.
+      required: [alphabet, groups, separator, case, prefix, checkDigit]
+      properties:
+        alphabet: { type: string, enum: [crockford32, numeric, alphanumeric, hex] }
+        customAlphabet: { type: string, description: Overrides `alphabet` with an explicit character set. }
+        groups:
+          type: array
+          items: { type: integer, minimum: 1 }
+          description: 'Segment lengths of the random body, e.g. [4, 4] -> XXXX-XXXX.'
+        separator: { type: string, description: "Joins prefix, body segments and check segment; may be empty." }
+        case: { type: string, enum: [upper, lower] }
+        prefix:
+          type: object
+          required: [mode]
+          properties:
+            mode: { type: string, enum: [unit, static, country, none] }
+            value: { type: string }
+        checkDigit:
+          type: object
+          required: [enabled, algorithm]
+          properties:
+            enabled: { type: boolean }
+            algorithm: { type: string, enum: [crockford-sha256, luhn, mod97-10, none] }
+    ApplicantBinding:
+      type: object
+      description: >-
+        Applicant->identity binding performed by the enrolment channel (an agent's in-person
+        comparison, a face/fingerprint match) or attested by the foundational provider.
+      required: [method]
+      properties:
+        method:
+          type: string
+          enum: [authoritative_authentication, face_match, fingerprint_match, attended_comparison, none]
+        ref: { type: string, description: opaque reference to the binding act }
+        verifiedAt: { type: string, format: date-time }
+        score: { type: number, description: "biometric match score, if reported" }
+    ResidenceAddress:
+      type: object
+      description: >-
+        The address residency is anchored to, under `anchor: 'address'`. The most sensitive
+        field the register can hold; present only where the jurisdiction's law makes the
+        address the thing being registered, and destroyed by erasure.
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          items: { type: string }
+          description: Address lines exactly as the jurisdiction records them; never parsed.
+        postalCode: { type: string }
+        adminUnit: { type: string, description: The administrative unit this address sits within. }
+    ResidenceEvidence:
+      type: object
+      description: One piece of proof-of-residence evidence supplied at enrolment.
+      required: [method]
+      properties:
+        method:
+          type: string
+          enum: [self_declared, register_declared_residence, authority_attestation, document, geospatial_match]
+        adminUnit:
+          type: string
+          description: The subnational unit code this evidence points at, after reconciliation to the deployment's taxonomy.
+        reportedUnit: { type: string, description: "The raw locality string reported, kept for audit." }
+        asOf: { type: string, format: date, description: The date the evidence reflects; missing means stale. }
+        ref: { type: string, description: "An attestation id, document id or register transaction." }
+        address:
+          $ref: '#/components/schemas/ResidenceAddress'
+          description: 'Ignored under `anchor: unit`, the default.'
+    ResidentRecord:
+      type: object
+      description: >-
+        A residency record as persisted (`src/core/residency/ports.ts`). No raw national id is
+        ever stored. Returned in full by `POST /residency/issue` to the registrar who supplied
+        the data -- including `subjectRef`, `person` and, where the jurisdiction anchors on
+        addresses, `residence.address` -- so a client must treat the issuance response as
+        personal data.
+      required:
+        [id, residentId, subjectRef, countryCode, subnationalUnit, providerCode, assuranceLevel, binding, residence, provisional, statusListIndex, createdAt, person]
+      properties:
+        id: { type: string, format: uuid, description: Internal id. }
+        residentId: { type: string, example: KT-GT1F-75WJ-6 }
+        subjectRef: { type: string, description: Tokenized foundational reference; unique per person and provider. }
+        countryCode: { type: string }
+        subnationalUnit: { type: string }
+        providerCode: { type: string }
+        assuranceLevel: { type: string }
+        binding:
+          $ref: '#/components/schemas/ApplicantBinding'
+          description: How the applicant was proven to own this identity at enrolment.
+        residence:
+          type: object
+          description: The proof-of-residence achieved for this resident in their claimed unit.
+          required: [assuranceLevel, method]
+          properties:
+            assuranceLevel: { type: string, enum: [RAL0, RAL1, RAL2, RAL3] }
+            method:
+              type: string
+              enum: [self_declared, register_declared_residence, authority_attestation, document, geospatial_match]
+            unit: { type: string }
+            address: { $ref: '#/components/schemas/ResidenceAddress' }
+            asOf: { type: string }
+        provisional: { type: boolean }
+        relationship:
+          $ref: '#/components/schemas/RelationshipAttributes'
+          description: Absent on rows written before the lifecycle existed; always present on new records.
+        credentialStatus:
+          $ref: '#/components/schemas/CredentialStatusRecord'
+          description: Absent on rows written before ORCS §10 status tracking existed.
+        erasedAt: { type: string, format: date-time, description: Set when identifying data was erased. }
+        credentialId: { type: string }
+        statusListIndex: { type: integer }
+        createdAt: { type: string, format: date-time }
+        person:
+          type: object
+          description: Identifying attributes; every field is optional and all are destroyed by erasure.
+          properties:
+            fullName: { type: string }
+            givenName: { type: string }
+            familyName: { type: string }
+            dateOfBirth: { type: string }
+            gender: { type: string }
+    RelationshipAttributes:
+      type: object
+      description: >-
+        The ORCS §4.3 attributes a relationship states about itself. Jurisdiction is not
+        repeated here: it is `countryCode` and `subnationalUnit` on the record. `type` and
+        `purpose` are recorded and never read -- the reason a person resides somewhere must not
+        determine what they can reach (ADR-0007).
+      required: [type, purpose, status, validFrom, policyVersion, evidenceRefs, issuer, decidedBy, decidedAt]
+      properties:
+        type: { type: string, enum: [GENERAL_RESIDENCY, FORMER_RESIDENCY] }
+        purpose: { type: string, description: Free text; this deployment does not interpret it. }
+        status: { $ref: '#/components/schemas/RelationshipStatus' }
+        validFrom: { type: string, format: date-time }
+        validTo:
+          type: string
+          format: date-time
+          description: >-
+            Absent means permanent until ended. A record past its `validTo` is still ACTIVE
+            until somebody ends it; nothing lapses on its own.
+        policyVersion: { type: string, description: The ruleset the issuing decision was taken under. }
+        evidenceRefs:
+          type: array
+          items: { type: string }
+          description: What the decision rested on, by reference rather than value.
+        assuranceProfileId: { type: string, example: 'orcs:profile:verified' }
+        issuer: { type: string, description: 'The authority that decided, as a DID.' }
+        decidedBy:
+          type: string
+          description: >-
+            An operator identity (`operator:<name>`) when a person decided, or
+            `automated:<policyVersion>` when the software did.
+          example: 'operator:jane.doe@kaduna.gov.ng'
+        submittedBy: { type: string, description: 'The operator who took the application, kept separately from what decided it.' }
+        decidedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time, description: Set when the relationship reached a terminal state. }
+        endedReason: { type: string }
+        endedBy: { type: string }
+    CredentialStatusRecord:
+      type: object
+      description: What ORCS §10 requires be preserved about a credential status decision.
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/CredentialStatus' }
+        reason: { type: string, description: Why. Present for every terminal transition. }
+        authority:
+          type: string
+          description: Who decided. An operator identity, or the issuer name for a sweep.
+          example: 'operator:jane.doe@kaduna.gov.ng'
+        at: { type: string, format: date-time, description: When the decision was taken. }
+        appealPath:
+          type: string
+          description: How the holder contests it. Present for REVOKED.
+          example: Kaduna State Residents Registration Agency, Appeals Desk, Form RRA-7
+        supersededBy: { type: string, description: The credential that replaces this one. Present for REPLACED. }
+    RegistryResident:
+      type: object
+      description: >-
+        One row of `GET /admin/residents`: the same fields as ResidencyStatus plus the
+        foundational `providerCode`, which the public lookup does not expose.
+      required: [residentId, countryCode, subnationalUnit, providerCode, assuranceLevel, provisional, createdAt]
+      properties:
+        residentId: { type: string }
+        countryCode: { type: string }
+        subnationalUnit: { type: string }
+        providerCode: { type: string }
+        assuranceLevel: { type: string }
+        provisional: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    RelationshipStatus:
+      type: string
+      description: >-
+        ORCS §6.2 relationship states this deployment can hold. DRAFT, SUBMITTED,
+        EVIDENCE_PENDING, UNDER_REVIEW and REJECTED describe a submission workflow a
+        single-jurisdiction deployment does not have and are deliberately absent. EXPIRED is
+        accepted as a terminal state but never entered by the software itself.
+      enum: [ACTIVE, SUSPENDED, ENDED, REVOKED, EXPIRED]
+    RelationshipTransitionRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/RelationshipStatus' }
+        reason:
+          type: string
+          maxLength: 512
+          description: Why. Required by the engine for ENDED, REVOKED and EXPIRED.
+          example: Registered as resident of another state
+    CredentialStatus:
+      type: string
+      description: >-
+        ORCS §10 credential states. ISSUED is distinct from ACTIVE because §10 lists it; this
+        implementation issues and delivers in one step, so it records ACTIVE immediately.
+      enum: [ISSUED, ACTIVE, SUSPENDED, REVOKED, EXPIRED, REPLACED]
+    CredentialTransitionRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: The target state. `ISSUED` is not a valid target.
+          enum: [ACTIVE, SUSPENDED, REVOKED, EXPIRED, REPLACED]
+        reason:
+          type: string
+          maxLength: 512
+          description: Why. Required by the engine for REVOKED, EXPIRED and REPLACED.
+          example: Card reported lost
+        appealPath:
+          type: string
+          maxLength: 512
+          description: >-
+            Overrides the jurisdiction's configured `credential.appealPath` for this decision.
+            One or the other must be present for REVOKED.
+        supersededBy:
+          type: string
+          maxLength: 512
+          description: The credential that replaces this one. Required for REPLACED.
+          example: 'urn:uuid:3f6a1c2e-8d7b-4c5a-9e1f-0b2d4a6c8e10'
+    RefusalRecord:
+      type: object
+      description: >-
+        A refused application and the reference the applicant contests it with. Identity
+        (`subjectRef`) is recorded only when the foundational check succeeded; a refusal raised
+        before that carries no identifier at all.
+      required: [reference, countryCode, subnationalUnit, reason, decidedBy, appealPath, reviewStatus, refusedAt]
+      properties:
+        reference:
+          type: string
+          description: Opaque, unguessable. Handed to the applicant; the key they appeal with.
+          example: REF-7K3Q-9M2P-4XWZ-A1BC-D5EF
+        countryCode: { type: string }
+        subnationalUnit: { type: string }
+        subjectRef: { type: string, description: 'Tokenized foundational reference, when verification got far enough to produce one.' }
+        reason: { type: string, description: "The machine-readable reason issuance returned., example: PROOF_OF_RESIDENCE_REQUIRED" }
+        decidedBy:
+          type: string
+          description: An operator identity, or `automated:<policyVersion>` when the software refused.
+          example: 'automated:kt-residency-2026.1'
+        submittedBy: { type: string, description: 'The operator who took the application, kept separately.' }
+        appealPath: { type: string, description: How the applicant contests it. Never blank. }
+        humanReviewPath:
+          type: string
+          description: >-
+            Where the applicant obtains human review, present when the refusal was taken by
+            software alone. Absent when a person refused them.
+        reviewStatus:
+          type: string
+          enum: [none, requested, upheld, overturned]
+          description: Whether a human has been asked to look again, and what they concluded.
+        reviewedBy: { type: string, example: 'operator:jane.doe@kaduna.gov.ng' }
+        reviewedAt: { type: string, format: date-time }
+        reviewNote: { type: string }
+        refusedAt: { type: string, format: date-time }
+    RefusalReviewRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [requested, upheld, overturned]
+          description: '`none` cannot be recorded through this route.'
+        note: { type: string, maxLength: 1024, example: Ward attestation produced at the desk; refusal overturned }
+    ReconcileRequest:
+      type: object
+      required: [identifiers]
+      properties:
+        identifiers:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            The foundational identifiers, resubmitted because the raw national id is never
+            stored. At most 32 keys, each value at most 512 characters.
+    ReconcileOutcome:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [confirmed, already-confirmed, unknown, unconfirmed, mismatch]
+        reason:
+          type: string
+          description: Present for `unconfirmed` and `mismatch`.
+          example: SUBJECT_MISMATCH
+        provisional:
+          type: boolean
+          description: >-
+            The record's flag after the check. Present for `confirmed`, `already-confirmed`
+            and `mismatch`; absent for `unknown` and `unconfirmed`.
+    ProvisionalSweepEntry:
+      type: object
+      description: >-
+        One jurisdiction's line in the sweep report. Three shapes: no window configured
+        (`skipped`), dry run (`dueCount`, `due`, `dryRun`), confirmed (`dueCount`, `expired`,
+        `residents`).
+      required: [countryCode]
+      properties:
+        countryCode: { type: string }
+        skipped:
+          type: string
+          description: Present, with this text, when the jurisdiction declares no window.
+          example: no provisionalMaxAgeDays configured
+        dryRun: { type: boolean, description: Present and true on a dry run only. }
+        dueCount: { type: integer }
+        due:
+          type: array
+          items: { type: string }
+          description: Resident ids past the window. Dry run only.
+        expired: { type: integer, description: How many credentials were revoked. 0 unless confirmed. }
+        residents:
+          type: array
+          items: { type: string }
+          description: Resident ids whose credentials were revoked. Confirmed run only.
+    AssuranceDimensions:
+      type: object
+      description: >-
+        The five ORCS §8 dimensions. Every field is optional because a profile is honest about
+        its reach: a national ID registry's mapping speaks to identity and says nothing about how
+        a credential is protected.
+      properties:
+        identity: { type: string, enum: [IAL1, IAL2, IAL3] }
+        authentication: { type: string, enum: [AAL1, AAL2, AAL3] }
+        federation: { type: string, enum: [FAL1, FAL2, FAL3] }
+        evidence: { type: string, enum: [EA1, EA2, EA3] }
+        credential: { type: string, enum: [CA1, CA2, CA3] }
+    AssuranceProfile:
+      type: object
+      description: >-
+        A governed profile record (ORCS §8): what an assurance value resolves to. `version` and
+        `issuer` are what make it governed rather than merely structured.
+      required: [id, name, version, issuer, dimensions, limitations]
+      properties:
+        id: { type: string, example: 'orcs:profile:verified' }
+        name: { type: string, example: Verified against an authoritative source }
+        version: { type: string, example: '1.0' }
+        issuer: { type: string, description: The authority that governs this profile. }
+        dimensions: { $ref: '#/components/schemas/AssuranceDimensions' }
+        limitations:
+          type: array
+          items: { type: string }
+          description: What this profile does NOT establish.
+    ProviderAssuranceMapping:
+      type: object
+      description: What one identity source publishes about its own verification (ORCS §8.1).
+      required: [providerCode, assuranceValue, profileId, version, issuer, verificationMethod, limitations]
+      properties:
+        providerCode: { type: string, example: NG_NIN }
+        assuranceValue: { type: string, description: "The declared value this provider yields on success., example: verified" }
+        profileId: { type: string, example: 'orcs:profile:verified' }
+        version: { type: string, example: '1.0' }
+        issuer: { type: string, description: Who publishes the mapping. }
+        verificationMethod: { type: string, description: How the verification is actually performed. }
+        limitations:
+          type: array
+          items: { type: string }
+    ResidentAssurance:
+      type: object
+      required: [residentId, declaredValue, providerCode, profile, dimensions, limitations, authenticationAssurance]
+      properties:
+        residentId: { type: string }
+        declaredValue: { type: string, description: "The stored `assuranceLevel`., example: verified" }
+        providerCode: { type: string, example: NG_NIN }
+        profile: { $ref: '#/components/schemas/AssuranceProfile' }
+        mapping:
+          $ref: '#/components/schemas/ProviderAssuranceMapping'
+          description: The §8.1 mapping for the provider that performed the verification, when it published one.
+        dimensions:
+          $ref: '#/components/schemas/AssuranceDimensions'
+          description: >-
+            As they apply to THIS resident: identity capped by the binding method performed,
+            evidence from the residence assurance level reached. `authentication` is never set.
+        limitations:
+          type: array
+          items: { type: string }
+          description: Profile limitations plus the provider mapping's, de-duplicated.
+        authenticationAssurance:
+          type: string
+          description: >-
+            A fixed statement that authentication assurance is not a property of a stored
+            record; it is issued per session as the OIDC `acr` claim.
+    CredentialOfferCreated:
+      type: object
+      properties:
+        offerId: { type: string, format: uuid }
+        offerUri:
+          type: string
+          description: The Credential Offer by value, URL-encoded into the deep link.
+          example: openid-credential-offer://?credential_offer=%7B...%7D
+        offer:
+          type: object
+          description: The Credential Offer object carried in `offerUri` (OpenID4VCI 1.0 §4.1).
+          properties:
+            credential_issuer: { type: string, format: uri }
+            credential_configuration_ids:
+              type: array
+              items: { type: string, example: NG_StateResidencyCredential_ldp_vc }
+            grants:
+              type: object
+              properties:
+                'urn:ietf:params:oauth:grant-type:pre-authorized_code':
+                  type: object
+                  properties:
+                    pre-authorized_code: { type: string }
+                    tx_code:
+                      type: object
+                      properties:
+                        length: { type: integer, example: 6 }
+                        input_mode: { type: string, enum: [numeric] }
+                        description: { type: string }
+        txCode:
+          type: string
+          description: Read out to the citizen. Returned once; stored only as a hash.
+          example: '402913'
+        expiresAt: { type: string, format: date-time }
+        credentialConfigurationIds:
+          type: array
+          items: { type: string }
+    TokenRequest:
+      type: object
+      required: [pre-authorized_code]
+      properties:
+        grant_type:
+          type: string
+          enum: ['urn:ietf:params:oauth:grant-type:pre-authorized_code']
+          default: 'urn:ietf:params:oauth:grant-type:pre-authorized_code'
+          description: Optional; defaults to the only supported grant. Any other value is `unsupported_grant_type`.
+        pre-authorized_code: { type: string }
+        tx_code:
+          type: string
+          example: '402913'
+          description: Required whenever the offer was created with a transaction code, which every offer here is.
+    TokenResponse:
+      type: object
+      properties:
+        access_token: { type: string, description: 'Signed JWT (typ at+jwt), scoped to one offer.' }
+        token_type: { type: string, example: bearer }
+        expires_in: { type: integer, example: 600 }
+        authorization_details:
+          type: array
+          description: The credential configurations this token authorizes (RFC 9396 shape).
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [openid_credential] }
+              credential_configuration_id: { type: string, example: NG_StateResidencyCredential_ldp_vc }
+        c_nonce:
+          type: string
+          description: For Draft 13 wallets, which read the nonce here; 1.0 wallets use the Nonce Endpoint.
+        c_nonce_expires_in: { type: integer }
+    CredentialRequest:
+      type: object
+      description: >-
+        Either dialect. OpenID4VCI 1.0: `credential_configuration_id` + `proofs`. Draft 13:
+        `format` + `proof`. A request is treated as 1.0 when it carries `proofs`, or
+        `credential_configuration_id` without `format`. Any other property is ignored.
+      properties:
+        credential_configuration_id:
+          type: string
+          example: NG_StateResidencyCredential_ldp_vc
+        format:
+          type: string
+          enum: [ldp_vc, jwt_vc_json]
+          description: Draft 13 alternative to credential_configuration_id; selects the matching configuration the token authorizes.
+        proofs:
+          type: object
+          description: OpenID4VCI 1.0 key proofs. One credential is issued per proof.
+          properties:
+            jwt:
+              type: array
+              items: { type: string, description: 'JWT with typ openid4vci-proof+jwt' }
+        proof:
+          type: object
+          description: Draft 13 singular key proof
+          required: [proof_type, jwt]
+          properties:
+            proof_type: { type: string, enum: [jwt] }
+            jwt: { type: string }
+    CredentialResponse:
+      type: object
+      description: The dialect of the request decides which fields are present.
+      properties:
+        credentials:
+          type: array
+          description: OpenID4VCI 1.0 response; one entry per proof, in request order.
+          items:
+            type: object
+            properties:
+              credential:
+                description: A VC-JWT string (`jwt_vc_json`) or a JSON-LD credential object (`ldp_vc`).
+        format:
+          type: string
+          enum: [ldp_vc, jwt_vc_json]
+          description: Draft 13 response only.
+        credential:
+          description: Draft 13 response; a VC-JWT string, or a JSON-LD object.
+        c_nonce: { type: string, description: Draft 13 response; a fresh nonce for the next request. }
+        c_nonce_expires_in: { type: integer, description: Draft 13 response only. }
+    OpenIdConfiguration:
+      type: object
+      description: >-
+        OpenID Provider Metadata (OpenID Connect Discovery 1.0 §3) as emitted by the
+        provider for this deployment's configuration. Endpoint URLs carry the origin the
+        request arrived on; `issuer` is fixed to `<PUBLIC_BASE_URL>/oidc`.
+      additionalProperties: true
+      properties:
+        issuer: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc' }
+        authorization_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/auth' }
+        token_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/token' }
+        userinfo_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/me' }
+        jwks_uri: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/jwks' }
+        revocation_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/token/revocation' }
+        introspection_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/token/introspection' }
+        end_session_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/session/end' }
+        pushed_authorization_request_endpoint: { type: string, format: uri, example: 'https://id.katsina.gov.ng/oidc/request' }
+        scopes_supported:
+          type: array
+          description: >-
+            `openid`, `offline_access`, `residency`, one scope per configured relying-party
+            sector (e.g. `health`, `tax`), and `profile`.
+          items: { type: string }
+          example: [openid, offline_access, residency, health, profile]
+        claims_supported:
+          type: array
+          items: { type: string }
+          example:
+            - sub
+            - acr
+            - amr
+            - auth_time
+            - resident_id
+            - country_code
+            - subnational_unit
+            - assurance_level
+            - provisional
+            - name
+            - given_name
+            - family_name
+            - birthdate
+            - gender
+            - sid
+            - iss
+        response_types_supported:
+          type: array
+          description: >-
+            The provider's defaults. Registered relying parties are limited to `code`; the
+            others are advertised but no client here may use them.
+          items: { type: string }
+          example: ['code id_token', code, id_token, none]
+        grant_types_supported:
+          type: array
+          description: >-
+            The provider's defaults. Registered relying parties hold `authorization_code`
+            and `refresh_token` only; `implicit` is advertised but no client here may use it.
+          items: { type: string }
+          example: [implicit, authorization_code, refresh_token]
+        response_modes_supported:
+          type: array
+          items: { type: string }
+          example: [form_post, fragment, query]
+        subject_types_supported:
+          type: array
+          items: { type: string, enum: [public, pairwise] }
+          description: Every registered relying party uses the deployment's `oidc.subjectType`, pairwise by default.
+        id_token_signing_alg_values_supported:
+          type: array
+          items: { type: string }
+          example: [EdDSA]
+        token_endpoint_auth_methods_supported:
+          type: array
+          description: The provider's defaults; registered relying parties use `client_secret_basic`.
+          items: { type: string }
+          example: [client_secret_basic, client_secret_jwt, client_secret_post, private_key_jwt, none]
+        token_endpoint_auth_signing_alg_values_supported:
+          type: array
+          items: { type: string }
+          example: [HS256, RS256, PS256, ES256, Ed25519, EdDSA]
+        code_challenge_methods_supported:
+          type: array
+          items: { type: string, enum: [S256] }
+          description: PKCE is required of every client.
+        dpop_signing_alg_values_supported:
+          type: array
+          items: { type: string }
+          example: [ES256, Ed25519, EdDSA]
+        claims_parameter_supported: { type: boolean, example: false }
+        request_uri_parameter_supported: { type: boolean, example: false }
+        authorization_response_iss_parameter_supported: { type: boolean, example: true }
+        claim_types_supported:
+          type: array
+          items: { type: string, enum: [normal] }
+  # Add to components.parameters alongside ResidentId. Referenced by every /interaction route above.

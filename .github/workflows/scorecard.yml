@@ -1,0 +1,66 @@
+# OpenSSF Scorecard: automated supply-chain checks, published rather than self-reported.
+#
+# DPG Standard indicator 8 asks for adherence to security best practice. This repository already
+# argues that case in prose (docs/DPG.md) and demonstrates parts of it in CI. Scorecard is the
+# version a reviewer can check WITHOUT taking our word for it: an independent tool, run on a
+# schedule, scoring branch protection, signed releases, pinned dependencies, SAST coverage,
+# dangerous workflow patterns and maintenance signals.
+#
+# It is deliberately NOT a required check. Several Scorecard checks measure repository settings
+# and project age rather than the code in a pull request, so gating merges on the score would
+# block work on things a contributor cannot fix. It runs on a schedule and on pushes to main,
+# and the result is a signal to maintainers and reviewers, not a gate on contributors.
+name: OpenSSF Scorecard
+
+on:
+  branch_protection_rule:
+  schedule:
+    # Weekly. The inputs Scorecard measures — branch rules, release signing, dependency
+    # freshness — change on the order of weeks, so running per-commit would burn Actions
+    # minutes to re-derive the same score.
+    - cron: '17 4 * * 1'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the result to the code-scanning dashboard.
+      security-events: write
+      # Needed for the publish step below to attest the result.
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # publish_results makes the score available to the public Scorecard API, which is
+          # what lets a DPG reviewer or an adopting government read it without running
+          # anything. That is the entire point of using an independent tool, so it is on.
+          publish_results: true
+
+      # Kept for 5 days so a maintainer can read the raw findings behind a score change.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif

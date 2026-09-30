@@ -323,6 +323,7 @@ This repository is the generic public infrastructure, not a single-country app:
 | Interoperability SDK | typed client in `sdk/` (`@openresidency/sdk`) |
 | Reference UI | enrollment, verify, and admin consoles at `/app` |
 | Kubernetes deployment | raw manifests in `deploy/k8s` and a Helm chart in `deploy/helm` |
+| Operability | `/health/live`, `/health/ready` (asks the database); JSON operations log with identifier redaction; Prometheus metrics on `METRICS_PORT` — see `docs/DEPLOY.md` |
 | API specifications | OpenAPI 3.1 in `docs/openapi.yaml`, served at `/openapi.yaml` and `/docs` |
 | Developer documentation | `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/DEPLOY.md`, `docs/SDK.md`, `docs/DPG.md` |
 
@@ -513,3 +514,11 @@ Apache-2.0. See `LICENSE` and `NOTICE`.
 Owned and stewarded by HarmonizedX Limited. See `GOVERNANCE.md`, `CONTRIBUTING.md`, and
 `SECURITY.md`. To publish this as a Digital Public Good, follow `docs/PUBLISHING.md` and submit
 using the registry submission pack at the end of [`docs/DPG.md`](docs/DPG.md).
+
+## Releases
+
+[`RELEASING.md`](RELEASING.md) states what a release is and what it promises: Semantic
+Versioning with the pre-1.0 rules written down, a signed tag carrying an SBOM, checksums,
+keyless Sigstore signatures and build provenance, and the rule that `1.0.0` waits for a
+jurisdiction running this in production rather than for a green build. Changes are recorded in
+[`CHANGELOG.md`](CHANGELOG.md).

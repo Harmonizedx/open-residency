@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * WebAuthnService flow: registration (authorized by an existing factor), authentication,

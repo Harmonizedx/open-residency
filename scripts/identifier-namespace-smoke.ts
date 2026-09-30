@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * A subject reference is namespaced by the IDENTIFIER, not by the route it arrived through.

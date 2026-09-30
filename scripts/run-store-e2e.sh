@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 #
 # Persistence contract test: every Prisma store, against a real PostgreSQL.
 #

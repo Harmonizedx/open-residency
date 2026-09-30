@@ -46,8 +46,34 @@ jobs:
       - name: Architectural fence (core stays framework-agnostic, no cycles)
         run: npm run lint:arch
 
+      # DPG Standard indicator 2 (clear open licence). A LICENSE file states the project's
+      # licence; it does not travel with a file somebody copies out, and copying is the point
+      # of publishing this. Cheap to keep true, tedious to fix once it has drifted.
+      - name: Licence headers on every source file
+        run: npm run lint:licenses
+
       - name: Typecheck
         run: npm run typecheck
+
+      # docs/openapi.yaml is the contract partners integrate against and the source the
+      # SDK's types are generated from. Hand-maintained, it fell to 43 of 80 routes with
+      # nothing noticing, so the ORCS relationship and credential lifecycle was invisible to
+      # anyone integrating through it. Every controller route must be documented and every
+      # documented operation must exist.
+      - name: OpenAPI covers every controller route
+        run: npm run lint:openapi
+
+      # The SDK's types are generated from the spec and checked in, so a spec change that
+      # forgets to regenerate ships a client that lies about the server.
+      - name: SDK types match docs/openapi.yaml
+        run: npm run sdk:generate && git diff --exit-code -- sdk/src/openapi.ts
+
+      # Nothing built the SDK in CI, so its build broke under TypeScript 6 and stayed broken
+      # for weeks with a stale dist/ hiding it. The release workflow now publishes it, and
+      # a tag push is the worst moment to learn it does not compile. The dry-run pack
+      # catches the other failure: a build that succeeds into the wrong directory.
+      - name: SDK builds, packs, and its client sends what the spec says
+        run: cd sdk && npm run build && npm test && npm pack --dry-run
 
       - name: W3C conformance (VC Data Model 2.0, Bitstring Status List, Data Integrity)
         run: npm run test:conformance
@@ -111,6 +137,20 @@ jobs:
       - name: MOSIP integration conformance (gate)
         run: npm run conformance:mosip
 
+      # ORCS §15 as a RATCHET, not a pass/fail gate. scripts/orcs-baseline.json records the
+      # verdict each criterion currently holds; this fails when one drops, and also when one
+      # improves without the baseline being updated.
+      #
+      # It stayed out of CI while most criteria failed, on the reasoning that a permanently-red
+      # required check trains people to ignore red checks. That reasoning has expired: most
+      # criteria now pass, and nothing was protecting them. Criterion 9 asserted nothing for
+      # weeks while its own prose drifted from six adapters to eight, and no build noticed.
+      #
+      # When every criterion reaches PASS the baseline is all-PASS and this IS the gate, with
+      # no separate step to remember.
+      - name: ORCS §15 conformance (ratchet against the recorded baseline)
+        run: npm run conformance:orcs
+
       # WebAuthn passkey factor (registration + assertion verification against a simulated
       # authenticator, both ES256 and EdDSA) and the assurance model (acr/amr, biometric
       # step-up). Security-critical crypto, so it is gated.
@@ -168,6 +208,13 @@ jobs:
       # issuer-key custody and the operator role model.
       - name: Operator identity, roles, and per-operator API keys
         run: npm run smoke:operator
+
+      # Operations logging and metrics. Gated for one reason above the others: it asserts
+      # that a national identifier submitted to the service reaches neither the log nor a
+      # metric label -- not in a request line, not in a redacted object, not via the query
+      # string. A structured request logger is the easiest way to build exactly that leak.
+      - name: Observability (redaction, request log shape, bounded metric labels)
+        run: npm run smoke:observability
 
       # Issuer-key custody. A deployment signing with a key it does not hold in an HSM or KMS
       # is the single failure that invalidates every credential it ever issued, so the

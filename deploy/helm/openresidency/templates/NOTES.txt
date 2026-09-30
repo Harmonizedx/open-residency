@@ -9,6 +9,15 @@ OpenResidency is deploying.
 3. API docs:
    https://{{ .Values.ingress.host }}/docs
 
+4. Health (what the probes use; no credentials needed):
+   kubectl exec deploy/{{ include "openresidency.name" . }} -- wget -qO- http://127.0.0.1:{{ .Values.service.targetPort }}/health/ready
+{{- if .Values.metrics.enabled }}
+
+5. Metrics are on port {{ .Values.metrics.port }} of each pod (not the Service):
+   kubectl port-forward deploy/{{ include "openresidency.name" . }} {{ .Values.metrics.port }}:{{ .Values.metrics.port }}
+   curl -s http://127.0.0.1:{{ .Values.metrics.port }}/metrics | head
+{{- end }}
+
 Before production, confirm you have:
   - Set strong SUBJECT_PEPPER, OIDC_COOKIE_SECRET, ADMIN_API_KEY
   - A secrets.relyingPartySecrets entry per relying party in your country configs

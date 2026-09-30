@@ -18,6 +18,7 @@ import { OperatorModule } from './operator/operator.module';
 import { UpstreamModule } from './upstream/upstream.module';
 import { CallerThrottlerGuard } from './common/caller-throttler.guard';
 import { AssuranceModule } from './assurance/assurance.module';
+import { ObservabilityModule } from './observability/observability.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { AssuranceModule } from './assurance/assurance.module';
     OperatorModule,
     AssuranceModule,
     UpstreamModule,
+    ObservabilityModule,
   ],
   providers: [
     // Counts the caller, not the proxy that forwarded them (ADR-0013).

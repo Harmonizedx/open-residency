@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * The residency relationship lifecycle: ORCS §6.2 status, §4.3 attributes, and the two rules

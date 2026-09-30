@@ -29,6 +29,7 @@ import {
   TransitionRelationshipDto,
   VerifyDto,
 } from './dto/residency.dto';
+import { observeIssuance } from '../observability/metrics';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/residency.dto.ts.
 // The trust requirements the old inline docs described still hold: `binding` and
@@ -102,6 +103,16 @@ export class ResidencyController {
       // not a generic marker. The audit entry below names the same actor.
       decidedBy: operatorActor(operator),
       context: { offline: body.offline === true },
+    });
+
+    // Outcome by class, for the dashboard. The unit is a label only when the jurisdiction
+    // declares it: the service refuses an undeclared one, but a caller-chosen string must not
+    // become a metric series either way.
+    observeIssuance({
+      status: result.status,
+      reason: result.status === 'rejected' ? result.reason : undefined,
+      unit: body.subnationalUnit,
+      unitIsDeclared: cfg.subnationalUnits.some((u) => u.code === body.subnationalUnit),
     });
 
     // Contact capture, once we know which resident this is. Deliberately after issuance

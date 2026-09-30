@@ -50,6 +50,14 @@ async function canonicalize(doc: unknown): Promise<string> {
     algorithm: 'URDNA2015',
     format: 'application/n-quads',
     documentLoader: staticDocumentLoader,
+    // Carry `@direction` into the RDF rather than dropping it.
+    //
+    // VCDM 2.0 §11.1 allows `name` and `description` to be language value objects that
+    // state both a language and a base direction. Without this option the JSON-LD
+    // algorithm has nowhere to put `@direction` and discards it -- which safe mode below
+    // then correctly reports as data loss, so a spec-valid credential could not be signed
+    // at all. `i18n-datatype` is the encoding the JSON-LD 1.1 API defines for this.
+    rdfDirection: 'i18n-datatype',
     // Safe mode turns "this term is not in any @context" from a silent drop into a
     // thrown error. Without it, a claim we forgot to define would simply vanish from
     // the canonical form and therefore from what the signature covers -- the document

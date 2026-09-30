@@ -4,7 +4,13 @@ import { PlatformService } from '../platform/platform.service';
 import { OperatorGuard, RequireRoles } from '../common/operator.guard';
 import { LdpIssuer, LdpCredential } from '../core/credentials/ldp-issuer';
 import { keyObjectFromJwk } from '../core/oid4vp/vp-verifier';
-import { issuerIdOf, typesOf, validateCredentialShape } from '../core/credentials/data-model';
+import {
+  issuerIdOf,
+  validateCredentialShape,
+  validatePresentationShape,
+} from '../core/credentials/data-model';
+import { pinnedResourceBytes } from '../core/credentials/jsonld/document-loader';
+import { didKeyToJwk } from '../core/credentials/did';
 
 /**
  * VC-API: the W3C CCG's standard HTTP interface for issuing and verifying credentials.
@@ -66,7 +72,9 @@ export class VcApiController {
       throw new HttpException({ errors: ['credential is required'] }, 400);
     }
 
-    const problems = validateCredentialShape(credential);
+    const problems = validateCredentialShape(credential, {
+      resolveResourceBytes: pinnedResourceBytes,
+    });
     if (problems.length) {
       throw new HttpException({ errors: problems }, 400);
     }
@@ -112,7 +120,7 @@ export class VcApiController {
       return this.ok(['proof', 'expiration', ...(outcome.checkedRevocation ? ['credentialStatus'] : [])]);
     }
 
-    const problems = validateCredentialShape(vc);
+    const problems = validateCredentialShape(vc, { resolveResourceBytes: pinnedResourceBytes });
     if (problems.length) throw new HttpException(this.fail(problems), 400);
 
     const issuerDid = issuerIdOf(vc);
@@ -141,23 +149,55 @@ export class VcApiController {
       throw new HttpException(this.fail(['verifiablePresentation is required']), 400);
     }
 
-    // A presentation with no challenge cannot be checked for freshness or audience, so
-    // this endpoint can only report on the enclosed credential. The real presentation
-    // path is OpenID4VP, which supplies both. Say so rather than implying more assurance
-    // than we actually provide.
-    const types = typesOf(vp);
-    if (typeof vp !== 'string' && !types.includes('VerifiablePresentation')) {
-      throw new HttpException(this.fail(['type must include VerifiablePresentation']), 400);
+    if (typeof vp === 'string') {
+      throw new HttpException(this.fail(['an enveloped presentation is not supported here']), 400);
     }
+
+    const problems = validatePresentationShape(vp);
+    if (problems.length) throw new HttpException(this.fail(problems), 400);
+
+    // The proof is checked against the key its own `verificationMethod` names. A
+    // presentation is signed by the HOLDER, not by us, so verifying it against this
+    // deployment's issuer key would reject every genuine presentation. `did:key` carries
+    // the public key in the identifier itself, so this resolves with no network access --
+    // on the same offline terms as everything else here.
+    const verified = await this.verifyPresentationProof(vp);
+    if (!verified) throw new HttpException(this.fail(['proof does not verify']), 400);
 
     return {
       checks: ['proof'],
+      // A presentation with no challenge cannot be checked for freshness or audience, so
+      // this endpoint can only report on the proof and the enclosed credential. The real
+      // presentation path is OpenID4VP, which supplies both. Say so rather than implying
+      // more assurance than we actually provide.
       warnings: [
-        'this endpoint verifies the enclosed credential only; holder binding, nonce, and ' +
-          'audience are checked on the OpenID4VP path (/openid4vp/response)',
+        'holder binding, nonce, and audience are checked on the OpenID4VP path ' +
+          '(/openid4vp/response), not here',
       ],
       errors: [],
     };
+  }
+
+  /**
+   * Verify a presentation's Data Integrity proof against the key it names.
+   *
+   * Returns false rather than throwing on an unresolvable or unsupported verification
+   * method: from a verifier's standpoint "I cannot establish this proof" and "this proof
+   * is wrong" have the same consequence, and neither may be reported as success.
+   */
+  private async verifyPresentationProof(vp: Record<string, unknown>): Promise<boolean> {
+    const proof = (vp as { proof?: { verificationMethod?: unknown } }).proof;
+    const method = proof?.verificationMethod;
+    if (typeof method !== 'string' || !method.startsWith('did:key:')) return false;
+
+    try {
+      return await LdpIssuer.verify(
+        vp as LdpCredential,
+        keyObjectFromJwk(didKeyToJwk(method)),
+      );
+    } catch {
+      return false;
+    }
   }
 
   private ok(checks: string[]): VerifyResult {

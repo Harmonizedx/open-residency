@@ -1,0 +1,71 @@
+# Code owners — required reviewers for the paths where a mistake is expensive.
+#
+# The repository ruleset already requires one approving review on every pull request. This
+# narrows that for the sensitive paths: a change here needs review from a maintainer
+# specifically, not from whoever is available.
+#
+# Chosen by blast radius, not by how often the files change:
+#
+#   - credentials and keys      a defect here invalidates every credential ever issued
+#   - foundational adapters     the only code that touches a raw national ID
+#   - residency issuance        the policy gates; each one fails closed by design
+#   - consent and legal basis   what a deployment is lawfully permitted to do
+#   - audit                     the record that everything else is checked against
+#   - CI and release workflows  the thing that decides what "verified" and "signed" mean
+#   - security and licensing    what an adopting government relies on in writing
+#
+# NOTE ON THE TEAM. GitHub honours a CODEOWNERS entry only when the named team has write
+# access to this repository. `@Harmonizedx/open-residency-admin` holds `push`, granted for
+# exactly this purpose -- without it every line below would be silently ignored and the rule
+# would read as configured while never firing.
+#
+# So if this team is ever removed from the repository's access list, these rules stop applying
+# and nothing announces it. Check `gh api repos/Harmonizedx/open-residency/teams` if a review
+# that should have been required was not.
+
+# Default: any change not matched more specifically.
+*                                   @Harmonizedx/open-residency-admin
+
+# Credential issuance, verification, revocation, and issuer key custody.
+/src/core/credentials/              @Harmonizedx/open-residency-admin
+/src/core/oid4vci/                  @Harmonizedx/open-residency-admin
+/src/core/oid4vp/                   @Harmonizedx/open-residency-admin
+
+# The only layer that sees a raw national ID, and the tokenization that keeps it unstored.
+/src/core/foundational/             @Harmonizedx/open-residency-admin
+
+# Issuance policy gates and the residency record itself.
+/src/core/residency/                @Harmonizedx/open-residency-admin
+/src/core/proofing/                 @Harmonizedx/open-residency-admin
+
+# Lawful basis for processing, and the assurance values relying parties read.
+/src/core/consent/                  @Harmonizedx/open-residency-admin
+/src/core/assurance/                @Harmonizedx/open-residency-admin
+
+# The tamper-evident record.
+/src/core/audit/                    @Harmonizedx/open-residency-admin
+
+# Authentication, session storage, and pairwise subject derivation.
+/src/core/sso/                      @Harmonizedx/open-residency-admin
+/src/core/oidc/                     @Harmonizedx/open-residency-admin
+
+# The composition root: where keys, peppers and providers are wired.
+/src/platform/                      @Harmonizedx/open-residency-admin
+
+# What "verified" and "signed" mean. A change here can weaken every check at once.
+/.github/workflows/                 @Harmonizedx/open-residency-admin
+/.github/CODEOWNERS                 @Harmonizedx/open-residency-admin
+
+# The conformance gates themselves.
+/scripts/orcs-conformance.ts        @Harmonizedx/open-residency-admin
+/scripts/mosip-conformance.ts       @Harmonizedx/open-residency-admin
+/scripts/check-license-headers.sh   @Harmonizedx/open-residency-admin
+
+# Commitments an adopting government relies on in writing.
+/SECURITY.md                        @Harmonizedx/open-residency-admin
+/RELEASING.md                       @Harmonizedx/open-residency-admin
+/LICENSE                            @Harmonizedx/open-residency-admin
+/NOTICE                             @Harmonizedx/open-residency-admin
+
+# Database schema and migrations: irreversible in production.
+/prisma/                            @Harmonizedx/open-residency-admin

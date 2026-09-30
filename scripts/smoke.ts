@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 import { parseCountryConfig, CountryConfig } from '../src/core/config/country-config';
 import { ProviderRegistry } from '../src/core/foundational/registry';

@@ -52,25 +52,45 @@ ADMIN_API_KEY=dev-admin-key npm run test:w3c
 runs it with `test/w3c/localConfig.cjs`, which points at `http://localhost:3000`. Override
 the target with `W3C_SUITE_BASE_URL`.
 
+It also starts `test/w3c/auth-proxy.cjs` on `127.0.0.1:3100` for the duration of the run,
+and stops it afterwards. The suite honours the `Authorization` header from
+`localConfig.cjs` only when the target is `https:`; over plain `http:` it builds the request
+by hand and drops it, so every call would otherwise reach the admin-guarded VC-API
+unauthenticated and the whole suite would fail with `401` — dozens of results that look
+like conformance failures and are not. The shim adds the credential rather than removing
+the guard. Override its port with `W3C_PROXY_PORT`.
+
 ### Honest status
 
-**We have not run the official suite green in CI, and this repository does not claim to.**
-The harness, the VC-API endpoints, and the config are here so that a reviewer, a DPG
-assessor, or a contributor can run it themselves and see the result first-hand — which is
-the point. If you run it, please open an issue with the output, whatever it says. Failures
-against the W3C suite are exactly the issues we most want filed.
+**The suite passes 59 of 59 against a local instance. It is still not run in CI, and this
+repository does not claim a green CI run.** It needs a live server and a database, so it
+stays opt-in; the number above is what a reviewer gets by following the steps above, not
+something a build enforces. The hermetic layer 1 suite is what protects these rules on
+every commit — the checks it grew alongside these fixes are listed under
+"Sub-objects MUST specify a type", "relatedResource integrity", "Verifiable presentations"
+and "Language value objects" in `npm run test:conformance`.
 
-Two things we already expect to need work when it is run:
+If you run it and see anything other than 59/59, please open an issue with the output.
+Failures against the W3C suite are exactly the issues we most want filed.
 
-- The suite exercises credential shapes far beyond residency (arbitrary `@context`s,
-  example vocabularies). Our JSON-LD document loader is deliberately **pinned and refuses
-  network fetches**, for the determinism, availability, and integrity reasons set out in
-  `docs/INTEROP.md`. Any context the suite uses that we have not pinned in `contexts/` will
-  fail to canonicalize. That is the loader working as designed, not a bug — but it means
-  running the suite will likely surface contexts to add.
-- `POST /presentations/verify` cannot check holder binding, nonce, or audience, because a
-  bare VC-API presentation carries no challenge. It says so in its own `warnings`. The real
-  presentation path is OpenID4VP (`/openid4vp/response`), which checks all three.
+Two predictions this document previously made, and how they actually turned out:
+
+- We expected the **pinned JSON-LD loader** to be the main source of failures, since the
+  suite exercises credential shapes far beyond residency. It was not: every context the
+  suite uses is already pinned in `contexts/`, and the loader refusing network fetches
+  never came up. The prediction was reasonable and simply wrong. If you extend the suite
+  and hit `refusing to fetch remote JSON-LD context`, that is the loader working as
+  designed — pin the context under `contexts/` and register it in `CONTEXT_FILES`.
+- `POST /presentations/verify` **now verifies the presentation's proof**, against the key
+  its own `verificationMethod` names, resolved offline from `did:key`. It still cannot
+  check holder binding, nonce, or audience, because a bare VC-API presentation carries no
+  challenge — it says so in its own `warnings`. The real presentation path is OpenID4VP
+  (`/openid4vp/response`), which checks all three.
+
+`relatedResource` digests (VCDM 2.0 §5.3) are verified only for resources this deployment
+already pins. Fetching an arbitrary URL to digest it is the thing the loader exists to
+refuse, so an unpinned resource is left unverified rather than fetched — or rejected, which
+would make a valid resource unusable.
 
 ## Why the VC-API endpoints are guarded
 
