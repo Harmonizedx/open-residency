@@ -1,7 +1,7 @@
 # 13. Rate limiting identifies the caller, and says so when it cannot
 
-- Status: **Proposed** — implementation lands in the same change, but the choice below is
-  the sort a maintainer should agree to rather than inherit from a commit.
+- Status: **Accepted** (2026-09-30). Proposed with the implementation on 2026-08-23 so the
+  choice could be judged against working code; accepted as written.
 - Date: 2026-08-23
 - Relates to: [ADR-0004](0004-one-deployment-one-jurisdiction.md)
 

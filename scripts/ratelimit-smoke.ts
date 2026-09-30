@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
  * Rate limiting counts the caller, not the proxy (ADR-0013, #141).
