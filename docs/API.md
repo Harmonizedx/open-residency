@@ -99,8 +99,9 @@ platform and must not be redeclared.
 - `GET /consent/legal-bases/{id}` — one basis, **whatever its state**, plus an `inForce` flag.
   A consent citing a since-repealed instrument stays followable; deactivating a basis must not
   blank the history that cites it.
-- `POST /consent/legal-bases/{id}/deactivate` — withdraw a basis. Requires `reason` and
-  `authority`, and is refused without them. There is no reactivation: a basis relied on again
+- `POST /consent/legal-bases/{id}/deactivate` — withdraw a basis. Requires a `reason` and is
+  refused without one; the authority recorded is the authenticated operator, never a body
+  value. There is no reactivation: a basis relied on again
   is a new entry with its own version, so the gap during which processing was unauthorised
   stays visible. **Requires `x-admin-key`** (`admin`).
 

@@ -1695,7 +1695,7 @@ export interface paths {
          * Withdraw a legal basis
          * @description Stops every consent citing it. Requires the `admin` role and a `reason`, and is refused without them. There is no reactivation — a basis relied on again is a new entry with its own version, so the gap during which processing was unauthorised stays visible.
          *
-         *     The recorded authority is the AUTHENTICATED OPERATOR (`operator:<operator id>`), never a value from the body: taking it from the request would let any admin type a colleague's name into the one record whose purpose is attribution. The `authority` body field must still be present to pass validation, and its value is ignored.
+         *     The recorded authority is the AUTHENTICATED OPERATOR (`operator:<operator id>`), never a value from the body: taking it from the request would let any admin type a colleague's name into the one record whose purpose is attribution. An `authority` body field is accepted for older callers and ignored.
          */
         post: {
             parameters: {
@@ -1712,10 +1712,10 @@ export interface paths {
                         /** @example By-law repealed by the 2027 consolidation */
                         reason: string;
                         /**
-                         * @description Required by validation but IGNORED. The authority written to the basis and the audit log is the authenticated operator's id, not this value.
-                         * @example operator:commissioner
+                         * @deprecated
+                         * @description Ignored. The authority written to the basis and the audit log is the authenticated operator's id. Accepted so callers written when it was required keep working.
                          */
-                        authority: string;
+                        authority?: string;
                     };
                 };
             };
@@ -1731,7 +1731,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Missing reason or authority, or already deactivated */
+                /** @description Missing reason, or already deactivated */
                 400: {
                     headers: {
                         [name: string]: unknown;
