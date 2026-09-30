@@ -109,11 +109,18 @@ this one.
     confirm.
 12. **Confirm the SDK landed.** The `sdk` job publishes it through npm trusted publishing
     and refuses when `sdk/package.json` does not match the tag, so a failure here is step 7
-    skipped. The registry lags the publish by a minute or so.
+    skipped.
     ```bash
     npm view @openresidency/sdk version
     ```
-    If the job could not publish, the manual fallback is in `docs/PUBLISHING.md`.
+    The registry can hold a publish for an hour before it is visible. 0.2.0 appeared within
+    a minute; 0.2.1 took 68 minutes, during which the tarball, the attestation and
+    `npm stage list` all reported nothing. The proof the publish was accepted is the
+    `+ @openresidency/sdk@<version>` line in the job log. While it is held, do not bump the
+    version, do not move the tag, and do not treat a rerun's
+    `E409 Cannot publish over previously staged version` as a failure: it is the registry
+    saying it already has the version. If the job could not publish at all, the manual
+    fallback is in `docs/PUBLISHING.md`.
 
 ## Security releases
 
