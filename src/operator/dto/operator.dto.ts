@@ -20,8 +20,9 @@ export class CreateOperatorDto {
   @IsOptional() @IsString() @MaxLength(256) password?: string;
 }
 
-/** `POST /operator/operators/:id/disable`. */
+/** `POST /operator/operators/:id/disable`. The target is the path id. */
 export class DisableOperatorDto {
+  /** @deprecated The path names the operator. Accepted for older callers; must equal the path id. */
   @IsOptional() @IsString() @MaxLength(64) operatorId?: string;
   @IsOptional() @IsBoolean() disabled?: boolean;
 }
