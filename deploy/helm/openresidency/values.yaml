@@ -17,6 +17,10 @@ config:
   publicBaseUrl: https://id.example.gov
   countryConfigDir: /app/config/countries
   rateLimitPerMinute: "120"
+  # Proxies in front of the service. The chart enables an ingress by default, so 1 is the
+  # matching value; 0 would leave every anonymous caller behind it sharing one rate-limit
+  # budget (ADR-0013).
+  trustedProxyHops: 1
   # Operations log level: fatal | error | warn | info | debug | trace. Lines are JSON, one
   # per record, to stdout. Request lines carry method, route pattern, status, duration and a
   # request id -- never a body, query string or header.

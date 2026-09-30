@@ -13,6 +13,9 @@ data:
   PUBLIC_BASE_URL: "https://id.example.gov"
   COUNTRY_CONFIG_DIR: "/app/config/countries"
   RATE_LIMIT_PER_MINUTE: "120"
+  # This manifest ships an nginx ingress in front, so one proxy hop is trusted -- otherwise
+  # every anonymous caller behind it shares a single budget (ADR-0013).
+  TRUSTED_PROXY_HOPS: "1"
   # Operations log level (JSON lines to stdout). fatal | error | warn | info | debug | trace.
   LOG_LEVEL: "info"
   # Prometheus metrics on a second container port. It is not on the Service below, so the

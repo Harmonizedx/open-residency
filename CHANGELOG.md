@@ -12,7 +12,18 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+**Rate limiting counted the proxy, not the caller.** The in-app limit (120 requests a minute
+by default) keyed on the socket address, and nothing told Express to trust a proxy, so behind
+the ingress the shipped Kubernetes and Helm manifests put in front, every request presented
+the ingress's address and the whole deployment shared one bucket. One client could exhaust
+it and hold every registrar at 429. The key now comes from a declared number of trusted proxy
+hops (`TRUSTED_PROXY_HOPS`, default `0`), and nothing the caller controls reaches it. When a
+request carries `X-Forwarded-For` while no hop is declared, the application logs once that it
+is behind a proxy it was not told about. The manifests set one hop to match their ingress.
+Per-operator budgets, which would stop a busy office behind one address sharing a bucket,
+are a separate change and are recorded as deferred in ADR-0013. (#147)
 
 ## 0.2.0 — 2026-09-30
 
