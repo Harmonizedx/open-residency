@@ -609,7 +609,8 @@ export class OpenResidencyClient {
       accept?: string;
     },
   ): Promise<unknown> {
-    const path = template.replace(/\{([^}]+)\}/g, (_, name: string) => {
+    // Parameter names are identifiers; the bounded class keeps the scan linear.
+    const path = template.replace(/\{([A-Za-z0-9_]+)\}/g, (_, name: string) => {
       const value = opts.path?.[name];
       if (value === undefined) throw new Error(`Missing path parameter "${name}" for ${template}`);
       return encodeURIComponent(String(value));
