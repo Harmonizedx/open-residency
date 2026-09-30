@@ -461,7 +461,7 @@ export class OpenResidencyClient {
   disableOperator(operatorId: string, disabled = true) {
     return this.request('post', '/operator/operators/{id}/disable', {
       path: { id: operatorId },
-      body: { operatorId, disabled },
+      body: { disabled },
       auth: 'operator',
     });
   }

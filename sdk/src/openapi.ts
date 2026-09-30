@@ -2318,22 +2318,26 @@ export interface paths {
         put?: never;
         /**
          * Disable or re-enable an operator (admin)
-         * @description Sets or clears the account's `disabledAt`. `disabled` defaults to true; send `false` to re-enable. The operator is named by `operatorId` in the body; the `id` path segment is not read. Audited as `operator.disable` or `operator.enable` with the acting operator's name. Under `operatorAuth.mode: oidc` this is the local disable switch for an account the directory still vouches for.
+         * @description Sets or clears the account's `disabledAt`. `disabled` defaults to true; send `false` to re-enable. The operator is the `id` in the path. Audited as `operator.disable` or `operator.enable` with the acting operator's name. Under `operatorAuth.mode: oidc` this is the local disable switch for an account the directory still vouches for.
          */
         post: {
             parameters: {
                 query?: never;
                 header?: never;
                 path: {
-                    /** @description Not consulted; the target is `operatorId` in the body. */
+                    /** @description The operator to disable or re-enable. */
                     id: string;
                 };
                 cookie?: never;
             };
-            requestBody: {
+            requestBody?: {
                 content: {
                     "application/json": {
-                        operatorId: string;
+                        /**
+                         * @deprecated
+                         * @description Older callers named the operator here. Still accepted, but it must equal the path `id`; a different value is a 400.
+                         */
+                        operatorId?: string;
                         /** @default true */
                         disabled?: boolean;
                     };
@@ -2347,12 +2351,12 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            /** @description False when operatorId is unknown */
+                            /** @description False when the operator is unknown */
                             ok?: boolean;
                         };
                     };
                 };
-                /** @description operatorId missing, or an unknown property in the body */
+                /** @description A body `operatorId` that differs from the path, or an unknown property in the body */
                 400: {
                     headers: {
                         [name: string]: unknown;

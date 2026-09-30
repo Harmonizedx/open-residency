@@ -1260,26 +1260,31 @@ paths:
       summary: Disable or re-enable an operator (admin)
       description: >
         Sets or clears the account's `disabledAt`. `disabled` defaults to true; send
-        `false` to re-enable. The operator is named by `operatorId` in the body; the `id`
-        path segment is not read. Audited as `operator.disable` or `operator.enable` with
-        the acting operator's name. Under `operatorAuth.mode: oidc` this is the local
-        disable switch for an account the directory still vouches for.
+        `false` to re-enable. The operator is the `id` in the path. Audited as
+        `operator.disable` or `operator.enable` with the acting operator's name. Under
+        `operatorAuth.mode: oidc` this is the local disable switch for an account the
+        directory still vouches for.
       security: [{ operatorKey: [] }, { operatorToken: [] }, { adminKey: [] }]
       parameters:
         - name: id
           in: path
           required: true
           schema: { type: string }
-          description: Not consulted; the target is `operatorId` in the body.
+          description: The operator to disable or re-enable.
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required: [operatorId]
               properties:
-                operatorId: { type: string, maxLength: 64 }
+                operatorId:
+                  type: string
+                  maxLength: 64
+                  deprecated: true
+                  description: >-
+                    Older callers named the operator here. Still accepted, but it must equal
+                    the path `id`; a different value is a 400.
                 disabled: { type: boolean, default: true }
       responses:
         '201':
@@ -1289,9 +1294,9 @@ paths:
               schema:
                 type: object
                 properties:
-                  ok: { type: boolean, description: False when operatorId is unknown }
+                  ok: { type: boolean, description: False when the operator is unknown }
         '400':
-          description: operatorId missing, or an unknown property in the body
+          description: A body `operatorId` that differs from the path, or an unknown property in the body
         '401':
           description: Missing or invalid operator credential
         '403':

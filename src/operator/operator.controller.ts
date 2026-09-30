@@ -4,6 +4,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Req,
   UnauthorizedException,
@@ -165,18 +166,29 @@ export class OperatorController {
     };
   }
 
+  /**
+   * The operator is the `:id` in the path. The route once read it from `operatorId` in the
+   * body and ignored the path, so a caller could name one operator in the URL and disable
+   * another. The body field is still accepted for older callers, but must match the path.
+   */
   @UseGuards(OperatorGuard)
   @RequireRoles('admin')
   @Post('operators/:id/disable')
-  async disable(@Req() req: RequestWithOperator, @Body() body: DisableOperatorDto) {
+  async disable(
+    @Req() req: RequestWithOperator,
+    @Param('id') id: string,
+    @Body() body: DisableOperatorDto,
+  ) {
     const actor = requireOperator(req);
-    if (!body?.operatorId) throw new BadRequestException('operatorId is required');
-    const disabled = body.disabled !== false;
-    const ok = await this.platform.getOperatorAuth().operators.setDisabled(body.operatorId, disabled);
+    if (body?.operatorId !== undefined && body.operatorId !== id) {
+      throw new BadRequestException('operatorId in the body does not match the id in the path');
+    }
+    const disabled = body?.disabled !== false;
+    const ok = await this.platform.getOperatorAuth().operators.setDisabled(id, disabled);
     await this.platform.getAudit().record({
       action: disabled ? 'operator.disable' : 'operator.enable',
       actor: operatorActor(actor),
-      target: body.operatorId,
+      target: id,
       outcome: ok ? 'success' : 'failure',
     });
     return { ok };
