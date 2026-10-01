@@ -14,6 +14,13 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ### Added
 
+**A first residency from a spreadsheet.** `docs/FIRST-RESIDENCY.md` takes a jurisdiction with
+no HSM, no KMS and no national ID API from a register extract to a signed, verifiable
+credential, every command run as written against a real database with `NODE_ENV=production`.
+`npm run keys:issuer` generates the issuer signing key for the `env` backend, which nothing
+documented how to produce. The npm package page now says what has to be running before the
+client is useful.
+
 **Identity links (ORCS §11).** Which external identifiers belong to which person is now a
 record with a history rather than a column. Every identifier is linked with evidence, can be
 disputed (which blocks issuing or delivering a credential until somebody has reviewed it),
@@ -24,6 +31,29 @@ operation appends an event naming who did it and why. Enrolment resolves through
 so a corrected mapping is what the register acts on. Unlinking the foundational identifier
 suspends the relationship first, as ORCS §7 asks. Ten operator routes under `/residency`,
 the same operations in the SDK, and ORCS §15 criterion 6 now passes. (ADR-0014)
+
+### Fixed
+
+- With `ISSUER_KEY_BACKEND=env` and no separate `OIDC_SIGNING_JWK`, the application refused
+  to start: the SSO layer publishes its signing key as a JWK and the imported issuer key was
+  not exportable. The key arrives as a JWK in the environment, so it is now imported
+  extractable, which reveals nothing that was not already there. Every no-KMS deployment hit
+  this.
+
+### Changed
+
+- `npm start` and `npm run start:dev` load `.env`. The quick start has said to copy
+  `.env.example` to `.env` since the first release, and nothing read it.
+
+### Security
+
+- axios 1.19.0 to 1.20.0 for ten advisories (GHSA-vh66-26gq-q6x8, GHSA-9fr6-4gfg-3,
+  GHSA-c29m-xwm3-cm6r, GHSA-mghh-pgcx-3jjj, GHSA-x97p-jq2g-jp4f, GHSA-3pq3-5fj3-cg6v,
+  GHSA-542g-h47m-68v8, GHSA-j8rh-479h-cp32, GHSA-4hqw-qxg8-jxx2, GHSA-m8m8-qj5v-23w3). Not
+  transitive: axios is how the foundational REST, XML and MOSIP adapters and the messaging
+  providers reach outside systems. What was possible before the fix: a hostile or compromised
+  identity source could stall the event loop with a crafted redirect, or steer a request past
+  the configured proxy. (#179)
 
 ## 0.2.1 — 2026-09-30
 

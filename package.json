@@ -30,8 +30,8 @@
   },
   "scripts": {
     "build": "nest build",
-    "start": "nest start",
-    "start:dev": "nest start --watch",
+    "start": "nest start --env-file .env",
+    "start:dev": "nest start --watch --env-file .env",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "smoke": "tsc -p tsconfig.core.json && node dist-core/scripts/smoke.js",
@@ -75,7 +75,8 @@
     "smoke:observability": "tsc -p tsconfig.core.json && node dist-core/scripts/observability-smoke.js",
     "lint:openapi": "tsc -p tsconfig.core.json && node dist-core/scripts/openapi-drift.js",
     "sdk:generate": "bash scripts/sdk-generate.sh",
-    "smoke:identity-links": "tsc -p tsconfig.core.json && node dist-core/scripts/identity-link-smoke.js"
+    "smoke:identity-links": "tsc -p tsconfig.core.json && node dist-core/scripts/identity-link-smoke.js",
+    "keys:issuer": "node scripts/generate-issuer-key.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.6",

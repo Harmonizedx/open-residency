@@ -46,6 +46,7 @@ are config and which are invariants nobody can override.
 | **Running this in a country that already uses MOSIP** | [`docs/MOSIP.md`](docs/MOSIP.md) — eSignet sign-in, IDA authentication, verifying Inji Certify credentials, and how far each is actually verified |
 | **Setting a jurisdiction's issuance policy** | [The rules a jurisdiction sets](#the-rules-a-jurisdiction-sets) → `config/countries/ng.yaml` |
 | **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| **Standing one up with no KMS and no national ID API**, from a register extract | [First residency from a spreadsheet](docs/FIRST-RESIDENCY.md) |
 
 ## Why this is different from a bespoke state ID system
 

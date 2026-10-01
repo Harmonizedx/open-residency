@@ -28,7 +28,7 @@ import {
   InMemoryConsentStore,
 } from '../src/core/consent/consent';
 import { LegalBasisRegistry, legalBasesForDeployment } from '../src/core/consent/legal-basis';
-import { jwtVerify } from 'jose';
+import { exportJWK, jwtVerify } from 'jose';
 
 /**
  * ORCS §9 requires a controller, data categories, evidence of agreement and a resolvable
@@ -84,6 +84,18 @@ async function main() {
 
   // --- Issuer key + DID (did:key => fully offline-verifiable) ---
   const key = await KeyStore.generate('issuer-key-1');
+
+  // The `env` key backend loads the issuer key from a JWK, and the SSO layer publishes that
+  // key as a JWK again. An unexportable import made every no-KMS deployment refuse to start.
+  const reloaded = await KeyStore.fromJwk(await exportJWK(key.privateKey!), 'issuer-key-1');
+  let reExported = false;
+  try {
+    await exportJWK(reloaded.privateKey!);
+    reExported = true;
+  } catch {
+    reExported = false;
+  }
+  check('an issuer key loaded from a JWK can be exported again (env backend, SSO publishes it)', reExported);
   const issuerDid = didKeyFromJwk(key.publicJwk);
   console.log('Issuer DID (did:key):', issuerDid.slice(0, 48) + '...');
 
