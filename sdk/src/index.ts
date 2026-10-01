@@ -389,6 +389,48 @@ export class OpenResidencyClient {
     });
   }
 
+  // ---- identity links (ORCS §11) ----
+  /** A person's identity links, current and closed, their history, and whether a dispute restricts them. */
+  identityLinks(residentId: string) {
+    return this.request('get', '/residency/{residentId}/identity-links', { path: { residentId }, auth: 'operator' });
+  }
+  /** LINK an identifier to a person. The raw identifier is tokenized by the server and never stored. */
+  linkIdentity(residentId: string, body: RequestBody<Operation<'post', '/residency/{residentId}/identity-links'>>) {
+    return this.request('post', '/residency/{residentId}/identity-links', { path: { residentId }, body, auth: 'operator' });
+  }
+  /** One link and everything that ever happened to it. */
+  identityLink(linkId: string) {
+    return this.request('get', '/residency/identity-links/{linkId}', { path: { linkId }, auth: 'operator' });
+  }
+  /** DISPUTE a link. Issuance and wallet delivery are refused for the person until it is resolved. */
+  disputeIdentityLink(linkId: string, reason: string) {
+    return this.request('post', '/residency/identity-links/{linkId}/dispute', { path: { linkId }, body: { reason }, auth: 'operator' });
+  }
+  /** Resolve a dispute in the link's favour. */
+  resolveIdentityLinkDispute(linkId: string, resolution: string) {
+    return this.request('post', '/residency/identity-links/{linkId}/dispute/resolve', { path: { linkId }, body: { resolution }, auth: 'operator' });
+  }
+  /** UNLINK, keeping the history. The foundational identifier suspends the relationship first. Needs `revoker`. */
+  unlinkIdentity(residentId: string, linkId: string, reason: string) {
+    return this.request('post', '/residency/{residentId}/identity-links/{linkId}/unlink', { path: { residentId, linkId }, body: { reason }, auth: 'operator' });
+  }
+  /** RELINK the identifier to the right person after adjudication. Needs `revoker`. */
+  relinkIdentity(linkId: string, body: RequestBody<Operation<'post', '/residency/identity-links/{linkId}/relink'>>) {
+    return this.request('post', '/residency/identity-links/{linkId}/relink', { path: { linkId }, body, auth: 'operator' });
+  }
+  /** MERGE a duplicate into this resident. Needs `admin`. */
+  mergeResidents(survivorId: string, body: RequestBody<Operation<'post', '/residency/{residentId}/merge'>>) {
+    return this.request('post', '/residency/{residentId}/merge', { path: { residentId: survivorId }, body, auth: 'operator' });
+  }
+  /** A merge, and whether it has been split. */
+  merge(mergeId: string) {
+    return this.request('get', '/residency/merges/{mergeId}', { path: { mergeId }, auth: 'operator' });
+  }
+  /** SPLIT a merge, restoring the identifiers to the duplicate. Needs `admin`. */
+  splitMerge(mergeId: string, reason: string) {
+    return this.request('post', '/residency/merges/{mergeId}/split', { path: { mergeId }, body: { reason }, auth: 'operator' });
+  }
+
   // ---- assurance (ORCS §7) ----
   assuranceProfiles() {
     return this.request('get', '/assurance/profiles', { auth: 'none' });

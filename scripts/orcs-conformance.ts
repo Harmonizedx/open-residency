@@ -40,6 +40,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { InMemoryStore } from '../src/core/residency/ports';
+import { IdentityLinkRegistry, InMemoryIdentityLinkStore } from '../src/core/identity/identity-link';
 
 import { ResidencyService } from '../src/core/residency/residency-service';
 import { ProviderRegistry } from '../src/core/foundational/registry';
@@ -631,13 +632,84 @@ async function main() {
   // ---------------------------------------------------------------------------
   // 6. Every external identifier can be linked, disputed, unlinked and relinked.
   // ---------------------------------------------------------------------------
+  //
+  // Driven through the residency service, not the registry alone, because the criterion is
+  // about the register: a corrected mapping has to be what enrolment acts on, a disputed
+  // link has to stop a credential being issued, and nothing may be deleted along the way.
+  const linkStore = new InMemoryIdentityLinkStore();
+  const linkRegistry = new IdentityLinkRegistry(linkStore);
+  const linkedStore = new InMemoryStore();
+  const linked = new ResidencyService(
+    new ProviderRegistry('conformance-pepper'),
+    new VcIssuer(key),
+    linkedStore,
+    () => 'https://id.katsina.gov.ng/status/ng.json',
+    undefined,
+    undefined,
+    undefined,
+    linkRegistry,
+  );
+  const enrol = (nin: string) =>
+    linked.issue(e2eCfg, { countryCode: 'NG', subnationalUnit: 'KT', identifiers: { nin }, decidedBy: 'operator:desk' });
+  const idOf = (r: Awaited<ReturnType<typeof enrol>>) => (r.status === 'issued' || r.status === 'exists' ? r.residentId : '');
+  const refOf = (r: Awaited<ReturnType<typeof enrol>>) => (r.status === 'issued' || r.status === 'exists' ? r.record.subjectRef : '');
+
+  const p1 = await enrol('12345678904');
+  const p2 = await enrol('12345678906');
+  const p1Links = await linkRegistry.linksFor(idOf(p1));
+  const linkedOnIssue = p1Links.length === 1 && p1Links[0].foundational && p1Links[0].status === 'ACTIVE';
+  const tokenizedOnly = p1Links.every((l) => !l.identifierRef.includes('12345678904'));
+
+  // A sector identifier, LINKed with evidence and refused without.
+  const sectorRef = 'nhis:conformance-member-1';
+  const noEvidence = await linked.linkIdentity(idOf(p1), { identifierType: 'nhis', identifierRef: sectorRef, by: 'operator:clinic', evidenceRefs: [] });
+  const sector = await linked.linkIdentity(idOf(p1), { identifierType: 'nhis', identifierRef: sectorRef, by: 'operator:clinic', evidenceRefs: ['nhis-card:scan'] });
+  const linkWorks = !noEvidence.ok && noEvidence.reason === 'EVIDENCE_REQUIRED' && sector.ok && (await linkRegistry.resolvePerson(sectorRef)) === idOf(p1);
+
+  // DISPUTE restricts issuance; resolving lifts it.
+  const disputed = await linked.disputeIdentityLink(p1Links[0].id, { by: 'operator:audit', reason: 'possible relative' });
+  const blocked = await enrol('12345678904');
+  const disputeResolved = await linked.resolveIdentityLinkDispute(p1Links[0].id, { by: 'operator:supervisor', resolution: 'verified' });
+  const unblocked = await enrol('12345678904');
+  const disputeWorks =
+    disputed.ok && blocked.status === 'rejected' && blocked.reason === 'IDENTITY_LINK_DISPUTED' && disputeResolved.ok && unblocked.status === 'exists';
+
+  // UNLINK preserves the link and its history; RELINK moves the identifier to the right person.
+  const sectorId = sector.ok ? sector.link.id : '';
+  const unlinked = await linkRegistry.unlink(sectorId, { by: 'operator:supervisor', reason: 'not hers' });
+  const stillThere = (await linkRegistry.find(sectorId))?.status === 'UNLINKED';
+  const relinked = await linkRegistry.relink(sectorId, { toPersonRef: idOf(p2), by: 'operator:supervisor', reason: 'adjudicated', evidenceRefs: ['case:1'] });
+  const relinkWorks = unlinked.ok && stillThere && relinked.ok && (await linkRegistry.resolvePerson(sectorRef)) === idOf(p2);
+
+  // MERGE a duplicate into the survivor; the merged identifier then finds the survivor. SPLIT reverses it.
+  const merged = await linked.mergeResidents(e2eCfg, { survivorId: idOf(p1), duplicateId: idOf(p2), by: 'operator:admin', reason: 'same person' });
+  const viaDuplicate = await enrol('12345678906');
+  const mergeWorks = merged.ok && viaDuplicate.status === 'exists' && idOf(viaDuplicate) === idOf(p1) && (await linkRegistry.resolvePerson(refOf(p2))) === idOf(p1);
+  const split = await linked.splitMerge(merged.ok ? merged.merge.id : '', { by: 'operator:admin', reason: 'two people' });
+  const splitWorks = split.ok && (await linkRegistry.resolvePerson(refOf(p2))) === idOf(p2);
+
+  // Nothing deleted: every event is in the history, and every link id still resolves.
+  const events = [...(await linkRegistry.historyFor(idOf(p1))), ...(await linkRegistry.historyFor(idOf(p2)))];
+  const ops = new Set(events.map((e) => e.operation));
+  const appendOnly = ['LINK', 'DISPUTE', 'DISPUTE_RESOLVED', 'UNLINK', 'RELINK', 'MERGE', 'SPLIT'].every((op) => ops.has(op as never));
+  const allLinks = [...(await linkRegistry.linksFor(idOf(p1))), ...(await linkRegistry.linksFor(idOf(p2)))];
+  const noneDeleted = allLinks.length >= 6 && (await Promise.all(allLinks.map((l) => linkRegistry.find(l.id)))).every(Boolean);
+
+  const criterion6 = linkedOnIssue && tokenizedOnly && linkWorks && disputeWorks && relinkWorks && mergeWorks && splitWorks && appendOnly && noneDeleted;
   record(
     6,
     'Identity link lifecycle (link/dispute/unlink/relink/merge/split)',
-    'FAIL',
-    'no IdentityLink entity or registry; subjectRef is a one-way tokenized reference with no ' +
-      'lifecycle operations, so an incorrect mapping cannot be corrected without data loss',
-    'G-05',
+    criterion6 ? 'PASS' : 'FAIL',
+    criterion6
+      ? 'enrolment links the foundational identifier (tokenized, never the number); a sector ' +
+        'identifier links with evidence and is refused without; a disputed link refuses issuance ' +
+        'until resolved; unlink keeps the link and its history; relink moves the identifier and ' +
+        'enrolment follows it; merge folds a duplicate into the survivor and split reverses it; ' +
+        'every operation is an appended event and no link was deleted'
+      : `linked on issue=${linkedOnIssue}, tokenized=${tokenizedOnly}, link=${linkWorks}, ` +
+        `dispute=${disputeWorks}, unlink/relink=${relinkWorks}, merge=${mergeWorks}, split=${splitWorks}, ` +
+        `append-only=${appendOnly}, none deleted=${noneDeleted}`,
+    criterion6 ? undefined : 'G-05',
   );
 
   // ---------------------------------------------------------------------------

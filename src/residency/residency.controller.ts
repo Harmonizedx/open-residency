@@ -24,11 +24,18 @@ import { residentIdPattern } from '../core/residency/resident-id';
 import {
   CredentialTransitionDto,
   IssueDto,
+  LinkIdentityDto,
+  LinkReasonDto,
+  MergeResidentsDto,
   ReconcileDto,
   RecordReviewDto,
+  RelinkIdentityDto,
+  ResolveDisputeDto,
   TransitionRelationshipDto,
   VerifyDto,
 } from './dto/residency.dto';
+import { LinkOutcome } from '../core/identity/identity-link';
+import { AuditAction } from '../core/audit/audit-log';
 import { observeIssuance } from '../observability/metrics';
 
 // Request DTOs (validated by the global ValidationPipe) live in ./dto/residency.dto.ts.
@@ -375,6 +382,208 @@ export class ResidencyController {
       metadata: { status: body.status },
     });
     return updated;
+  }
+
+  // ---- identity links (ORCS §11) ----------------------------------------------------------
+  //
+  // Route shapes: the person-scoped ones live under `:residentId/identity-links`; the
+  // link-scoped ones under the literal `identity-links/:linkId`, which Express matches
+  // ahead of `:residentId/...` only where the trailing segments differ, and they do.
+  //
+  // Roles follow the weight of the act. LINK and DISPUTE are registrar work at the desk.
+  // UNLINK and RELINK change whose identity a record is, the same authority as ending a
+  // relationship, so they need `revoker`. MERGE and SPLIT rewrite which people exist in the
+  // register and need `admin`. Every refusal the registry returns is a 400 carrying its
+  // reason; an unknown resident, link or merge is a 404.
+
+  /** A person's identity links, current and closed, with their history. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Get(':residentId/identity-links')
+  async identityLinks(@Param('residentId') residentId: string) {
+    const links = await this.platform.getResidency().identityLinksFor(residentId);
+    if (!links) throw new NotFoundException('Unknown residentId');
+    const history = await this.platform.getIdentityLinks().historyFor(residentId);
+    const restrictions = await this.platform.getResidency().restrictions(residentId);
+    return { residentId, links, history, restrictions };
+  }
+
+  /** LINK an identifier to a person. The identifier is tokenized here and stored only as a reference. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Post(':residentId/identity-links')
+  async linkIdentity(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: LinkIdentityDto,
+  ) {
+    const operator = requireOperator(req);
+    const identifierRef = this.platform.tokenizeIdentifier(body.identifierType, body.identifier);
+    const out = await this.platform.getResidency().linkIdentity(residentId, {
+      identifierType: body.identifierType,
+      identifierRef,
+      by: operatorActor(operator),
+      evidenceRefs: body.evidenceRefs,
+      reason: body.reason,
+    });
+    await this.auditLink('identity.link', operator, residentId, out, { identifierType: body.identifierType });
+    return this.linkOutcome(out);
+  }
+
+  /** One link and everything that ever happened to it. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Get('identity-links/:linkId')
+  async identityLink(@Param('linkId') linkId: string) {
+    const link = await this.platform.getIdentityLinks().find(linkId);
+    if (!link) throw new NotFoundException('Unknown link');
+    return { link, history: await this.platform.getIdentityLinks().history(linkId) };
+  }
+
+  /** DISPUTE: mark a link as contested. Issuing or delivering a credential is refused until it is resolved. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Post('identity-links/:linkId/dispute')
+  async disputeIdentityLink(
+    @Req() req: RequestWithOperator,
+    @Param('linkId') linkId: string,
+    @Body() body: LinkReasonDto,
+  ) {
+    const operator = requireOperator(req);
+    const out = await this.platform.getResidency().disputeIdentityLink(linkId, { by: operatorActor(operator), reason: body.reason });
+    await this.auditLink('identity.link.dispute', operator, linkId, out);
+    return this.linkOutcome(out);
+  }
+
+  /** The other outcome of a review: the link was correct, and use may resume. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Post('identity-links/:linkId/dispute/resolve')
+  async resolveIdentityLinkDispute(
+    @Req() req: RequestWithOperator,
+    @Param('linkId') linkId: string,
+    @Body() body: ResolveDisputeDto,
+  ) {
+    const operator = requireOperator(req);
+    const out = await this.platform.getResidency().resolveIdentityLinkDispute(linkId, { by: operatorActor(operator), resolution: body.resolution });
+    await this.auditLink('identity.link.dispute.resolve', operator, linkId, out);
+    return this.linkOutcome(out);
+  }
+
+  /**
+   * UNLINK. For the foundational identifier the relationship is suspended first (ORCS §7)
+   * and the record stops matching the identifier; the reference lives on in the closed link.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('revoker')
+  @Post(':residentId/identity-links/:linkId/unlink')
+  async unlinkIdentity(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Param('linkId') linkId: string,
+    @Body() body: LinkReasonDto,
+  ) {
+    const operator = requireOperator(req);
+    const out = await this.platform.getResidency().unlinkIdentity(residentId, linkId, { by: operatorActor(operator), reason: body.reason });
+    await this.auditLink('identity.link.unlink', operator, linkId, out, { residentId });
+    return this.linkOutcome(out);
+  }
+
+  /** RELINK the identifier to the right person, after adjudication. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('revoker')
+  @Post('identity-links/:linkId/relink')
+  async relinkIdentity(
+    @Req() req: RequestWithOperator,
+    @Param('linkId') linkId: string,
+    @Body() body: RelinkIdentityDto,
+  ) {
+    const operator = requireOperator(req);
+    const out = await this.platform.getResidency().relinkIdentity(linkId, {
+      toResidentId: body.residentId,
+      by: operatorActor(operator),
+      reason: body.reason,
+      evidenceRefs: body.evidenceRefs,
+    });
+    await this.auditLink('identity.link.relink', operator, linkId, out, { toResidentId: body.residentId });
+    return this.linkOutcome(out);
+  }
+
+  /**
+   * MERGE a duplicate into this resident. The duplicate's identifiers move here, its
+   * relationship is ENDED naming this resident, and its credential is REPLACED by this one's.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('admin')
+  @Post(':residentId/merge')
+  async mergeResidents(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: MergeResidentsDto,
+  ) {
+    const operator = requireOperator(req);
+    const survivor = await this.platform.getStore().findByResidentId(residentId);
+    if (!survivor) throw new NotFoundException('Unknown residentId');
+    const cfg = this.platform.getConfig(survivor.countryCode)!;
+    const out = await this.platform.getResidency().mergeResidents(cfg, {
+      survivorId: residentId,
+      duplicateId: body.duplicateResidentId,
+      by: operatorActor(operator),
+      reason: body.reason,
+    });
+    await this.auditLink('identity.merge', operator, residentId, out, { duplicateResidentId: body.duplicateResidentId });
+    return this.linkOutcome(out);
+  }
+
+  /** A merge, and whether it has been split. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Get('merges/:mergeId')
+  async merge(@Param('mergeId') mergeId: string) {
+    const merge = await this.platform.getIdentityLinks().merged(mergeId);
+    if (!merge) throw new NotFoundException('Unknown merge');
+    return merge;
+  }
+
+  /** SPLIT: reverse a merge. The restored person re-enrols to open a fresh relationship. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('admin')
+  @Post('merges/:mergeId/split')
+  async splitMerge(
+    @Req() req: RequestWithOperator,
+    @Param('mergeId') mergeId: string,
+    @Body() body: LinkReasonDto,
+  ) {
+    const operator = requireOperator(req);
+    const out = await this.platform.getResidency().splitMerge(mergeId, { by: operatorActor(operator), reason: body.reason });
+    await this.auditLink('identity.split', operator, mergeId, out);
+    return this.linkOutcome(out);
+  }
+
+  private async auditLink(
+    action: AuditAction,
+    operator: Parameters<typeof operatorActor>[0],
+    target: string,
+    out: LinkOutcome<object>,
+    metadata: Record<string, unknown> = {},
+  ) {
+    await this.platform.getAudit().record({
+      action,
+      actor: operatorActor(operator),
+      target,
+      outcome: out.ok ? 'success' : 'failure',
+      metadata: out.ok ? metadata : { ...metadata, reason: out.reason },
+    });
+  }
+
+  /** A registry refusal is a 400 with its reason; an unknown thing is a 404; success is the outcome. */
+  private linkOutcome<T extends object>(out: LinkOutcome<T>): T {
+    if (out.ok) {
+      const { ok: _ok, ...rest } = out;
+      return rest as T;
+    }
+    if (/^UNKNOWN_/.test(out.reason)) throw new NotFoundException(out.reason);
+    throw new BadRequestException(out.reason);
   }
 
   /** The credential's ORCS §10 status: why, by whom, when, and how to appeal. */

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { createHash, randomBytes } from 'node:crypto';
+import { IdentityLink, IdentityLinkRegistry, LinkOutcome, MergeRecord } from '../identity/identity-link';
 import { CountryConfig } from '../config/country-config';
 import { ProviderRegistry } from '../foundational/registry';
 import {
@@ -31,6 +32,7 @@ import {
   CredentialTransitionRequest,
   applyCredentialTransition,
   backfilledCredentialStatus,
+  isTerminalCredentialStatus,
 } from '../credentials/credential-lifecycle';
 import {
   RefusalRecord,
@@ -202,6 +204,12 @@ export class ResidencyService {
      * leaves no record and the applicant has nothing to appeal with.
      */
     private refusals?: RefusalStore,
+    /**
+     * ORCS §11: which identifiers belong to which person, and the record of every correction.
+     * Optional for the same additive reason as the rest: a deployment without it behaves
+     * exactly as before, with `subjectRef` as the only mapping and no way to correct one.
+     */
+    private identityLinks?: IdentityLinkRegistry,
   ) {}
 
   /**
@@ -450,8 +458,21 @@ export class ResidencyService {
     //
     // A SUSPENDED relationship also returns `exists`: it is under adjudication (ORCS §7), and
     // re-enrolling is not the way to resolve that.
-    const existing = await this.store.findBySubjectRef(identity.subjectRef);
+    //
+    // The link registry answers first, when there is one (ORCS §11). An identifier that was
+    // relinked or merged onto another record finds THAT record here, which is the whole
+    // point of being able to correct a mapping: the correction has to be what the register
+    // acts on, not a note beside a lookup that still goes to the wrong row.
+    const existing = await this.findPersonFor(identity.subjectRef);
     const priorRelationship = existing ? relationshipOf(existing) : null;
+
+    // A disputed link restricts high-risk use pending review (§11 DISPUTE), and issuing a
+    // credential is the highest-risk use there is. Refused, and recorded as a refusal, rather
+    // than returned as `exists`: handing back the record would be the use being restricted.
+    if (existing && (await this.restrictions(existing.residentId)).restricted) {
+      return this.refuse(cfg, req, 'IDENTITY_LINK_DISPUTED', identity.subjectRef);
+    }
+
     if (existing && priorRelationship && !isTerminal(priorRelationship.status)) {
       return { status: 'exists', residentId: existing.residentId, record: existing };
     }
@@ -607,6 +628,19 @@ export class ResidencyService {
       person: claims.person,
     };
     await this.store.save(record);
+
+    // The foundational identifier is the person's first link. Recorded with the verification
+    // as its evidence, and by whoever (or whatever ruleset) decided the issuance, so the
+    // registry's history begins where the person's record does.
+    await this.identityLinks?.link({
+      personRef: residentId,
+      identifierType: namespaceOf(identity.subjectRef),
+      identifierRef: identity.subjectRef,
+      foundational: true,
+      by: relationship.decidedBy,
+      evidenceRefs: [`foundational:${result.providerCode}`],
+      at: issued.issuedAt,
+    });
 
     return { status: 'issued', residentId, credentialJwt: issued.jwt, record };
   }
@@ -868,6 +902,207 @@ export class ResidencyService {
     return backfilledCredentialStatus(list.isRevoked(record.statusListIndex), record.createdAt);
   }
 
+  // ---- identity links (ORCS §11) ----------------------------------------------------------
+
+  /**
+   * The record an identifier currently belongs to: through the link registry when it has an
+   * answer, otherwise by the register's own `subjectRef`, which is how every row written
+   * before the registry existed is found.
+   */
+  private async findPersonFor(subjectRef: string): Promise<ResidentRecord | null> {
+    const linked = await this.identityLinks?.resolvePerson(subjectRef);
+    if (linked) {
+      const record = await this.store.findByResidentId(asResidentId(linked));
+      if (record) return record;
+    }
+    return this.store.findBySubjectRef(subjectRef);
+  }
+
+  /** Whether ORCS §11 restricts high-risk use for this person. Never restricted without a registry. */
+  async restrictions(residentId: string): Promise<{ restricted: boolean; disputedLinkIds: string[] }> {
+    if (!this.identityLinks) return { restricted: false, disputedLinkIds: [] };
+    return this.identityLinks.restrictions(residentId);
+  }
+
+  /**
+   * Make sure a record written before the registry existed has its foundational link, so
+   * every operation below has something to act on. Idempotent; a record whose identifier has
+   * been unlinked (its `subjectRef` is a tombstone) gets nothing, which is correct.
+   */
+  private async ensureFoundationalLink(record: ResidentRecord): Promise<void> {
+    if (!this.identityLinks || record.erasedAt || isDetachedSubjectRef(record.subjectRef)) return;
+    const current = await this.identityLinks.resolvePerson(record.subjectRef);
+    if (current) return;
+    await this.identityLinks.link({
+      personRef: record.residentId,
+      identifierType: namespaceOf(record.subjectRef),
+      identifierRef: record.subjectRef,
+      foundational: true,
+      by: 'migration:pre-registry-record',
+      evidenceRefs: [`foundational:${record.providerCode}`],
+      at: record.createdAt,
+    });
+  }
+
+  private requireLinks(): IdentityLinkRegistry {
+    if (!this.identityLinks) throw new Error('identity link registry not configured');
+    return this.identityLinks;
+  }
+
+  /**
+   * A person's identity links, current and closed, with the pre-registry backfill applied
+   * so the foundational link is always present for a record that still has its identifier.
+   */
+  async identityLinksFor(residentId: string): Promise<IdentityLink[] | null> {
+    const record = await this.store.findByResidentId(asResidentId(residentId));
+    if (!record) return null;
+    await this.ensureFoundationalLink(record);
+    return this.requireLinks().linksFor(residentId);
+  }
+
+  /** LINK an identifier (already tokenized) to a person. */
+  async linkIdentity(
+    residentId: string,
+    req: { identifierType: string; identifierRef: string; by: string; evidenceRefs: string[]; reason?: string },
+  ): Promise<LinkOutcome<{ link: IdentityLink; created: boolean }>> {
+    const record = await this.store.findByResidentId(asResidentId(residentId));
+    if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
+    await this.ensureFoundationalLink(record);
+    return this.requireLinks().link({ personRef: residentId, ...req });
+  }
+
+  async disputeIdentityLink(
+    linkId: string,
+    req: { by: string; reason: string },
+  ): Promise<LinkOutcome<{ link: IdentityLink }>> {
+    return this.requireLinks().dispute(linkId, req);
+  }
+
+  async resolveIdentityLinkDispute(
+    linkId: string,
+    req: { by: string; resolution: string },
+  ): Promise<LinkOutcome<{ link: IdentityLink }>> {
+    return this.requireLinks().resolveDispute(linkId, req);
+  }
+
+  /**
+   * UNLINK. For the foundational identifier this is ORCS §7's remedy for a relationship built
+   * on an identity-link error, and the order there is the order here: suspend the
+   * relationship, then unlink. The record's `subjectRef` becomes a tombstone so the register
+   * stops matching an identity it has disowned; the reference itself lives on in the closed
+   * link, so nothing is lost and RELINK can restore it after adjudication.
+   */
+  async unlinkIdentity(
+    residentId: string,
+    linkId: string,
+    req: { by: string; reason: string },
+  ): Promise<LinkOutcome<{ link: IdentityLink; suspended: boolean }>> {
+    const links = this.requireLinks();
+    const record = await this.store.findByResidentId(asResidentId(residentId));
+    if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
+    await this.ensureFoundationalLink(record);
+    const link = await links.find(linkId);
+    if (!link || link.personRef !== residentId) return { ok: false, reason: 'LINK_NOT_FOR_PERSON' };
+
+    let suspended = false;
+    if (link.foundational && link.identifierRef === record.subjectRef && link.status !== 'UNLINKED') {
+      // A new object, not an edit in place: the in-memory store hands out its own instance,
+      // and rekeying it by mutation would leave it findable under the old reference.
+      let updated: ResidentRecord = { ...record, subjectRef: detachedSubjectRef(link.id) };
+      const current = relationshipOf(record);
+      if (current.status === 'ACTIVE') {
+        const t = applyTransition(current, { to: 'SUSPENDED', by: req.by, reason: `IDENTITY_LINK_UNLINKED: ${req.reason}` });
+        if (!t.ok) return t;
+        updated = { ...updated, relationship: t.attributes };
+        suspended = true;
+      }
+      await this.store.save(updated);
+    }
+    const out = await links.unlink(linkId, req);
+    if (!out.ok) return out;
+    return { ok: true, link: out.link, suspended };
+  }
+
+  /**
+   * RELINK to another person. When the identifier is foundational and the target record
+   * had it unlinked earlier (its `subjectRef` is a tombstone), the reference is restored to
+   * the record, provided no other record now holds it.
+   */
+  async relinkIdentity(
+    linkId: string,
+    req: { toResidentId: string; by: string; reason: string; evidenceRefs: string[] },
+  ): Promise<LinkOutcome<{ from: IdentityLink; to: IdentityLink }>> {
+    const links = this.requireLinks();
+    const target = await this.store.findByResidentId(asResidentId(req.toResidentId));
+    if (!target) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
+    await this.ensureFoundationalLink(target);
+    const out = await links.relink(linkId, { toPersonRef: req.toResidentId, by: req.by, reason: req.reason, evidenceRefs: req.evidenceRefs });
+    if (!out.ok) return out;
+    if (out.to.foundational && isDetachedSubjectRef(target.subjectRef)) {
+      const holder = await this.store.findBySubjectRef(out.to.identifierRef);
+      if (!holder) await this.store.save({ ...target, subjectRef: out.to.identifierRef });
+    }
+    return out;
+  }
+
+  /**
+   * MERGE a duplicate record into the survivor (ORCS §11), under governed review.
+   *
+   * The registry moves the identifiers; this method settles what the duplicate row was
+   * claiming. Its relationship is ENDED with a reason naming the survivor, so the register
+   * says the person's standing continues elsewhere rather than that it stopped; its
+   * credential is REPLACED by the survivor's, so what the person holds from the duplicate
+   * verifies as superseded rather than as a second valid credential for one person. The row
+   * itself stays: SPLIT needs it, and so does anyone asking what happened.
+   */
+  async mergeResidents(
+    cfg: CountryConfig,
+    req: { survivorId: string; duplicateId: string; by: string; reason: string },
+  ): Promise<LinkOutcome<{ merge: MergeRecord }>> {
+    const links = this.requireLinks();
+    const survivor = await this.store.findByResidentId(asResidentId(req.survivorId));
+    if (!survivor) return { ok: false, reason: 'UNKNOWN_SURVIVOR' };
+    const duplicate = await this.store.findByResidentId(asResidentId(req.duplicateId));
+    if (!duplicate) return { ok: false, reason: 'UNKNOWN_DUPLICATE' };
+    await this.ensureFoundationalLink(survivor);
+    await this.ensureFoundationalLink(duplicate);
+
+    const merged = await links.merge({ survivorRef: req.survivorId, duplicateRef: req.duplicateId, by: req.by, reason: req.reason });
+    if (!merged.ok) return merged;
+
+    const rel = relationshipOf(duplicate);
+    if (!isTerminal(rel.status)) {
+      const ended = await this.transitionRelationship(req.duplicateId, {
+        to: 'ENDED',
+        by: req.by,
+        reason: `MERGED_INTO_${req.survivorId}: ${req.reason}`,
+      });
+      if (!ended.ok) return ended;
+    }
+    const credential = await this.credentialStatusFor(cfg, req.duplicateId);
+    if (credential && !isTerminalCredentialStatus(credential.status) && survivor.credentialId) {
+      const replaced = await this.transitionCredential(cfg, req.duplicateId, {
+        to: 'REPLACED',
+        authority: req.by,
+        reason: `MERGED_INTO_${req.survivorId}: ${req.reason}`,
+        supersededBy: survivor.credentialId,
+      });
+      if (!replaced.ok) return replaced;
+    }
+    return merged;
+  }
+
+  /**
+   * SPLIT a merge: the identifiers go back to the duplicate. Its relationship stays ENDED --
+   * a terminal state is terminal, and the state machine is right not to resurrect one -- so
+   * the restored person is re-evaluated by enrolling again, which finds their row and opens
+   * a fresh relationship on it. That is ORCS §7's "re-evaluate", done as a decision rather
+   * than as a side effect of reversing a different one.
+   */
+  async splitMerge(mergeId: string, req: { by: string; reason: string }): Promise<LinkOutcome<{ merge: MergeRecord }>> {
+    return this.requireLinks().split(mergeId, req);
+  }
+
   /**
    * Erase a resident's personal data (DPG indicator 7, ORCS §14).
    *
@@ -925,4 +1160,23 @@ export class ResidencyService {
     }
     return selectResidencyDue(all, policy, now);
   }
+}
+
+/** The namespace a tokenized reference lives in: `nin:...` -> `nin` (see tokenizeSubject). */
+function namespaceOf(subjectRef: string): string {
+  const i = subjectRef.indexOf(':');
+  return i > 0 ? subjectRef.slice(0, i) : 'unknown';
+}
+
+/**
+ * The `subjectRef` a record carries once its foundational identifier has been unlinked.
+ * Unique per link, matches no foundational lookup, and names the link that holds the real
+ * reference, so nothing about the person is lost -- only the register's belief that this
+ * row is them.
+ */
+function detachedSubjectRef(linkId: string): string {
+  return `unlinked:${linkId}`;
+}
+function isDetachedSubjectRef(subjectRef: string): boolean {
+  return subjectRef.startsWith('unlinked:');
 }

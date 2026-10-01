@@ -169,6 +169,10 @@ export class InMemoryStore implements ResidencyStore {
     // residency, in this deployment. If these two ever diverge the in-memory store will
     // accept enrolments PostgreSQL rejects, and the smoke suites will stop predicting
     // production -- which is the only reason this store is worth having.
+    // A rekeyed record (its foundational identifier unlinked, or restored) must not stay
+    // findable under the reference it no longer carries.
+    const previous = this.byResidentId.get(record.residentId);
+    if (previous && previous.subjectRef !== record.subjectRef) this.residents.delete(previous.subjectRef);
     this.residents.set(record.subjectRef, record);
     this.byResidentId.set(record.residentId, record);
     return record;

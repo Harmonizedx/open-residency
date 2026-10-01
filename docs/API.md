@@ -59,6 +59,34 @@ Both routes require an authenticated operator (`registrar`; `admin` satisfies it
 - `POST /residency/{residentId}/erase` and `POST /residency/retention/sweep` — erasure on
   request and by retention period; see `PRIVACY.md`. Operator action (`admin`).
 
+## Identity links (ORCS §11)
+
+Which external identifiers belong to which person, with a history. Only tokenized references
+are stored. Enrolment resolves through the links, so a corrected mapping is what the register
+acts on. See [ADR-0014](adr/0014-identity-links-are-a-record-not-a-column.md).
+
+- `GET /residency/{residentId}/identity-links` — the person's links, current and closed, their
+  events, and whether an open dispute restricts them (`registrar`).
+- `POST /residency/{residentId}/identity-links` `{ identifierType, identifier, evidenceRefs }` —
+  LINK. The identifier is tokenized on arrival and never stored. Refused without evidence, or
+  when somebody else currently holds it (`registrar`).
+- `GET /residency/identity-links/{linkId}` — one link and everything that happened to it.
+- `POST /residency/identity-links/{linkId}/dispute` `{ reason }` — DISPUTE. Issuance and wallet
+  delivery are refused for the person until it is resolved, unlinked or relinked (`registrar`).
+- `POST /residency/identity-links/{linkId}/dispute/resolve` `{ resolution }` — the link was
+  right; use resumes (`registrar`).
+- `POST /residency/{residentId}/identity-links/{linkId}/unlink` `{ reason }` — UNLINK, keeping
+  the history. For the foundational identifier the relationship is SUSPENDED first (ORCS §7)
+  and the record stops matching the identifier (`revoker`).
+- `POST /residency/identity-links/{linkId}/relink` `{ residentId, reason, evidenceRefs }` —
+  RELINK to the right person after adjudication (`revoker`).
+- `POST /residency/{residentId}/merge` `{ duplicateResidentId, reason }` — MERGE the duplicate
+  into this resident: its identifiers move here, its relationship is ENDED naming this
+  resident, its credential is REPLACED by this one's (`admin`).
+- `GET /residency/merges/{mergeId}` — a merge and whether it has been split.
+- `POST /residency/merges/{mergeId}/split` `{ reason }` — SPLIT: restore the identifiers to the
+  duplicate. Its ended relationship stays ended; the person re-enrols (`admin`).
+
 ## Assurance (ORCS §7)
 
 - `GET /assurance/profiles` — the ORCS assurance profiles this deployment recognises.
