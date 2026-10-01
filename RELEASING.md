@@ -81,13 +81,22 @@ this one.
 5. **No known unfixed high-severity advisory.** `npm audit` at the CI gate's level.
 6. **CHANGELOG updated.** Move `[Unreleased]` into the new version with today's date. Every
    entry names what an adopter would notice, not what the diff touched.
-7. **Version bumped** in `package.json` and `sdk/package.json`, matching the tag.
-8. **Tag and push.**
+7. **Version bumped** in `package.json`, `package-lock.json` and `sdk/package.json`, matching
+   the tag: `npm version <x.y.z> --no-git-tag-version` at the root and again in `sdk/`.
+   CI runs `npm run release:check` on every pull request, so the three files and the
+   CHANGELOG heading cannot drift apart on `main`.
+8. **The release-prep pull request is merged, and you are on it.** Then check, tag and push:
    ```bash
+   git checkout main && git pull --ff-only
+   npm run release:check -- v0.1.0
    git tag -s v0.1.0 -m "v0.1.0"
    git push origin v0.1.0
    ```
-   The tag is signed; this repository signs its commits and its tags are no exception.
+   The check compares every version in the tree with the tag you are about to make; it is
+   the same check the release workflow runs before it creates anything, so a tag made on
+   the wrong commit is refused in both places rather than producing a release whose archive
+   calls itself the previous version. The tag is signed; this repository signs its commits
+   and its tags are no exception.
 9. **Verify the release workflow succeeded** — both jobs — and that the SBOM, checksums,
    signatures and provenance are attached, and the release notes carry the image digest. A
    release whose artifacts silently failed to attach is worse than no release, because it looks
