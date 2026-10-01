@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+# A symlink named node_modules (a worktree pointing at another checkout's install) is a file,
+# which the trailing slash above does not match. It once reached a commit and broke the
+# container build.
+node_modules
 
 # Build output
 dist/
