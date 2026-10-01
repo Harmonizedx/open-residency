@@ -51,6 +51,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Before anything is created. A tag was once pushed before the release-prep merge had
+      # landed, so the tree still said the previous version; the SDK job refused, but by
+      # then a release existed whose archive called itself the wrong version. Every job
+      # below needs this one, so refusing here refuses the whole release.
+      - name: Every version agrees with the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: bash scripts/check-release-versions.sh "$GITHUB_REF_NAME"
+
       - name: Install dependencies
         run: npm ci
 
