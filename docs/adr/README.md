@@ -18,6 +18,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0011](0011-residency-anchor-is-a-jurisdiction-choice.md) | What residency is anchored to — an administrative unit or an address — is a jurisdiction's declaration, not a global assumption | Accepted |
 | [0012](0012-subject-references-key-on-the-identifier.md) | A subject reference keys on the identifier type, not the provider code, so two routes to the same national identifier reconcile | Accepted |
 | [0013](0013-rate-limiting-identifies-the-caller.md) | Rate limiting keys on the client address, read from a declared number of trusted proxy hops and never from anything the caller controls; a proxy it was not told about is reported rather than absorbed. Per-operator budgets after authentication are deferred | Accepted |
+| [0014](0014-identity-links-are-a-record-not-a-column.md) | Which identifiers belong to which person is an append-only registry beside the record (LINK, DISPUTE, UNLINK, RELINK, MERGE, SPLIT), consulted by enrolment before `subjectRef`; a disputed link refuses issuance; unlinking the foundational identifier suspends first (ORCS §7); split restores identifiers, not relationships | Accepted |
 
 ## Pending
 

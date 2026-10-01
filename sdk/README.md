@@ -126,10 +126,10 @@ a field the server does not declare.
 | Calls | Role needed | `auth` |
 | --- | --- | --- |
 | Verify a credential, read a relationship, credential or assurance, discovery documents, status lists | none | `'none'` or the default |
-| Identity verification, issuance, reconcile, refusal review, credential offers, VC-API | `registrar` | operator key |
-| Revoke, relationship and credential transitions | `revoker` | operator key |
+| Identity verification, issuance, reconcile, refusal review, credential offers, VC-API, linking and disputing identifiers | `registrar` | operator key |
+| Revoke, relationship and credential transitions, unlinking and relinking identifiers | `revoker` | operator key |
 | Consents, legal bases, resident listing, statistics, presentation requests | `support` | operator key |
-| Erasure, retention and provisional sweeps, legal-basis withdrawal, operator accounts | `admin` | operator key |
+| Erasure, retention and provisional sweeps, legal-basis withdrawal, operator accounts, merging and splitting records | `admin` | operator key |
 | Audit log and chain verification | `auditor` | operator key |
 
 Pass `operatorKey` for a machine caller, or `operatorToken` (the bearer token from an operator
@@ -149,6 +149,7 @@ The named methods cover the integrator-facing surface:
 | Identity | `identityChallenge`, `verifyIdentity` |
 | Residency | `countries`, `issueResidency`, `residencyStatus`, `verifyCredential`, `revokeResidency`, `eraseResidency`, `retentionSweep`, `provisionalSweep`, `reconcile` |
 | Relationship and credential lifecycle (ORCS §6, §10) | `relationship`, `transitionRelationship`, `credential`, `transitionCredential`, `refusal`, `reviewRefusal` |
+| Identity links (ORCS §11) | `identityLinks`, `linkIdentity`, `identityLink`, `disputeIdentityLink`, `resolveIdentityLinkDispute`, `unlinkIdentity`, `relinkIdentity`, `mergeResidents`, `merge`, `splitMerge` |
 | Assurance (ORCS §7) | `assuranceProfiles`, `assuranceMappings`, `resolveAssurance`, `residentAssurance` |
 | Consent and legal bases (ORCS §9) | `listConsents`, `grantConsent`, `revokeConsent`, `legalBases`, `legalBasis`, `deactivateLegalBasis` |
 | Operator identity | `operatorLogin`, `me`, `listOperators`, `createOperator`, `disableOperator`, `listKeys`, `createKey`, `rotateKey`, `revokeKey` |

@@ -34,6 +34,14 @@ import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
 import { OidcStore, OidcStoredItem } from '../core/sso/oidc-store';
 import { RefusalRecord, RefusalStore, ReviewStatus } from '../core/residency/refusal';
 import {
+  IdentityLink,
+  IdentityLinkEvent,
+  IdentityLinkOperation,
+  IdentityLinkStatus,
+  IdentityLinkStore,
+  MergeRecord,
+} from '../core/identity/identity-link';
+import {
   WebAuthnChallengeRecord,
   WebAuthnChallengeStore,
   WebAuthnCredentialStore,
@@ -1299,5 +1307,174 @@ export class PrismaAuditCheckpointStore implements AuditCheckpointStore {
   async all(): Promise<AuditCheckpoint[]> {
     const rows = await this.prisma.auditCheckpoint.findMany({ orderBy: { seq: 'asc' } });
     return rows.map(this.toCheckpoint);
+  }
+}
+
+/** ORCS §11 identity links, append-only. See src/core/identity/identity-link.ts. */
+@Injectable()
+export class PrismaIdentityLinkStore implements IdentityLinkStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toLink = (r: any): IdentityLink => ({
+    id: r.id,
+    personRef: r.personRef,
+    identifierType: r.identifierType,
+    identifierRef: r.identifierRef,
+    status: r.status as IdentityLinkStatus,
+    foundational: r.foundational,
+    evidenceRefs: r.evidenceRefs ?? [],
+    linkedAt: r.linkedAt.toISOString(),
+    linkedBy: r.linkedBy,
+    dispute: r.disputeRaisedAt
+      ? {
+          raisedAt: r.disputeRaisedAt.toISOString(),
+          raisedBy: r.disputeRaisedBy,
+          reason: r.disputeReason,
+          resolvedAt: r.disputeResolvedAt ? r.disputeResolvedAt.toISOString() : undefined,
+          resolvedBy: r.disputeResolvedBy ?? undefined,
+          resolution: r.disputeResolution ?? undefined,
+        }
+      : undefined,
+    unlinked: r.unlinkedAt
+      ? { at: r.unlinkedAt.toISOString(), by: r.unlinkedBy, reason: r.unlinkedReason, operation: r.unlinkedOperation }
+      : undefined,
+    supersedes: r.supersedes ?? undefined,
+    supersededBy: r.supersededBy ?? undefined,
+    mergeId: r.mergeId ?? undefined,
+  });
+
+  private toEvent = (r: any): IdentityLinkEvent => ({
+    id: r.id,
+    seq: r.seq,
+    linkId: r.linkId,
+    personRef: r.personRef,
+    operation: r.operation as IdentityLinkOperation,
+    at: r.at.toISOString(),
+    by: r.by,
+    reason: r.reason ?? undefined,
+    evidenceRefs: r.evidenceRefs?.length ? r.evidenceRefs : undefined,
+    fromPersonRef: r.fromPersonRef ?? undefined,
+    toPersonRef: r.toPersonRef ?? undefined,
+    mergeId: r.mergeId ?? undefined,
+  });
+
+  private toMerge = (r: any): MergeRecord => ({
+    id: r.id,
+    survivorRef: r.survivorRef,
+    duplicateRef: r.duplicateRef,
+    at: r.at.toISOString(),
+    by: r.by,
+    reason: r.reason,
+    moved: r.moved as MergeRecord['moved'],
+    split: r.splitAt
+      ? { at: r.splitAt.toISOString(), by: r.splitBy, reason: r.splitReason, restored: (r.splitRestored ?? []) as MergeRecord['moved'] }
+      : undefined,
+  });
+
+  async saveLink(link: IdentityLink): Promise<IdentityLink> {
+    const data = {
+      personRef: link.personRef,
+      identifierType: link.identifierType,
+      identifierRef: link.identifierRef,
+      status: link.status,
+      foundational: link.foundational,
+      evidenceRefs: link.evidenceRefs,
+      linkedAt: new Date(link.linkedAt),
+      linkedBy: link.linkedBy,
+      disputeRaisedAt: link.dispute ? new Date(link.dispute.raisedAt) : null,
+      disputeRaisedBy: link.dispute?.raisedBy ?? null,
+      disputeReason: link.dispute?.reason ?? null,
+      disputeResolvedAt: link.dispute?.resolvedAt ? new Date(link.dispute.resolvedAt) : null,
+      disputeResolvedBy: link.dispute?.resolvedBy ?? null,
+      disputeResolution: link.dispute?.resolution ?? null,
+      unlinkedAt: link.unlinked ? new Date(link.unlinked.at) : null,
+      unlinkedBy: link.unlinked?.by ?? null,
+      unlinkedReason: link.unlinked?.reason ?? null,
+      unlinkedOperation: link.unlinked?.operation ?? null,
+      supersedes: link.supersedes ?? null,
+      supersededBy: link.supersededBy ?? null,
+      mergeId: link.mergeId ?? null,
+    };
+    const r = await this.prisma.identityLink.upsert({
+      where: { id: link.id },
+      create: { id: link.id, ...data },
+      update: data,
+    });
+    return this.toLink(r);
+  }
+
+  async findLink(id: string): Promise<IdentityLink | null> {
+    const r = await this.prisma.identityLink.findUnique({ where: { id } });
+    return r ? this.toLink(r) : null;
+  }
+
+  async findCurrentByIdentifier(identifierRef: string): Promise<IdentityLink | null> {
+    const r = await this.prisma.identityLink.findFirst({
+      where: { identifierRef, status: { in: ['ACTIVE', 'DISPUTED'] } },
+    });
+    return r ? this.toLink(r) : null;
+  }
+
+  async listByPerson(personRef: string): Promise<IdentityLink[]> {
+    const rows = await this.prisma.identityLink.findMany({ where: { personRef }, orderBy: { linkedAt: 'asc' } });
+    return rows.map(this.toLink);
+  }
+
+  async appendEvent(event: Omit<IdentityLinkEvent, 'seq'>): Promise<IdentityLinkEvent> {
+    const r = await this.prisma.identityLinkEvent.create({
+      data: {
+        id: event.id,
+        linkId: event.linkId,
+        personRef: event.personRef,
+        operation: event.operation,
+        at: new Date(event.at),
+        by: event.by,
+        reason: event.reason ?? null,
+        evidenceRefs: event.evidenceRefs ?? [],
+        fromPersonRef: event.fromPersonRef ?? null,
+        toPersonRef: event.toPersonRef ?? null,
+        mergeId: event.mergeId ?? null,
+      },
+    });
+    return this.toEvent(r);
+  }
+
+  async listEvents(filter: { linkId?: string; personRef?: string }): Promise<IdentityLinkEvent[]> {
+    const rows = await this.prisma.identityLinkEvent.findMany({
+      where: {
+        ...(filter.linkId ? { linkId: filter.linkId } : {}),
+        ...(filter.personRef
+          ? { OR: [{ personRef: filter.personRef }, { fromPersonRef: filter.personRef }, { toPersonRef: filter.personRef }] }
+          : {}),
+      },
+      orderBy: { seq: 'asc' },
+    });
+    return rows.map(this.toEvent);
+  }
+
+  async saveMerge(merge: MergeRecord): Promise<MergeRecord> {
+    const data = {
+      survivorRef: merge.survivorRef,
+      duplicateRef: merge.duplicateRef,
+      at: new Date(merge.at),
+      by: merge.by,
+      reason: merge.reason,
+      moved: merge.moved as unknown as Prisma.InputJsonValue,
+      splitAt: merge.split ? new Date(merge.split.at) : null,
+      splitBy: merge.split?.by ?? null,
+      splitReason: merge.split?.reason ?? null,
+      splitRestored: merge.split ? (merge.split.restored as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+    };
+    const r = await this.prisma.identityMerge.upsert({
+      where: { id: merge.id },
+      create: { id: merge.id, ...data },
+      update: data,
+    });
+    return this.toMerge(r);
+  }
+
+  async findMerge(id: string): Promise<MergeRecord | null> {
+    const r = await this.prisma.identityMerge.findUnique({ where: { id } });
+    return r ? this.toMerge(r) : null;
   }
 }

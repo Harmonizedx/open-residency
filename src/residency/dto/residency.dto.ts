@@ -154,3 +154,41 @@ export class RecordReviewDto {
   @MaxLength(1024)
   note?: string;
 }
+
+// ---- identity links (ORCS §11) ----------------------------------------------------------
+
+/**
+ * `POST /residency/:residentId/identity-links`: LINK an identifier to a person.
+ *
+ * `identifier` is the raw value and is tokenized server-side with the deployment pepper, the
+ * same construction as `subjectRef`; it never reaches storage, the audit log or a response.
+ */
+export class LinkIdentityDto {
+  @IsString() @Matches(/^[A-Za-z0-9_.:-]{1,64}$/) identifierType!: string;
+  @IsString() @MaxLength(256) identifier!: string;
+  @IsString({ each: true }) @MaxLength(256, { each: true }) evidenceRefs!: string[];
+  @IsOptional() @IsString() @MaxLength(512) reason?: string;
+}
+
+/** Bodies that carry only a reason: dispute, unlink, split, and the merge's reason. */
+export class LinkReasonDto {
+  @IsString() @MaxLength(512) reason!: string;
+}
+
+/** `POST /residency/identity-links/:linkId/dispute/resolve`: review found the link correct. */
+export class ResolveDisputeDto {
+  @IsString() @MaxLength(512) resolution!: string;
+}
+
+/** `POST /residency/identity-links/:linkId/relink`: move the identifier to the right person. */
+export class RelinkIdentityDto {
+  @IsString() @MaxLength(128) residentId!: string;
+  @IsString() @MaxLength(512) reason!: string;
+  @IsString({ each: true }) @MaxLength(256, { each: true }) evidenceRefs!: string[];
+}
+
+/** `POST /residency/:residentId/merge`: fold `duplicateResidentId` into the path's resident. */
+export class MergeResidentsDto {
+  @IsString() @MaxLength(128) duplicateResidentId!: string;
+  @IsString() @MaxLength(512) reason!: string;
+}

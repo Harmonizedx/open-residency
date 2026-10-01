@@ -12,7 +12,18 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+**Identity links (ORCS §11).** Which external identifiers belong to which person is now a
+record with a history rather than a column. Every identifier is linked with evidence, can be
+disputed (which blocks issuing or delivering a credential until somebody has reviewed it),
+unlinked with a reason, and relinked to the right person after adjudication; a duplicate
+record can be merged into the survivor and a merge reversed. Nothing is deleted: a closed
+link keeps its dates and reasons and points at the link that continues it, and every
+operation appends an event naming who did it and why. Enrolment resolves through the links,
+so a corrected mapping is what the register acts on. Unlinking the foundational identifier
+suspends the relationship first, as ORCS §7 asks. Ten operator routes under `/residency`,
+the same operations in the SDK, and ORCS §15 criterion 6 now passes. (ADR-0014)
 
 ## 0.2.1 — 2026-09-30
 

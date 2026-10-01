@@ -34,6 +34,14 @@ export type AuditAction =
   | 'residency.provisional.expire'
   // A person reconsidered a refusal the software took. NDPA s.37 / GDPR Art.22.
   | 'residency.refusal.review'
+  // ORCS §11 identity links: every operation is somebody's decision, and this is where it is attributable.
+  | 'identity.link'
+  | 'identity.link.dispute'
+  | 'identity.link.dispute.resolve'
+  | 'identity.link.unlink'
+  | 'identity.link.relink'
+  | 'identity.merge'
+  | 'identity.split'
   | 'credential.verify'
   | 'consent.grant'
   | 'consent.revoke'

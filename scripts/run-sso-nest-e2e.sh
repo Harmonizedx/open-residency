@@ -65,3 +65,5 @@ node scripts/sso-nest-e2e.cjs
 # boot; standing up another PostgreSQL for it would double the slowest job in CI for nothing.
 echo "== driving the real app: an OIDC provider as the register =="
 node scripts/identity-oidc-nest-e2e.cjs
+echo "== driving the real app: identity links over HTTP (ORCS §11) =="
+node scripts/identity-links-nest-e2e.cjs

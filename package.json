@@ -2,7 +2,7 @@
   "name": "open-residency",
   "version": "0.2.1",
   "private": true,
-  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions — giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
+  "description": "Open-source subnational trust infrastructure that lets governments establish, manage and exchange verified, purpose-scoped jurisdictional relationships between residents and their jurisdictions \u2014 giving citizens inclusive, privacy-preserving access to public services. A Digital Public Good.",
   "license": "Apache-2.0",
   "author": "Chinonso Williams <nonso@harmonizedx.com>",
   "contributors": [
@@ -36,7 +36,7 @@
     "prisma:migrate": "prisma migrate dev",
     "smoke": "tsc -p tsconfig.core.json && node dist-core/scripts/smoke.js",
     "smoke:sources": "tsc -p tsconfig.core.json && node dist-core/scripts/sources-smoke.js",
-    "test": "npm run smoke && npm run smoke:sources && npm run smoke:ratelimit && npm run smoke:identifier-namespace && npm run smoke:oid4vci && npm run smoke:inji && npm run smoke:oid4vp && npm run smoke:sso && npm run smoke:federation && npm run smoke:ld-suites && npm run smoke:webauthn && npm run smoke:webauthn-service && npm run smoke:biometric && npm run smoke:statistics && npm run smoke:privacy && npm run smoke:assurance && npm run smoke:consent && npm run smoke:lifecycle && npm run smoke:credential-lifecycle && npm run smoke:refusal && npm run smoke:address-anchor && npm run smoke:sso-oidc && npm run smoke:upstream-oidc && npm run smoke:mosip-ida && npm run smoke:operator && npm run smoke:observability && npm run smoke:hsm && npm run smoke:gcpkms && npm run smoke:awskms && npm run test:conformance",
+    "test": "npm run smoke && npm run smoke:sources && npm run smoke:ratelimit && npm run smoke:identifier-namespace && npm run smoke:oid4vci && npm run smoke:inji && npm run smoke:oid4vp && npm run smoke:sso && npm run smoke:federation && npm run smoke:ld-suites && npm run smoke:webauthn && npm run smoke:webauthn-service && npm run smoke:biometric && npm run smoke:statistics && npm run smoke:privacy && npm run smoke:assurance && npm run smoke:consent && npm run smoke:lifecycle && npm run smoke:credential-lifecycle && npm run smoke:refusal && npm run smoke:identity-links && npm run smoke:address-anchor && npm run smoke:sso-oidc && npm run smoke:upstream-oidc && npm run smoke:mosip-ida && npm run smoke:operator && npm run smoke:observability && npm run smoke:hsm && npm run smoke:gcpkms && npm run smoke:awskms && npm run test:conformance",
     "smoke:oid4vci": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vci-smoke.js",
     "smoke:oid4vp": "tsc -p tsconfig.core.json && node dist-core/scripts/oid4vp-smoke.js",
     "test:conformance": "tsc -p tsconfig.core.json && node dist-core/scripts/conformance.js",
@@ -74,7 +74,8 @@
     "smoke:ratelimit": "tsc -p tsconfig.core.json && node dist-core/scripts/ratelimit-smoke.js",
     "smoke:observability": "tsc -p tsconfig.core.json && node dist-core/scripts/observability-smoke.js",
     "lint:openapi": "tsc -p tsconfig.core.json && node dist-core/scripts/openapi-drift.js",
-    "sdk:generate": "bash scripts/sdk-generate.sh"
+    "sdk:generate": "bash scripts/sdk-generate.sh",
+    "smoke:identity-links": "tsc -p tsconfig.core.json && node dist-core/scripts/identity-link-smoke.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.6",
