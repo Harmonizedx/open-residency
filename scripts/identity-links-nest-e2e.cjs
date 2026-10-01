@@ -11,7 +11,7 @@
  */
 require('reflect-metadata');
 const http = require('node:http');
-const { writeFileSync, mkdirSync, rmSync } = require('node:fs');
+const { writeFileSync, mkdtempSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 
@@ -60,8 +60,9 @@ function req(method, url, opts = {}) {
 }
 
 async function main() {
-  const cfgDir = join(tmpdir(), `ors-links-e2e-cfg-${process.pid}`);
-  mkdirSync(cfgDir, { recursive: true });
+  // mkdtemp, not a name built from the pid: a predictable path in a shared temp directory
+  // is the classic symlink race, and a config file is exactly what an attacker would plant.
+  const cfgDir = mkdtempSync(join(tmpdir(), 'ors-links-e2e-cfg-'));
   writeFileSync(
     join(cfgDir, 'zz.yaml'),
     `countryCode: ZZ
