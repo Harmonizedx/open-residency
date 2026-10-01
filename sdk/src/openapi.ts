@@ -1429,6 +1429,748 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/residency/{residentId}/identity-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A person's identity links and their history (registrar)
+         * @description Every link the person has held, current and closed, the events behind them, and whether ORCS §11 currently restricts high-risk use (an open dispute). A record written before the registry existed has its foundational link created here from its own `subjectRef`, once. Requires the `registrar` role.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    residentId: components["parameters"]["ResidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Links, history and restrictions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            residentId: string;
+                            links: components["schemas"]["IdentityLink"][];
+                            history: components["schemas"]["IdentityLinkEvent"][];
+                            restrictions: components["schemas"]["IdentityLinkRestrictions"];
+                        };
+                    };
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the registrar role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown residentId */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /**
+         * LINK an identifier to a person (registrar)
+         * @description Associates an external or sector-specific identifier with the person, after the checks the evidence names. The identifier is tokenized here with the deployment pepper, the same construction as `subjectRef`, and is never stored, logged or returned. Idempotent for the same person and identifier; refused with `IDENTIFIER_LINKED_TO_ANOTHER_PERSON` when somebody else currently holds it, because silently taking it from them is the error this registry exists to make visible. Use DISPUTE, UNLINK or RELINK on the existing link instead. Requires the `registrar` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    residentId: components["parameters"]["ResidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /**
+                         * @description The identifier's namespace, such as `nhis`, `nin` or a scheme code. Lower-cased on storage.
+                         * @example nhis
+                         */
+                        identifierType: string;
+                        /** @description The raw identifier. Tokenized on arrival; never stored. */
+                        identifier: string;
+                        /**
+                         * @description What the decision rested on, by reference. A link with no evidence is refused.
+                         * @example [
+                         *       "nhis-card:scan-77"
+                         *     ]
+                         */
+                        evidenceRefs: string[];
+                        reason?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The link, and whether this call created it */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            link: components["schemas"]["IdentityLink"];
+                            created: boolean;
+                        };
+                    };
+                };
+                /** @description Refused: EVIDENCE_REQUIRED, IDENTIFIER_LINKED_TO_ANOTHER_PERSON, IDENTIFIER_REQUIRED, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the registrar role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown residentId */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/identity-links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One link and everything that ever happened to it (registrar) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    linkId: components["parameters"]["LinkId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The link and its events, oldest first */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            link: components["schemas"]["IdentityLink"];
+                            history: components["schemas"]["IdentityLinkEvent"][];
+                        };
+                    };
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the registrar role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown link */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/identity-links/{linkId}/dispute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * DISPUTE a link (registrar)
+         * @description Marks the link as contested. It stays in place and the identifier still resolves to the person, but high-risk use is restricted pending review: `POST /residency/issue` for this person is refused with `IDENTITY_LINK_DISPUTED` (and recorded as a refusal), and `POST /openid4vci/credential` answers `credential_request_denied`. A review closes the dispute one of three ways: resolve (the link was right), unlink, or relink. Requires the `registrar` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    linkId: components["parameters"]["LinkId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example Applicant may have used a relative's number */
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The disputed link */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            link: components["schemas"]["IdentityLink"];
+                        };
+                    };
+                };
+                /** @description Refused: REASON_REQUIRED, ALREADY_DISPUTED, LINK_NOT_CURRENT, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the registrar role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown link */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/identity-links/{linkId}/dispute/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve a dispute in the link's favour (registrar)
+         * @description Review found the link correct. The link returns to ACTIVE, the restriction lifts, and the dispute stays on the link with who resolved it and why. Requires the `registrar` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    linkId: components["parameters"]["LinkId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example Applicant produced the enrolment slip */
+                        resolution: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The link, ACTIVE again */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            link: components["schemas"]["IdentityLink"];
+                        };
+                    };
+                };
+                /** @description Refused: REASON_REQUIRED, LINK_NOT_DISPUTED, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the registrar role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown link */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/{residentId}/identity-links/{linkId}/unlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * UNLINK an identifier from a person (revoker)
+         * @description Removes the association while preserving the history: the link becomes UNLINKED and keeps everything it recorded. For the person's foundational identifier this is ORCS §7's remedy for a relationship built on an identity-link error, in ORCS's order: the relationship is SUSPENDED first (reason `IDENTITY_LINK_UNLINKED: ...`), then the record stops matching the identifier, so a fresh enrolment with that identifier opens a new record rather than finding this one. The reference lives on in the closed link, and RELINK can restore it after adjudication. Requires the `revoker` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    residentId: components["parameters"]["ResidentId"];
+                    linkId: components["parameters"]["LinkId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The closed link, and whether the relationship was suspended */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            link: components["schemas"]["IdentityLink"];
+                            /** @description True when this unlinked the foundational identifier of an ACTIVE relationship. */
+                            suspended: boolean;
+                        };
+                    };
+                };
+                /** @description Refused: REASON_REQUIRED, ALREADY_UNLINKED, LINK_NOT_FOR_PERSON, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the revoker role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown residentId */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/identity-links/{linkId}/relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * RELINK an identifier to the right person (revoker)
+         * @description Closes the link on the person the identifier was wrongly attached to (marked RELINK) and opens a new one on `residentId`, each pointing at the other. Accepts an UNLINKED source, so an identifier unlinked earlier can be placed once adjudication says where it belongs. When a foundational identifier is relinked to a record that had it unlinked, the record matches it again, provided no other record now holds it. Requires the `revoker` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    linkId: components["parameters"]["LinkId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description The person the identifier belongs to. */
+                        residentId: string;
+                        reason: string;
+                        /**
+                         * @example [
+                         *       "adjudication:case-9"
+                         *     ]
+                         */
+                        evidenceRefs: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The closed source link and the new link */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            from: components["schemas"]["IdentityLink"];
+                            to: components["schemas"]["IdentityLink"];
+                        };
+                    };
+                };
+                /** @description Refused: REASON_REQUIRED, EVIDENCE_REQUIRED, ALREADY_LINKED_TO_THAT_PERSON, IDENTIFIER_LINKED_TO_ANOTHER_PERSON, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the revoker role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown link or residentId */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/{residentId}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * MERGE a duplicate record into this one (admin)
+         * @description Under governed review, folds `duplicateResidentId` into the resident in the path. The registry moves every current identifier of the duplicate to the survivor; the duplicate's relationship is ENDED with reason `MERGED_INTO_<survivor>: ...`, so the register says the person's standing continues elsewhere rather than that it stopped; its credential is REPLACED by the survivor's, so what the person holds from the duplicate verifies as superseded rather than as a second valid credential. The row stays: SPLIT needs it. Refused while any of the duplicate's links is DISPUTED, because a merge is the outcome of review, not a way around one. Requires the `admin` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    residentId: components["parameters"]["ResidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        duplicateResidentId: string;
+                        /** @example Same person enrolled twice; second number was a typo confirmed at the desk */
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The merge record */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            merge: components["schemas"]["IdentityMerge"];
+                        };
+                    };
+                };
+                /** @description Refused: REASON_REQUIRED, CANNOT_MERGE_PERSON_WITH_SELF, NOTHING_TO_MERGE, DISPUTED_LINKS_MUST_BE_RESOLVED, a lifecycle refusal on the duplicate, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown survivor or duplicate */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/merges/{mergeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A merge, and whether it has been split (registrar) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    mergeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The merge record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IdentityMerge"];
+                    };
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the registrar role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown merge */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/residency/merges/{mergeId}/split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * SPLIT a merge, restoring the separate persons (admin)
+         * @description Reverses a merge: each link the merge created on the survivor is closed (marked SPLIT) and the identifier is restored to the duplicate on a new link. The duplicate's ENDED relationship stays ended -- a terminal state is terminal -- so the restored person is re-evaluated by enrolling again, which finds their row and opens a fresh relationship on it. Refused if any moved identifier has since been moved again, because reversing over a later decision would undo it without anyone having chosen to. Requires the `admin` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    mergeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The merge record, now carrying its split */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            merge: components["schemas"]["IdentityMerge"];
+                        };
+                    };
+                };
+                /** @description Refused: REASON_REQUIRED, ALREADY_SPLIT, LINK_MOVED_SINCE_MERGE, or a malformed body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Missing or invalid operator credential */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the admin role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown merge */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/consent/resident/{residentId}": {
         parameters: {
             query?: never;
@@ -6159,12 +6901,142 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * @description ACTIVE: the identifier belongs to the person. DISPUTED: contested; high-risk use is restricted pending review. UNLINKED: no longer applies; kept with its history.
+         * @enum {string}
+         */
+        IdentityLinkStatus: "ACTIVE" | "DISPUTED" | "UNLINKED";
+        /**
+         * @description The ORCS §11 operations, plus the closing half of DISPUTE.
+         * @enum {string}
+         */
+        IdentityLinkOperation: "LINK" | "DISPUTE" | "DISPUTE_RESOLVED" | "UNLINK" | "RELINK" | "MERGE" | "SPLIT";
+        /** @description One association between a person and a tokenized identifier, and what happened to it. Append-only: a closed link keeps its dates and reasons, and `supersedes` / `supersededBy` chain a RELINK, MERGE or SPLIT to the link that continues it. */
+        IdentityLink: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description The person, as the residency record's residentId.
+             * @example KT-GT1F-75WJ-6
+             */
+            personRef: string;
+            /** @example nhis */
+            identifierType: string;
+            /**
+             * @description Tokenized (HMAC), the same construction as subjectRef. Never the identifier.
+             * @example nhis:3565d2a9c60f50813554beb466e3bbc1b7a0261f
+             */
+            identifierRef: string;
+            status: components["schemas"]["IdentityLinkStatus"];
+            /** @description True for the identifier the register verified this person against (their subjectRef). */
+            foundational: boolean;
+            evidenceRefs: string[];
+            /** Format: date-time */
+            linkedAt: string;
+            /** @example operator:jane.doe@kaduna.gov.ng */
+            linkedBy: string;
+            /** @description The open or most recent dispute. */
+            dispute?: {
+                /** Format: date-time */
+                raisedAt: string;
+                raisedBy: string;
+                reason: string;
+                /** Format: date-time */
+                resolvedAt?: string;
+                resolvedBy?: string;
+                /** @description Why it was resolved, or `UNLINK: ...` / `RELINK: ...` / `MERGE: ...` when closing the link closed it. */
+                resolution?: string;
+            };
+            unlinked?: {
+                /** Format: date-time */
+                at: string;
+                by: string;
+                reason: string;
+                /**
+                 * @description Which operation closed the link.
+                 * @enum {string}
+                 */
+                operation: "UNLINK" | "RELINK" | "MERGE" | "SPLIT";
+            };
+            /**
+             * Format: uuid
+             * @description The link this one continues.
+             */
+            supersedes?: string;
+            /**
+             * Format: uuid
+             * @description The link that continues this one.
+             */
+            supersededBy?: string;
+            /**
+             * Format: uuid
+             * @description The merge that created this link on the survivor.
+             */
+            mergeId?: string;
+        };
+        IdentityLinkEvent: {
+            /** Format: uuid */
+            id: string;
+            /** @description Monotonic within the deployment; history reads in the order it happened. */
+            seq: number;
+            /** Format: uuid */
+            linkId: string;
+            personRef: string;
+            operation: components["schemas"]["IdentityLinkOperation"];
+            /** Format: date-time */
+            at: string;
+            by: string;
+            reason?: string;
+            evidenceRefs?: string[];
+            /** @description For RELINK, MERGE and SPLIT, where the identifier moved from. */
+            fromPersonRef?: string;
+            /** @description For RELINK, MERGE and SPLIT, where the identifier moved to. */
+            toPersonRef?: string;
+            /** Format: uuid */
+            mergeId?: string;
+        };
+        IdentityLinkRestrictions: {
+            /** @description True while any of the person's links is DISPUTED; issuance and wallet delivery are refused. */
+            restricted: boolean;
+            disputedLinkIds: string[];
+        };
+        IdentityMerge: {
+            /** Format: uuid */
+            id: string;
+            survivorRef: string;
+            duplicateRef: string;
+            /** Format: date-time */
+            at: string;
+            by: string;
+            reason: string;
+            /** @description Per identifier moved, the duplicate's closed link and the survivor's new one. */
+            moved: {
+                /** Format: uuid */
+                from: string;
+                /** Format: uuid */
+                to: string;
+            }[];
+            /** @description Present once the merge has been reversed. */
+            split?: {
+                /** Format: date-time */
+                at: string;
+                by: string;
+                reason: string;
+                restored: {
+                    /** Format: uuid */
+                    from: string;
+                    /** Format: uuid */
+                    to: string;
+                }[];
+            };
+        };
     };
     responses: never;
     parameters: {
         ResidentId: string;
         /** @description The interaction id oidc-provider minted when the authorization request at `GET /oidc/auth` needed a human step. It arrives in the redirect the provider issues and is echoed in the resume URL `/oidc/auth/{uid}`; the interaction itself is looked up from the provider's `_interaction` cookie, not from this value. */
         InteractionUid: string;
+        LinkId: string;
     };
     requestBodies: never;
     headers: never;

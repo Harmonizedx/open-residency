@@ -81,6 +81,14 @@ jobs:
       - name: Core smoke test
         run: npm run smoke
 
+      # ORCS §11: every external identifier can be linked, disputed, unlinked and relinked,
+      # duplicates merged and a merge reversed, with nothing deleted. Criterion 6 of the ORCS
+      # conformance suite asserts the same operations; this suite covers the refusals and the
+      # residency-service integration (a disputed link blocks issuance, a merged identifier
+      # finds the survivor, unlinking the foundational identifier suspends first).
+      - name: Identity link lifecycle (ORCS §11)
+        run: npm run smoke:identity-links
+
       - name: OpenID4VCI issuance (drives the full flow as a wallet)
         run: npm run smoke:oid4vci
 

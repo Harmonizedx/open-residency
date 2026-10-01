@@ -485,3 +485,77 @@ model AuditCheckpoint {
 
   @@index([createdAt])
 }
+
+// ORCS §11: which external identifiers belong to which person, and the record of every
+// time somebody decided that. Append-only: a link that stops applying becomes UNLINKED and
+// keeps its dates and reasons; RELINK, MERGE and SPLIT write a new row and point the old one
+// at it; every operation appends an IdentityLinkEvent. Only tokenized references are stored,
+// never an identifier. See src/core/identity/identity-link.ts and ADR-0014.
+model IdentityLink {
+  id             String    @id
+  // The person, as the residency record's residentId (ADR-0004: one record per person here).
+  personRef      String
+  identifierType String
+  // Tokenized (HMAC), the same construction as Resident.subjectRef.
+  identifierRef  String
+  status         String // ACTIVE | DISPUTED | UNLINKED
+  foundational   Boolean   @default(false)
+  evidenceRefs   String[]
+  linkedAt       DateTime
+  linkedBy       String
+  // The open or most recent dispute.
+  disputeRaisedAt   DateTime?
+  disputeRaisedBy   String?
+  disputeReason     String?
+  disputeResolvedAt DateTime?
+  disputeResolvedBy String?
+  disputeResolution String?
+  unlinkedAt        DateTime?
+  unlinkedBy        String?
+  unlinkedReason    String?
+  unlinkedOperation String? // UNLINK | RELINK | MERGE | SPLIT
+  supersedes     String?
+  supersededBy   String?
+  mergeId        String?
+
+  @@index([personRef])
+  @@index([identifierRef, status])
+}
+
+model IdentityLinkEvent {
+  id            String   @id
+  seq           Int      @default(autoincrement()) @unique
+  linkId        String
+  personRef     String
+  operation     String
+  at            DateTime
+  by            String
+  reason        String?
+  evidenceRefs  String[]
+  fromPersonRef String?
+  toPersonRef   String?
+  mergeId       String?
+
+  @@index([linkId])
+  @@index([personRef])
+  @@index([fromPersonRef])
+  @@index([toPersonRef])
+}
+
+model IdentityMerge {
+  id           String    @id
+  survivorRef  String
+  duplicateRef String
+  at           DateTime
+  by           String
+  reason       String
+  // [{ from, to }] per identifier moved; and the split's restorations once reversed.
+  moved        Json
+  splitAt      DateTime?
+  splitBy      String?
+  splitReason  String?
+  splitRestored Json?
+
+  @@index([survivorRef])
+  @@index([duplicateRef])
+}

@@ -615,6 +615,12 @@ export class Oid4vciService {
     if (!record) {
       throw new Oid4vciError('credential_request_denied', 'resident record no longer exists', 404);
     }
+    // ORCS §11 DISPUTE restricts high-risk use pending review, and minting a credential into
+    // a wallet is that. The offer was created before the dispute was raised; the credential
+    // is not delivered until it is resolved.
+    if ((await this.residency.restrictions(record.residentId)).restricted) {
+      throw new Oid4vciError('credential_request_denied', 'identity link under dispute', 403);
+    }
 
     const minted: MintedCredential[] = [];
     for (const holderDid of holders) {

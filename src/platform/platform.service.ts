@@ -51,6 +51,7 @@ import {
   PrismaOid4vpStore,
   PrismaOidcStore,
   PrismaRefusalStore,
+  PrismaIdentityLinkStore,
   PrismaOtpStore,
   PrismaOperatorStore,
   PrismaResidencyStore,
@@ -59,6 +60,8 @@ import {
   PrismaUpstreamAuthStore,
   PrismaAuditCheckpointStore,
 } from '../prisma/prisma.service';
+import { tokenizeSubject } from '../core/foundational/util';
+import { IdentityLinkRegistry } from '../core/identity/identity-link';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import axios from 'axios';
 
@@ -99,6 +102,7 @@ export class PlatformService implements OnModuleDestroy {
   /** Set only when the deployment configures an external OpenID Provider. */
   private upstreamOidc?: UpstreamOidcClient;
   private pepper!: string;
+  private identityLinks!: IdentityLinkRegistry;
   private assurance: AssuranceRegistry = buildDefaultAssuranceRegistry();
 
   constructor(
@@ -110,6 +114,7 @@ export class PlatformService implements OnModuleDestroy {
     private oid4vpStore: PrismaOid4vpStore,
     private oidcStore: PrismaOidcStore,
     private refusalStore: PrismaRefusalStore,
+    private identityLinkStore: PrismaIdentityLinkStore,
     private otpStore: PrismaOtpStore,
     private operatorStore: PrismaOperatorStore,
     private webauthnChallengeStore: PrismaWebAuthnChallengeStore,
@@ -166,6 +171,7 @@ export class PlatformService implements OnModuleDestroy {
     this.issuer = new VcIssuer(this.key);
     this.ldpIssuer = new LdpIssuer(this.key);
     this.statusListPublisher = new StatusListPublisher(this.ldpIssuer);
+    this.identityLinks = new IdentityLinkRegistry(this.identityLinkStore);
     this.residency = new ResidencyService(
       this.registry,
       this.issuer,
@@ -174,6 +180,7 @@ export class PlatformService implements OnModuleDestroy {
       this.ldpIssuer,
       this.assurance,
       this.refusalStore,
+      this.identityLinks,
     );
 
     // OpenID4VCI: the standards-based issuance path that lets a citizen's own wallet
@@ -514,6 +521,16 @@ export class PlatformService implements OnModuleDestroy {
   /** Refused applications, so an applicant can be told why and where to appeal. */
   getRefusalStore(): PrismaRefusalStore {
     return this.refusalStore;
+  }
+  /** ORCS §11 identity links: which identifiers belong to which person, and every correction. */
+  getIdentityLinks(): IdentityLinkRegistry {
+    return this.identityLinks;
+  }
+  /** Tokenize an identifier the way subjectRef is, so a sector identifier is never stored raw. */
+  tokenizeIdentifier(identifierType: string, value: string): string {
+    // The type is the HMAC namespace, so `NHIS` and `nhis` must tokenize alike or the same
+    // card would link twice. The registry lower-cases the type it stores for the same reason.
+    return tokenizeSubject(identifierType.trim().toLowerCase(), value.trim(), this.pepper);
   }
   getAudit(): AuditLog {
     return this.audit;

@@ -26,7 +26,9 @@ import {
   PrismaResidencyStore,
   PrismaRefusalStore,
   PrismaOidcStore,
+  PrismaIdentityLinkStore,
 } from '../src/prisma/prisma.service';
+import { IdentityLinkRegistry } from '../src/core/identity/identity-link';
 import { ResidentRecord } from '../src/core/residency/ports';
 import { RefusalRecord } from '../src/core/residency/refusal';
 
@@ -238,6 +240,42 @@ async function main() {
   const expired = new Date(now.getTime() + 700_000);
   check('an expired item is not returned', (await oidc.find('AuthorizationCode', 'code-1', expired)) === null);
   check('  and the sweep removes it', (await oidc.purgeExpired(expired)) >= 1);
+
+  console.log('\nIdentity links (ORCS §11) round-trip every column, and the registry runs unchanged on Postgres:');
+  const linkStore = new PrismaIdentityLinkStore(prisma);
+  const links = new IdentityLinkRegistry(linkStore);
+  const l1 = await links.link({ personRef: 'KT-STORE-0001-1', identifierType: 'NIN', identifierRef: 'nin:store-a', by: 'operator:desk', evidenceRefs: ['foundational:NIN'], foundational: true, at: '2026-04-01T00:00:00.000Z' });
+  check('a link saves and loads', l1.ok && (await linkStore.findLink(l1.ok ? l1.link.id : ''))?.status === 'ACTIVE');
+  check('  identifierType is lower-cased and foundational survives', l1.ok && l1.link.identifierType === 'nin' && (await linkStore.findLink(l1.link.id))?.foundational === true);
+  check('  evidence survives as an array', l1.ok && (await linkStore.findLink(l1.link.id))?.evidenceRefs.join() === 'foundational:NIN');
+  check('  the current link is found by identifier', (await linkStore.findCurrentByIdentifier('nin:store-a'))?.personRef === 'KT-STORE-0001-1');
+  const linkId = l1.ok ? l1.link.id : '';
+  const d = await links.dispute(linkId, { by: 'operator:audit', reason: 'contested', at: '2026-04-02T00:00:00.000Z' });
+  const dl = await linkStore.findLink(linkId);
+  check('a dispute round-trips', d.ok && dl?.status === 'DISPUTED' && dl.dispute?.raisedBy === 'operator:audit' && dl.dispute.reason === 'contested');
+  check('  a disputed link is still the current one for the identifier', (await linkStore.findCurrentByIdentifier('nin:store-a'))?.id === linkId);
+  await links.resolveDispute(linkId, { by: 'operator:supervisor', resolution: 'verified', at: '2026-04-03T00:00:00.000Z' });
+  const rl = await linkStore.findLink(linkId);
+  check('  resolution fields survive', rl?.status === 'ACTIVE' && rl.dispute?.resolvedBy === 'operator:supervisor' && rl.dispute.resolution === 'verified' && rl.dispute.resolvedAt === '2026-04-03T00:00:00.000Z');
+  const relinked = await links.relink(linkId, { toPersonRef: 'KT-STORE-0002-2', by: 'operator:supervisor', reason: 'adjudicated', evidenceRefs: ['case:1'], at: '2026-04-04T00:00:00.000Z' });
+  const closed = await linkStore.findLink(linkId);
+  check('a relink closes the source with operation RELINK', relinked.ok && closed?.status === 'UNLINKED' && closed.unlinked?.operation === 'RELINK' && closed.unlinked.reason === 'adjudicated');
+  check('  supersedes / supersededBy chain both ways', relinked.ok && closed?.supersededBy === relinked.to.id && (await linkStore.findLink(relinked.to.id))?.supersedes === linkId);
+  check('  the closed link is no longer current, the new one is', (await linkStore.findCurrentByIdentifier('nin:store-a'))?.id === (relinked.ok ? relinked.to.id : ''));
+  check('  listByPerson returns the closed link for the old person', (await linkStore.listByPerson('KT-STORE-0001-1')).some((l) => l.id === linkId));
+  const m = await links.merge({ survivorRef: 'KT-STORE-0003-3', duplicateRef: 'KT-STORE-0002-2', by: 'operator:admin', reason: 'duplicate', at: '2026-04-05T00:00:00.000Z' });
+  const ml = await linkStore.findMerge(m.ok ? m.merge.id : '');
+  check('a merge saves with its moved pairs as JSON', m.ok && ml?.moved.length === 1 && ml.moved[0].from === (relinked.ok ? relinked.to.id : '') && ml.split === undefined);
+  check('  mergeId is on the survivor link', m.ok && (await linkStore.findLink(m.merge.moved[0].to))?.mergeId === m.merge.id);
+  const sp = await links.split(m.ok ? m.merge.id : '', { by: 'operator:admin', reason: 'not the same', at: '2026-04-06T00:00:00.000Z' });
+  const sl = await linkStore.findMerge(m.ok ? m.merge.id : '');
+  check('a split saves onto the merge', sp.ok && sl?.split?.by === 'operator:admin' && sl.split.restored.length === 1);
+  check('  the identifier is back with the duplicate', (await linkStore.findCurrentByIdentifier('nin:store-a'))?.personRef === 'KT-STORE-0002-2');
+  const ev = await linkStore.listEvents({ personRef: 'KT-STORE-0002-2' });
+  check('events read back in order with a database-assigned seq', ev.length >= 3 && ev.every((e, i) => i === 0 || e.seq > ev[i - 1].seq) && ev.map((e) => e.operation).includes('SPLIT'));
+  check('  from/to person refs survive on a move', ev.some((e) => e.operation === 'RELINK' && e.fromPersonRef === 'KT-STORE-0001-1' && e.toPersonRef === 'KT-STORE-0002-2'));
+  const byLink = await links.history(linkId);
+  check('  a link\'s history includes the move that closed it', byLink.length === 4 && byLink.map((e) => e.operation).join(',') === 'LINK,DISPUTE,DISPUTE_RESOLVED,RELINK');
 
   await prisma.$disconnect();
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);
