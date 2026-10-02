@@ -25,9 +25,29 @@ reachable with its request and response types.
 npm install @openresidency/sdk
 ```
 
-The package version is the server release: `@openresidency/sdk@0.2.0` is the client for
-`v0.2.0`. Pin the version of the instance you integrate against. A newer client against an
+The package version is the server release: `@openresidency/sdk@x.y.z` is the client for
+`vx.y.z`. Pin the version of the instance you integrate against. A newer client against an
 older server will find some paths missing.
+
+## What has to be running first
+
+This package talks to an instance; it does not create one. An instance needs a database, a
+source of identity truth, an issuer signing key, and an operator credential. None of those
+has to be a national system to start:
+
+- **No national ID API?** The `DATASET_FILE` source verifies against the extract the identity
+  authority hands over, as CSV, JSON or YAML. A file match proves a record exists, not that
+  the applicant owns it, so the operator binds the person at the desk and the credential
+  says `basic`.
+- **No HSM or KMS?** `npm run keys:issuer` in the repository generates the signing key for the
+  `env` backend, held in an environment variable. The application warns at every start that
+  the key is resident in the process, which is the reminder to move it later.
+- **No operator directory?** The shared admin key from `.env` issues, and audits to one
+  anonymous actor. Per-operator keys come from `POST /operator/keys` when you are ready.
+
+Every step, run as written against a real database:
+[docs/FIRST-RESIDENCY.md](https://github.com/Harmonizedx/open-residency/blob/main/docs/FIRST-RESIDENCY.md).
+Operating it beyond a pilot: [docs/DEPLOY.md](https://github.com/Harmonizedx/open-residency/blob/main/docs/DEPLOY.md).
 
 ## Which one are you?
 

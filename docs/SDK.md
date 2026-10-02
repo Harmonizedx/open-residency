@@ -29,6 +29,11 @@ So a route cannot be added to the server without being documented, and cannot be
 without reaching the SDK. Before these checks the spec had drifted to 43 of 80 routes, and
 the ORCS relationship and credential lifecycle was invisible to anyone integrating through it.
 
+## Before the client is useful
+
+It needs an instance. A jurisdiction with no KMS and no national ID API stands one up from a
+register extract in [`FIRST-RESIDENCY.md`](FIRST-RESIDENCY.md).
+
 ## Use
 
 See `sdk/README.md` for the full method table. Quick example:

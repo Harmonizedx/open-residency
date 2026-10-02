@@ -31,7 +31,11 @@ export interface IssuerKey {
 
 export class KeyStore {
   static async fromJwk(privateJwk: JWK, kid: string): Promise<IssuerKey> {
-    const privateKey = (await importJWK(privateJwk, 'EdDSA')) as CryptoKey;
+    // Extractable, deliberately. The SSO layer publishes its signing key as a JWK, and a
+    // deployment without a separate OIDC_SIGNING_JWK signs id_tokens with this key; an
+    // unexportable import made that deployment refuse to start. The key arrived as a JWK in
+    // the environment, so marking it extractable reveals nothing that was not already there.
+    const privateKey = (await importJWK(privateJwk, 'EdDSA', { extractable: true })) as CryptoKey;
     const publicJwk: JWK = {
       kty: privateJwk.kty,
       crv: privateJwk.crv,
