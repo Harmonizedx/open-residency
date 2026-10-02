@@ -28,6 +28,20 @@ repository settings to leak, no second-factor prompt, and npm attaches provenanc
 — the registry page shows the commit and workflow run that built the tarball. The `sdk` job
 also refuses to publish when `sdk/package.json` does not match the tag.
 
+### Who holds the package
+
+The package's registry maintainers are the project's npm account, `openresidency01`
+(`eng@harmonizedx.com`), and nobody else. People publish nothing: every version is built and
+published by the release workflow under its own identity, so a personal account on the
+maintainer list is a publish path that bypasses the signed tag, the version check and the
+provenance for no benefit. `package.json` names the same account as author. Check and
+correct with:
+
+```bash
+npm owner ls @openresidency/sdk
+npm owner rm <personal-account> @openresidency/sdk
+```
+
 ### One-time setup, on npmjs.com
 
 Package page → Settings → **Trusted Publisher** → GitHub Actions:
