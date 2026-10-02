@@ -12,6 +12,15 @@ current ORCS §15 position; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## 0.3.0 — 2026-10-02
+
+Identity links, and a path to a first credential with nothing but a register extract. A
+minor bump because the identity-link routes are new capability; nothing an adopter already
+depends on changes shape, and the one behavioural change (`.env` is now loaded by the start
+scripts) is listed under **Changed**.
+
 ### Added
 
 **A first residency from a spreadsheet.** `docs/FIRST-RESIDENCY.md` takes a jurisdiction with
