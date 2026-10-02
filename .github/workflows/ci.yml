@@ -55,6 +55,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # package.json, package-lock.json, sdk/package.json and the CHANGELOG heading move
+      # together or not at all. The release workflow checks the same against the tag.
+      - name: Every version agrees
+        run: npm run release:check
+
       # docs/openapi.yaml is the contract partners integrate against and the source the
       # SDK's types are generated from. Hand-maintained, it fell to 43 of 80 routes with
       # nothing noticing, so the ORCS relationship and credential lifecycle was invisible to
