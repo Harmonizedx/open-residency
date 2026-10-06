@@ -63,6 +63,9 @@ export type AuditAction =
   // A resident enrolled a WebAuthn passkey (authorized by an existing factor).
   | 'webauthn.register'
   | 'admin.read'
+  // A resident read their own access log. An access in its own right, so the trail stays
+  // complete; the actor is the resident, by id, which is their own data.
+  | 'resident.access.read'
   // OpenID4VCI: a credential offer was created for a resident, and a wallet redeemed it.
   | 'oid4vci.offer.create'
   | 'oid4vci.credential.issue'

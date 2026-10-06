@@ -3651,6 +3651,273 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/access-log/factors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which self-service factors this deployment accepts
+         * @description `presentation` (the resident's own credential from their wallet; costs nothing), `ussd` (the network's attribution of a session to the registered SIM; costs nothing per use) and `otp` (a one-time code by SMS, which the agency pays for). Set in `selfService.accessLogFactors`; the default accepts all three.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The accepted factors */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            factors?: ("presentation" | "ussd" | "otp")[];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/access-log/presentation/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin reading my access log by presenting my credential
+         * @description Returns an OpenID4VP request URI and a QR of it for the resident's wallet. The wallet presents the residency credential out of band, proving possession of the key it is bound to; nothing is sent and nothing is paid for. 403 when the deployment has not enabled this factor.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The presentation request */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            requestId: string;
+                            requestUri: string;
+                            qrSvg: string;
+                        };
+                    };
+                };
+                /** @description Factor not enabled */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/access-log/presentation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Collect my access log once my wallet has presented
+         * @description Reports `status` until the wallet has presented; then `authenticated` with the entries. The request id was minted by `/me/access-log/presentation/start` and expires with it.
+         */
+        get: {
+            parameters: {
+                query: {
+                    requestId: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pending status, or the access log */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            status: string;
+                            residentId?: string;
+                            entries?: components["schemas"]["AccessLogEntry"][];
+                        };
+                    };
+                };
+                /** @description Factor not enabled */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown request */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/access-log/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a one-time code so a resident can read their own access log
+         * @description Sends a code to the contact the register holds for the record. Answers `{ sent: true }` whether or not the residency id exists, for the same reason the sign-in flow does: this surface must not let anyone learn whether an id is real. This is the one factor the agency pays for per use; a deployment may disable it (403) and keep the free ones.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        residentId?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Always the same body */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sent?: boolean;
+                        };
+                    };
+                };
+                /** @description Factor not enabled */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/access-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Who has looked at my record
+         * @description Every disclosure event targeting the resident's record -- an operator read, a credential verification, a presentation to a relying party, a wallet collection -- oldest first, with the actor reduced to a kind. A relying party is named by its registered client identifier because the resident consented to it; a member of staff is never named, and each entry carries the audit event id so a complaint can be investigated against the full trail. Reading this is itself recorded as an access. The code is the one sent by `/me/access-log/start`; a wrong or expired code answers 401 with no further detail.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        residentId: string;
+                        code: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The resident's access log */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            residentId: string;
+                            entries: components["schemas"]["AccessLogEntry"][];
+                        };
+                    };
+                };
+                /** @description Incorrect or expired code */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Factor not enabled */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/offline/qr": {
         parameters: {
             query?: never;
@@ -6603,6 +6870,23 @@ export interface components {
             endedAt?: string;
             endedReason?: string;
             endedBy?: string;
+        };
+        AccessLogEntry: {
+            /** @description The audit event id */
+            eventId: string;
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            action: "admin.read" | "credential.verify" | "oid4vp.presentation.verify" | "oid4vci.credential.issue" | "resident.access.read";
+            /**
+             * @description Who, by kind. Never an operator's identity.
+             * @enum {string}
+             */
+            actorKind: "operator" | "verifier" | "relying_party" | "wallet" | "resident" | "system";
+            /** @description For a relying party */
+            relyingParty?: string;
+            /** @enum {string} */
+            outcome: "success" | "failure";
         };
         CredentialDeliveryRequest: {
             /**

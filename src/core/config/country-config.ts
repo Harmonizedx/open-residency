@@ -1033,7 +1033,25 @@ const dataProtectionSchema = z.object({
 
 export type LegalBasisConfig = z.infer<typeof legalBasisSchema>;
 
-export const countryConfigSchema = z
+export /**
+ * What a resident can do for themselves, and how they prove who they are to do it.
+ *
+ * Every factor here costs the agency nothing per use except `otp`, which sends an SMS the
+ * agency pays for. A deployment lists the factors it accepts for self-service; the default
+ * accepts all three so nothing changes for an existing deployment, and a deployment that will
+ * not pay for messages removes `otp` and keeps the two free ones. `presentation` is the
+ * resident's own credential presented from their wallet (proof of the key it is bound to);
+ * `ussd` is the network's attribution of a session to the SIM registered against the record.
+ * Deployment-wide: read from the first config loaded, like the other profiles.
+ */
+const selfServiceSchema = z.object({
+  accessLogFactors: z
+    .array(z.enum(['presentation', 'ussd', 'otp']))
+    .min(1)
+    .default(['presentation', 'ussd', 'otp']),
+});
+
+const countryConfigSchema = z
   .object({
   countryCode: z.string().length(2),
   countryName: z.string(),
@@ -1064,6 +1082,8 @@ export const countryConfigSchema = z
   // Cross-issuer trust. Deployment-wide, read from the default config. Empty by default:
   // a deployment trusts only its own issuer until it names peers here.
   federation: federationSchema.prefault({}),
+  // Resident self-service and the factors it accepts. Deployment-wide; see selfServiceSchema.
+  selfService: selfServiceSchema.prefault({}),
   // Who is accountable for the personal data, and under what law (ORCS §9).
   dataProtection: dataProtectionSchema.prefault({}),
   subnationalUnits: z.array(subnationalUnitSchema).default([]),

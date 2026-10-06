@@ -394,6 +394,26 @@ export class OpenResidencyClient {
       auth: 'operator',
     });
   }
+  /** Resident self-service. Which factors this deployment accepts for reading one's own access log. */
+  accessLogFactors() {
+    return this.request('get', '/me/access-log/factors', {});
+  }
+  /** Resident self-service, free. Begin a credential presentation from the resident's wallet. */
+  accessLogPresentationStart() {
+    return this.request('post', '/me/access-log/presentation/start', {});
+  }
+  /** Resident self-service, free. Collect the access log once the wallet has presented. */
+  accessLogPresentation(query: QueryParams<Operation<'get', '/me/access-log/presentation'>>) {
+    return this.request('get', '/me/access-log/presentation', { query });
+  }
+  /** Resident self-service, paid by the agency per message. Send a one-time code to the record's registered contact. */
+  accessLogStart(body: RequestBody<Operation<'post', '/me/access-log/start'>>) {
+    return this.request('post', '/me/access-log/start', { body });
+  }
+  /** Resident self-service. Who has looked at my record, proved by the code that was sent. */
+  accessLog(body: RequestBody<Operation<'post', '/me/access-log'>>) {
+    return this.request('post', '/me/access-log', { body });
+  }
   /** Why an application was refused, and how to appeal. */
   refusal(reference: string) {
     return this.request('get', '/residency/refusals/{reference}', { path: { reference } });

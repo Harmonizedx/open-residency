@@ -70,6 +70,9 @@ import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
 import { buildDefaultAssuranceRegistry } from '../src/core/assurance/profiles';
 import { InMemoryRefusalStore } from '../src/core/residency/refusal';
 import { InMemoryDeliveryStore } from '../src/core/credentials/delivery';
+import { AuditLog, InMemoryAuditStore } from '../src/core/audit/audit-log';
+import { accessLogFor } from '../src/core/audit/access-log';
+import { accessLogUssdSummary } from '../src/core/offline/ussd';
 
 type Verdict = 'PASS' | 'FAIL' | 'PARTIAL';
 
@@ -1009,13 +1012,45 @@ async function main() {
   // The audit log records operator reads and is readable by operators with the auditor role.
   // Nothing lets the person whose record it is ask "who has looked at me", which GovStack's
   // Digital Registries requirements, the DPG privacy framework and the ID4D guide all ask for.
+  //
+  // Asserted in the core: an audit log receives an operator read of resident A, a credential
+  // verification of A, a wallet collection by A, and an operator read of resident B; A's
+  // access log must list exactly the three events that concern A, oldest first, with each
+  // actor reduced to a kind and no operator identity anywhere in it; and the USSD summary of
+  // it must fit a feature-phone screen. The HTTP surfaces (/me/access-log/* and USSD option 3)
+  // authenticate the resident by a free factor -- their own credential, or the SIM the network
+  // attributes the session to -- with a paid one-time code as a fallback a deployment can
+  // disable; those are exercised by smoke:access-log.
+  const accessAudit = new AuditLog(new InMemoryAuditStore());
+  await accessAudit.record({ action: 'admin.read', actor: 'operator:desk-07', target: 'KD-ACC-0001-A', outcome: 'success' });
+  await accessAudit.record({ action: 'credential.verify', actor: 'verifier', target: 'KD-ACC-0001-A', outcome: 'success' });
+  await accessAudit.record({ action: 'admin.read', actor: 'operator:desk-07', target: 'KD-ACC-0002-B', outcome: 'success' });
+  await accessAudit.record({ action: 'oid4vci.credential.issue', actor: 'wallet', target: 'KD-ACC-0001-A', outcome: 'success' });
+  await accessAudit.record({ action: 'residency.issue', actor: 'operator:desk-07', target: 'KD-ACC-0001-A', outcome: 'success' });
+  const accessEntries = await accessLogFor(accessAudit, 'KD-ACC-0001-A');
+  const accessText = JSON.stringify(accessEntries);
+  const accessOk =
+    accessEntries.length === 3 &&
+    accessEntries.map((e) => e.actorKind).join(',') === 'operator,verifier,wallet' &&
+    accessEntries.every((e, i, a) => i === 0 || e.at >= a[i - 1].at) &&
+    !accessText.includes('desk-07') &&
+    !accessText.includes('KD-ACC-0002-B') &&
+    accessEntries.every((e) => typeof e.eventId === 'string' && e.eventId.length > 0) &&
+    accessLogUssdSummary(accessEntries).length <= 160 &&
+    /3 access/.test(accessLogUssdSummary(accessEntries));
   record(
     12,
     'A resident can list every read of their own record',
-    'FAIL',
-    'no resident-facing surface exposes the audit entries that target a record; reads are logged ' +
-      'and visible to operators holding the auditor role only',
-    'G-17',
+    accessOk ? 'PASS' : 'FAIL',
+    accessOk
+      ? 'every disclosure event targeting the record is listed, oldest first, with actors reduced to kinds and ' +
+        'no operator identity present; a write to the record is not a read and is excluded; another resident\'s ' +
+        'events are excluded; each entry carries its audit event id; the USSD summary fits a feature-phone screen. ' +
+        'Served over /me/access-log/* by credential presentation or a one-time code, and over USSD on the ' +
+        'registered SIM\'s authority'
+      : `entries: ${accessEntries.length}; kinds: ${accessEntries.map((e) => e.actorKind).join(',')}; ` +
+        `operator id leaked: ${accessText.includes('desk-07')}; other resident leaked: ${accessText.includes('KD-ACC-0002-B')}`,
+    accessOk ? undefined : 'G-17',
   );
 
   // ---------------------------------------------------------------------------

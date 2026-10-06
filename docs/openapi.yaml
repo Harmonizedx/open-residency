@@ -26,6 +26,8 @@ tags:
     description: Tamper-evident audit log (admin)
   - name: admin
     description: Resident registry administration (admin)
+  - name: me
+    description: What a resident can see about their own record, proved by a one-time code to the registered contact
   - name: statistics
     description: >
       Aggregate, non-PII residency statistics in JSON and RFC 4180 CSV. This is the
@@ -1945,6 +1947,140 @@ paths:
                 NG,ZM,NIMC,verified,false,,true
         '401': { description: Missing or invalid operator credential }
         '403': { description: The operator lacks the support role }
+  /me/access-log/factors:
+    get:
+      tags: [me]
+      summary: Which self-service factors this deployment accepts
+      description: >-
+        `presentation` (the resident's own credential from their wallet; costs nothing),
+        `ussd` (the network's attribution of a session to the registered SIM; costs nothing per
+        use) and `otp` (a one-time code by SMS, which the agency pays for). Set in
+        `selfService.accessLogFactors`; the default accepts all three.
+      responses:
+        '200':
+          description: The accepted factors
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  factors:
+                    type: array
+                    items: { type: string, enum: [presentation, ussd, otp] }
+  /me/access-log/presentation/start:
+    post:
+      tags: [me]
+      summary: Begin reading my access log by presenting my credential
+      description: >-
+        Returns an OpenID4VP request URI and a QR of it for the resident's wallet. The wallet
+        presents the residency credential out of band, proving possession of the key it is
+        bound to; nothing is sent and nothing is paid for. 403 when the deployment has not
+        enabled this factor.
+      responses:
+        '201':
+          description: The presentation request
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requestId, requestUri, qrSvg]
+                properties:
+                  requestId: { type: string }
+                  requestUri: { type: string }
+                  qrSvg: { type: string }
+        '403': { description: Factor not enabled }
+  /me/access-log/presentation:
+    get:
+      tags: [me]
+      summary: Collect my access log once my wallet has presented
+      description: >-
+        Reports `status` until the wallet has presented; then `authenticated` with the entries.
+        The request id was minted by `/me/access-log/presentation/start` and expires with it.
+      parameters:
+        - in: query
+          name: requestId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pending status, or the access log
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string }
+                  residentId: { type: string }
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessLogEntry' }
+        '403': { description: Factor not enabled }
+        '404': { description: Unknown request }
+  /me/access-log/start:
+    post:
+      tags: [me]
+      summary: Send a one-time code so a resident can read their own access log
+      description: >-
+        Sends a code to the contact the register holds for the record. Answers `{ sent: true }`
+        whether or not the residency id exists, for the same reason the sign-in flow does: this
+        surface must not let anyone learn whether an id is real. This is the one factor the
+        agency pays for per use; a deployment may disable it (403) and keep the free ones.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                residentId: { type: string, maxLength: 128 }
+      responses:
+        '201':
+          description: Always the same body
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent: { type: boolean }
+        '403': { description: Factor not enabled }
+  /me/access-log:
+    post:
+      tags: [me]
+      summary: Who has looked at my record
+      description: >-
+        Every disclosure event targeting the resident's record -- an operator read, a credential
+        verification, a presentation to a relying party, a wallet collection -- oldest first,
+        with the actor reduced to a kind. A relying party is named by its registered client
+        identifier because the resident consented to it; a member of staff is never named, and
+        each entry carries the audit event id so a complaint can be investigated against the full
+        trail. Reading this is itself recorded as an access. The code is the one sent by
+        `/me/access-log/start`; a wrong or expired code answers 401 with no further detail.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [residentId, code]
+              properties:
+                residentId: { type: string, maxLength: 128 }
+                code: { type: string, maxLength: 16 }
+      responses:
+        '201':
+          description: The resident's access log
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [residentId, entries]
+                properties:
+                  residentId: { type: string }
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccessLogEntry' }
+        '401': { description: Incorrect or expired code }
+        '403': { description: Factor not enabled }
   /offline/qr:
     post:
       tags: [offline]
@@ -4268,6 +4404,21 @@ components:
         endedAt: { type: string, format: date-time, description: Set when the relationship reached a terminal state. }
         endedReason: { type: string }
         endedBy: { type: string }
+    AccessLogEntry:
+      type: object
+      required: [eventId, at, action, actorKind, outcome]
+      properties:
+        eventId: { type: string, description: The audit event id, for a complaint to be investigated against the full trail. }
+        at: { type: string, format: date-time }
+        action:
+          type: string
+          enum: [admin.read, credential.verify, oid4vp.presentation.verify, oid4vci.credential.issue, resident.access.read]
+        actorKind:
+          type: string
+          enum: [operator, verifier, relying_party, wallet, resident, system]
+          description: Who, by kind. Never an operator's identity.
+        relyingParty: { type: string, description: For a relying party, its registered client identifier. }
+        outcome: { type: string, enum: [success, failure] }
     CredentialDeliveryRequest:
       type: object
       required: [channel, status]

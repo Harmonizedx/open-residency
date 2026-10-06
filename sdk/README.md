@@ -176,6 +176,7 @@ The named methods cover the integrator-facing surface:
 | Operator identity | `operatorLogin`, `me`, `listOperators`, `createOperator`, `disableOperator`, `listKeys`, `createKey`, `rotateKey`, `revokeKey` |
 | Audit and admin | `auditLog`, `verifyAuditChain`, `listResidents`, `stats`, `statistics`, `statisticsCsv` |
 | Offline | `qr`, `ussd` |
+| Resident self-service | `accessLogFactors`, `accessLogPresentationStart`, `accessLogPresentation`, `accessLogStart`, `accessLog` |
 | OpenID4VCI (issuing into a wallet) | `credentialIssuerMetadata`, `oauthAuthorizationServerMetadata`, `createCredentialOffer`, `walletToken`, `walletNonce`, `walletCredential` |
 | OpenID4VP (asking a wallet to present) | `createPresentationRequest`, `presentationRequest`, `submitPresentation`, `presentationResult` |
 | W3C VC-API | `vcIssue`, `vcVerify`, `vpVerify` |
