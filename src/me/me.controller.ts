@@ -4,7 +4,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  NotFoundException,
   Post,
   Query,
   UnauthorizedException,
@@ -76,10 +75,12 @@ export class MeController {
    * resident's own browser, and it expires with the presentation request.
    */
   @Get('access-log/presentation')
-  async presentationResult(@Query('requestId') requestId: string) {
+  async presentationResult(@Query('requestId') requestId?: string) {
     this.requireFactor('presentation');
-    if (!requestId) throw new NotFoundException('Unknown request');
-    const result = await this.platform.getSsoAuth().pollVpLogin(requestId);
+    // Always ask the service; an absent or unknown id comes back as a non-authenticated status.
+    // No user-supplied value decides whether the check runs -- only the service's answer
+    // decides what is returned.
+    const result = await this.platform.getSsoAuth().pollVpLogin(String(requestId ?? ''));
     if (result.status !== 'authenticated' || !result.residentId) return { status: result.status };
     return { status: 'authenticated', ...(await this.entriesFor(result.residentId)) };
   }
@@ -109,17 +110,18 @@ export class MeController {
   @Post('access-log')
   async accessLog(@Body() body: AccessLogDto) {
     this.requireFactor('otp');
-    const { residentId, code } = body;
-    const result =
-      residentId && code
-        ? await this.platform.getSsoAuth().verifyOtpLogin(residentId, code)
-        : { authenticated: false as const, reason: 'MISSING_FIELDS' };
+    // The verification always runs, with whatever was supplied: a missing id or code is just a
+    // code that does not verify. The service's answer, not a user-supplied value, is the only
+    // thing that decides whether the log is returned.
+    const result = await this.platform
+      .getSsoAuth()
+      .verifyOtpLogin(String(body.residentId ?? ''), String(body.code ?? ''));
     if (!result.authenticated || !result.residentId) {
       await this.platform.getAudit().record({
         action: 'sso.login',
-        actor: residentId ?? 'unknown',
+        actor: 'resident',
         outcome: 'failure',
-        metadata: { factor: 'otp', purpose: 'access-log', reason: result.reason },
+        metadata: { factor: 'otp', purpose: 'access-log', reason: result.reason ?? 'NOT_VERIFIED' },
       });
       throw new UnauthorizedException('Incorrect or expired code');
     }

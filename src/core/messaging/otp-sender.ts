@@ -33,9 +33,13 @@ export class MessagingOtpSender implements OtpSender {
       // No number on file. This is a configuration or enrolment gap, not an attack, and it
       // is worth surfacing loudly -- otherwise sign-in fails for that citizen with no
       // explanation anywhere.
+      // The id is caller-supplied on some paths, so it is reduced to its own alphabet before
+      // it reaches a log line: no line breaks or control characters can be injected to forge
+      // an entry, and the id is still legible to the operator reading the log.
+      const safeId = String(residentId).replace(/[^A-Za-z0-9_-]/g, '?').slice(0, 64);
       // eslint-disable-next-line no-console
       console.warn(
-        `[otp] No contact number for resident ${residentId}; one-time code not sent. ` +
+        `[otp] No contact number for resident ${safeId}; one-time code not sent. ` +
           `Check the contact directory configuration.`,
       );
       throw new Error('NO_CONTACT_ON_FILE');
