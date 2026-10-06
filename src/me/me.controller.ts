@@ -91,17 +91,18 @@ export class MeController {
   @Post('access-log/start')
   async start(@Body() body: AccessLogStartDto) {
     this.requireFactor('otp');
-    if (body?.residentId) {
-      try {
-        await this.platform.getSsoAuth().beginOtpLogin(body.residentId);
-      } catch (e) {
-        await this.platform.getAudit().record({
-          action: 'sso.login',
-          actor: body.residentId,
-          outcome: 'failure',
-          metadata: { factor: 'otp', stage: 'delivery', purpose: 'access-log', reason: (e as Error).message },
-        });
-      }
+    // Always call the service: an absent id is an unknown id and takes the same silent path
+    // inside it, so no caller-supplied value decides whether a message is attempted. The
+    // response is identical either way.
+    try {
+      await this.platform.getSsoAuth().beginOtpLogin(String(body?.residentId ?? ''));
+    } catch (e) {
+      await this.platform.getAudit().record({
+        action: 'sso.login',
+        actor: 'resident',
+        outcome: 'failure',
+        metadata: { factor: 'otp', stage: 'delivery', purpose: 'access-log', reason: (e as Error).message },
+      });
     }
     return { sent: true };
   }
