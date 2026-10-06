@@ -110,7 +110,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@nestjs/cli": "^11.0.24",
+    "@nestjs/cli": "^12.0.8",
     "@types/express": "^5.0.6",
     "@types/jsonld": "^1.5.15",
     "@types/node": "^26.6.3",
