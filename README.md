@@ -499,15 +499,22 @@ gaps, what an adopter completes before production, and the registry submission p
 
 Claims about conformance should be checkable, so here is exactly what is and is not verified.
 
-**The project's own acceptance criteria** (`npm run conformance:orcs`): nine criteria the project
-set for itself — concurrent relationships across a federation, conflict only under an explicit
-rule, assurance values resolving to a governed registry, a complete consent lifecycle, credential
-status and revocation, the identity-link lifecycle, federated sign-in without surrendering data,
-versioned events, and no Nigeria-specific hard-coding in the core. The suite prints a verdict per
-criterion and CI holds each verdict at its recorded baseline, failing on any regression. These are
-internal criteria, written and checked by this project; they are not an external standard and no
-external conformance is claimed for them. The external standards the software builds on are the
-ones below.
+**The project's own acceptance criteria** (`npm run conformance:orcs`): two sections, held to one
+ratchet. The first is the nine criteria of the project's own specification — concurrent
+relationships across a federation, conflict only under an explicit rule, assurance values resolving
+to a governed registry, a complete consent lifecycle, credential status and revocation, the
+identity-link lifecycle, federated sign-in without surrendering data, versioned events, and no
+Nigeria-specific hard-coding in the core. The second is five project criteria drawn from where
+registration programmes actually fail: a recorded, appealable decision for an applicant whose
+national identifier does not verify; a credential that is not active until delivered where delivery
+is a step; a resident able to see who read their record; a home for people with no fixed abode; and
+no origin or indigeneity field anywhere. Every criterion prints, beside its verdict, the external
+requirement it serves — a data-protection article, a W3C or OpenID specification, a GovStack
+requirement, an ID4D principle — because a criterion that existed only because the project's own
+specification asked for it would be the project grading its own work. CI holds each verdict at its
+recorded baseline and fails on any regression. These are internal criteria; they are not an external
+standard and no external conformance is claimed for them. The external standards the software
+builds on are the ones below.
 
 **Checked in CI, on every pull request** (`npm run test:conformance`): the normative requirements
 of [VC Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/),
