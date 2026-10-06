@@ -34,6 +34,13 @@ import {
 } from '../core/audit/audit-log';
 import { ConsentRecord, ConsentStore } from '../core/consent/consent';
 import { CredentialOfferRecord, NonceRecord, Oid4vciStore } from '../core/oid4vci/ports';
+import {
+  CredentialDeliveryEvent,
+  DeliveryChannel,
+  DeliveryCounts,
+  DeliveryStatus,
+  DeliveryStore,
+} from '../core/credentials/delivery';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
 import { OidcStore, OidcStoredItem } from '../core/sso/oidc-store';
@@ -493,6 +500,65 @@ export class PrismaAuditStore implements AuditStore {
  * would make issuance fail roughly (1 - 1/replicas) of the time.
  */
 @Injectable()
+export class PrismaDeliveryStore implements DeliveryStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toEvent = (r: any): CredentialDeliveryEvent => {
+    const e: CredentialDeliveryEvent = {
+      id: r.id,
+      residentId: r.residentId,
+      countryCode: r.countryCode,
+      channel: r.channel as DeliveryChannel,
+      status: r.status as DeliveryStatus,
+      at: r.at.toISOString(),
+    };
+    if (r.credentialId) e.credentialId = r.credentialId;
+    if (r.by) e.by = r.by;
+    if (r.failureReason) e.failureReason = r.failureReason;
+    if (r.evidenceRef) e.evidenceRef = r.evidenceRef;
+    return e;
+  };
+
+  async append(event: CredentialDeliveryEvent): Promise<void> {
+    await this.prisma.credentialDelivery.create({
+      data: {
+        id: event.id,
+        residentId: event.residentId,
+        countryCode: event.countryCode,
+        credentialId: event.credentialId ?? null,
+        channel: event.channel,
+        status: event.status,
+        at: new Date(event.at),
+        by: event.by ?? null,
+        failureReason: event.failureReason ?? null,
+        evidenceRef: event.evidenceRef ?? null,
+      },
+    });
+  }
+
+  async listByResident(residentId: string): Promise<CredentialDeliveryEvent[]> {
+    const rows = await this.prisma.credentialDelivery.findMany({
+      where: { residentId },
+      orderBy: { at: 'asc' },
+    });
+    return rows.map(this.toEvent);
+  }
+
+  async counts(countryCode?: string): Promise<DeliveryCounts> {
+    const grouped = await this.prisma.credentialDelivery.groupBy({
+      by: ['channel', 'status'],
+      where: countryCode ? { countryCode: countryCode.toUpperCase() } : undefined,
+      _count: { _all: true },
+    });
+    const out: DeliveryCounts = {};
+    for (const g of grouped) {
+      const byStatus = (out[g.channel as DeliveryChannel] ??= {});
+      byStatus[g.status as DeliveryStatus] = g._count._all;
+    }
+    return out;
+  }
+}
+
 export class PrismaOid4vciStore implements Oid4vciStore {
   constructor(private prisma: PrismaService) {}
 

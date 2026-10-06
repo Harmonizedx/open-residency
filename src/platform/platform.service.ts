@@ -59,6 +59,7 @@ import {
   PrismaWebAuthnCredentialStore,
   PrismaUpstreamAuthStore,
   PrismaAuditCheckpointStore,
+  PrismaDeliveryStore,
 } from '../prisma/prisma.service';
 import { tokenizeSubject } from '../core/foundational/util';
 import { IdentityLinkRegistry } from '../core/identity/identity-link';
@@ -122,6 +123,7 @@ export class PlatformService implements OnModuleDestroy {
     private upstreamAuthStore: PrismaUpstreamAuthStore,
     private auditCheckpointStore: PrismaAuditCheckpointStore,
     private custody: KeyCustody,
+    private deliveryStore: PrismaDeliveryStore,
   ) {}
 
   private initialized = false;
@@ -181,6 +183,7 @@ export class PlatformService implements OnModuleDestroy {
       this.assurance,
       this.refusalStore,
       this.identityLinks,
+      this.deliveryStore,
     );
 
     // OpenID4VCI: the standards-based issuance path that lets a citizen's own wallet
@@ -506,6 +509,9 @@ export class PlatformService implements OnModuleDestroy {
   }
   getVerifier(): VcVerifier {
     return this.verifier;
+  }
+  getDeliveries(): PrismaDeliveryStore {
+    return this.deliveryStore;
   }
   getStore(): PrismaResidencyStore {
     return this.store;

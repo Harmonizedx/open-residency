@@ -376,6 +376,24 @@ export class OpenResidencyClient {
       auth: 'operator',
     });
   }
+  /** Operator action. Record that a credential was handed over, collected, dispatched or failed to arrive. */
+  recordCredentialDelivery(
+    residentId: string,
+    body: RequestBody<Operation<'post', '/residency/{residentId}/credential/deliveries'>>,
+  ) {
+    return this.request('post', '/residency/{residentId}/credential/deliveries', {
+      path: { residentId },
+      body,
+      auth: 'operator',
+    });
+  }
+  /** Operator action. Every delivery event recorded for a resident, oldest first. */
+  credentialDeliveries(residentId: string) {
+    return this.request('get', '/residency/{residentId}/credential/deliveries', {
+      path: { residentId },
+      auth: 'operator',
+    });
+  }
   /** Why an application was refused, and how to appeal. */
   refusal(reference: string) {
     return this.request('get', '/residency/refusals/{reference}', { path: { reference } });

@@ -361,6 +361,19 @@ const credentialSchema = z.object({
    * revokes through the plain endpoint still has to put something truthful in the record.
    */
   defaultRevocationReason: z.string().optional(),
+  /**
+   * When a freshly issued credential becomes ACTIVE.
+   *
+   * `issue` (the default, and every deployment's behaviour until now): the desk issues and
+   * hands over in one step, so the credential is active the moment it exists.
+   *
+   * `first_delivery`: the credential is ISSUED until a delivery or collection is recorded
+   * against it -- a card collected, a wallet that pulled it, an agent's handover -- and the
+   * register can see, and count, the gap between the two. For a programme whose binding
+   * constraint is getting the thing into people's hands, that gap is the number that matters.
+   * See `src/core/credentials/delivery.ts`.
+   */
+  activateOn: z.enum(['issue', 'first_delivery']).default('issue'),
 });
 
 /**

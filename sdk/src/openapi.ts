@@ -1173,6 +1173,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/residency/{residentId}/credential/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every delivery event recorded for a resident
+         * @description Oldest first. Empty when the deployment records no deliveries. Requires the `support` role.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    residentId: components["parameters"]["ResidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The delivery events */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            residentId: string;
+                            events: components["schemas"]["CredentialDeliveryEvent"][];
+                        };
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Role not permitted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown residentId */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Record a credential delivery event
+         * @description Record that a credential was handed over, collected, dispatched, or failed to arrive: the step between issuance and possession, which nothing else records. One event per attempt or outcome, appended, never edited. `failed` requires `failureReason` (`FAILURE_REASON_REQUIRED_FOR_FAILED`).
+         *
+         *     Under the jurisdiction's `credential.activateOn: first_delivery`, the first `delivered` or `collected` event moves a credential still in ISSUED to ACTIVE through the ordinary lifecycle transition, with the delivery as its reason and the recording operator as its authority; `activated` says whether that happened. Under the default `activateOn: issue` the event is recorded and nothing else changes. Wallet collection over OpenID4VCI is recorded by the protocol itself, as channel `wallet_oid4vci` with status `collected`; this endpoint is for the channels where a person is the witness.
+         *
+         *     An ISSUED credential still verifies: delivery is the register's bookkeeping, not a condition a verifier imposes on the holder. Requires the `registrar` role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    residentId: components["parameters"]["ResidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CredentialDeliveryRequest"];
+                };
+            };
+            responses: {
+                /** @description The event as recorded, whether it activated the credential, and the status as it now stands */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            residentId: string;
+                            event: components["schemas"]["CredentialDeliveryEvent"];
+                            activated: boolean;
+                            credentialStatus?: components["schemas"]["CredentialStatusRecord"];
+                        };
+                    };
+                };
+                /** @description Refused; the reason is the message */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Role not permitted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown residentId */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/residency/{residentId}/credential": {
         parameters: {
             query?: never;
@@ -3412,6 +3543,12 @@ export interface paths {
                             /** Format: date-time */
                             generatedAt: string;
                             suppressionThreshold: number;
+                            /** @description Credential delivery events counted by channel and then by status (`pending`, `delivered`, `collected`, `failed`). Counts only. Present on the JSON report; absent from the CSV, which is the per-cell table. */
+                            deliveries?: {
+                                [key: string]: {
+                                    [key: string]: number;
+                                };
+                            };
                             /** @description Null when the total is itself below the threshold, which is exactly the case where publishing it would undo the cell suppression. */
                             totalResidents: number | null;
                             countries: number;
@@ -6466,6 +6603,45 @@ export interface components {
             endedAt?: string;
             endedReason?: string;
             endedBy?: string;
+        };
+        CredentialDeliveryRequest: {
+            /**
+             * @description How the credential reached, or was meant to reach, the holder.
+             * @enum {string}
+             */
+            channel: "wallet_oid4vci" | "qr_print" | "paper" | "sms_link" | "ussd_collect" | "agent_handover";
+            /**
+             * @description `pending` dispatched, outcome unknown; `delivered` reached the holder on the register's grounds; `collected` the holder came and took it; `failed` did not arrive. `delivered` and `collected` both count as delivery for activation and are kept apart because hand-over and pickup are different operations.
+             * @enum {string}
+             */
+            status: "pending" | "delivered" | "collected" | "failed";
+            /** @description Required when status is `failed`. */
+            failureReason?: string;
+            /** @description A batch id */
+            evidenceRef?: string;
+            /**
+             * Format: date-time
+             * @description When it happened
+             */
+            at?: string;
+        };
+        CredentialDeliveryEvent: {
+            /** Format: uuid */
+            id: string;
+            residentId: string;
+            countryCode: string;
+            /** @description The credential this concerns */
+            credentialId?: string;
+            /** @enum {string} */
+            channel: "wallet_oid4vci" | "qr_print" | "paper" | "sms_link" | "ussd_collect" | "agent_handover";
+            /** @enum {string} */
+            status: "pending" | "delivered" | "collected" | "failed";
+            /** Format: date-time */
+            at: string;
+            /** @description Who recorded it: an operator actor, or `wallet` for the protocol path. */
+            by?: string;
+            failureReason?: string;
+            evidenceRef?: string;
         };
         /** @description What is preserved about a credential status decision. */
         CredentialStatusRecord: {

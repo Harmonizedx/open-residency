@@ -33,6 +33,7 @@ import {
   ResolveDisputeDto,
   TransitionRelationshipDto,
   VerifyDto,
+  CredentialDeliveryDto,
 } from './dto/residency.dto';
 import { LinkOutcome } from '../core/identity/identity-link';
 import { AuditAction } from '../core/audit/audit-log';
@@ -584,6 +585,69 @@ export class ResidencyController {
     }
     if (/^UNKNOWN_/.test(out.reason)) throw new NotFoundException(out.reason);
     throw new BadRequestException(out.reason);
+  }
+
+  /**
+   * Record that a credential was handed over, collected, dispatched, or failed to arrive.
+   *
+   * The step between issuance and possession, which nothing else records, and the one every
+   * card programme in this project's first country has stalled on. Under
+   * `credential.activateOn: first_delivery` the first delivered or collected event is also
+   * what moves the credential from ISSUED to ACTIVE, through the ordinary transition so the
+   * status lists are published the same way as for any other change. Wallet collection over
+   * OpenID4VCI is recorded by the protocol itself; this endpoint is for the channels where a
+   * person is the witness, which is why it needs one.
+   */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('registrar')
+  @Post(':residentId/credential/deliveries')
+  async recordDelivery(
+    @Req() req: RequestWithOperator,
+    @Param('residentId') residentId: string,
+    @Body() body: CredentialDeliveryDto,
+  ) {
+    const operator = requireOperator(req);
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+    const cfg = this.platform.getConfig(record.countryCode)!;
+
+    const result = await this.platform.getResidency().recordDelivery(cfg, residentId, {
+      channel: body.channel,
+      status: body.status,
+      by: operatorActor(operator),
+      failureReason: body.failureReason,
+      evidenceRef: body.evidenceRef,
+      at: body.at,
+    });
+
+    await this.platform.getAudit().record({
+      action: 'residency.credential.delivery',
+      actor: operatorActor(operator),
+      target: residentId,
+      countryCode: cfg.countryCode,
+      outcome: result.ok ? 'success' : 'failure',
+      metadata: { channel: body.channel, status: body.status },
+    });
+
+    if (!result.ok) throw new BadRequestException(result.reason);
+    if (result.activated) await this.platform.syncStatusList(cfg);
+    return {
+      residentId,
+      event: result.event,
+      activated: result.activated,
+      credentialStatus: result.credentialStatus,
+    };
+  }
+
+  /** Every delivery event recorded for a resident, oldest first. */
+  @UseGuards(OperatorGuard)
+  @RequireRoles('support')
+  @Get(':residentId/credential/deliveries')
+  async deliveries(@Param('residentId') residentId: string) {
+    const record = await this.platform.getStore().findByResidentId(residentId);
+    if (!record) throw new NotFoundException('Unknown residentId');
+    const events = await this.platform.getResidency().deliveriesFor(residentId);
+    return { residentId, events };
   }
 
   /** The credential's ORCS §10 status: why, by whom, when, and how to appeal. */

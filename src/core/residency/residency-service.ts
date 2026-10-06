@@ -52,6 +52,13 @@ import {
 import { ApplicantBinding, bindingSatisfies, strongestBinding } from '../proofing/binding';
 import { ResidenceAddress } from '../proofing/address';
 import {
+  CredentialDeliveryEvent,
+  DeliveryChannel,
+  DeliveryStatus,
+  DeliveryStore,
+  isDeliveredStatus,
+} from '../credentials/delivery';
+import {
   DEFAULT_RESIDENCE_POLICY,
   ResidenceEvidence,
   ResidencePolicy,
@@ -224,6 +231,14 @@ export class ResidencyService {
      * exactly as before, with `subjectRef` as the only mapping and no way to correct one.
      */
     private identityLinks?: IdentityLinkRegistry,
+    /**
+     * Where delivery events are recorded. Optional for the same additive reason: a deployment
+     * without one issues and activates in one step and records nothing about hand-over, which
+     * is what every deployment did before this existed. With one, the wallet path records its
+     * own collection and operators record the rest; with `credential.activateOn:
+     * first_delivery`, those records are what move a credential from ISSUED to ACTIVE.
+     */
+    private deliveries?: DeliveryStore,
   ) {}
 
   /**
@@ -368,6 +383,25 @@ export class ResidencyService {
    * credentials live after a revocation.
    */
   async mintForHolder(
+    cfg: CountryConfig,
+    record: ResidentRecord,
+    holderId: string,
+    format: CredentialFormat,
+  ): Promise<MintedCredential> {
+    const minted = await this.mintForHolderUnrecorded(cfg, record, holderId, format);
+    // The wallet just proved possession of a key and took the credential: that IS collection,
+    // and the protocol is the only witness, so it records it. `by` names the channel, not the
+    // holder -- a wallet key is the holder's and does not belong in an operational log.
+    await this.recordDelivery(cfg, record.residentId, {
+      channel: 'wallet_oid4vci',
+      status: 'collected',
+      by: 'wallet',
+      credentialId: minted.credentialId,
+    });
+    return minted;
+  }
+
+  private async mintForHolderUnrecorded(
     cfg: CountryConfig,
     record: ResidentRecord,
     holderId: string,
@@ -680,6 +714,14 @@ export class ResidencyService {
       statusListIndex,
       createdAt: issued.issuedAt,
       person: claims.person,
+      // The lifecycle has always had an ISSUED state and this implementation never used it:
+      // issuing and handing over were one act, so nothing was recorded and the status read
+      // back as ACTIVE. A deployment with a collection step says so, and the credential now
+      // waits in ISSUED until a delivery is recorded -- see `recordDelivery`. The default
+      // leaves the field unset, exactly as before.
+      ...(cfg.credential.activateOn === 'first_delivery'
+        ? { credentialStatus: { status: 'ISSUED' as const, at: issued.issuedAt } }
+        : {}),
     };
     await this.store.save(record);
 
@@ -942,6 +984,78 @@ export class ResidencyService {
     const updated: ResidentRecord = { ...record, credentialStatus: outcome.record };
     await this.store.save(updated);
     return { ok: true, record: updated, from: current.status, to: outcome.record.status };
+  }
+
+  /**
+   * Record that a credential was handed over, collected, dispatched or failed to arrive.
+   *
+   * Appends an event and, where the jurisdiction activates on first delivery and the
+   * credential is still ISSUED, moves it to ACTIVE through the ordinary transition -- so the
+   * status-list bits and the status record are published the same way as for any other
+   * change, and the record says the delivery was what activated it. Without a delivery store
+   * this is a no-op that reports so, rather than pretending to have recorded anything.
+   */
+  async recordDelivery(
+    cfg: CountryConfig,
+    residentId: string,
+    input: {
+      channel: DeliveryChannel;
+      status: DeliveryStatus;
+      by?: string;
+      credentialId?: string;
+      failureReason?: string;
+      evidenceRef?: string;
+      at?: string;
+    },
+  ): Promise<
+    | { ok: true; event: CredentialDeliveryEvent; activated: boolean; credentialStatus: CredentialStatusRecord | null }
+    | { ok: false; reason: string }
+  > {
+    if (!this.deliveries) return { ok: false, reason: 'DELIVERY_STORE_NOT_CONFIGURED' };
+    const record = await this.store.findByResidentId(asResidentId(residentId));
+    if (!record) return { ok: false, reason: 'UNKNOWN_RESIDENT' };
+    if (input.status === 'failed' && !input.failureReason?.trim()) {
+      return { ok: false, reason: 'FAILURE_REASON_REQUIRED_FOR_FAILED' };
+    }
+    const event: CredentialDeliveryEvent = {
+      id: crypto.randomUUID(),
+      residentId: record.residentId,
+      countryCode: record.countryCode,
+      channel: input.channel,
+      status: input.status,
+      at: input.at ?? new Date().toISOString(),
+    };
+    const credentialId = input.credentialId ?? record.credentialId;
+    if (credentialId) event.credentialId = credentialId;
+    if (input.by?.trim()) event.by = input.by.trim();
+    if (input.failureReason?.trim()) event.failureReason = input.failureReason.trim();
+    if (input.evidenceRef?.trim()) event.evidenceRef = input.evidenceRef.trim();
+    await this.deliveries.append(event);
+
+    let activated = false;
+    let credentialStatus = await this.credentialStatusFor(cfg, residentId);
+    if (
+      cfg.credential.activateOn === 'first_delivery' &&
+      isDeliveredStatus(input.status) &&
+      credentialStatus?.status === 'ISSUED'
+    ) {
+      const moved = await this.transitionCredential(cfg, residentId, {
+        to: 'ACTIVE',
+        reason: `DELIVERED_${input.channel}`,
+        authority: event.by ?? `delivery:${input.channel}`,
+      });
+      if (moved.ok) {
+        activated = true;
+        credentialStatus = moved.record.credentialStatus ?? credentialStatus;
+      }
+    }
+    return { ok: true, event, activated, credentialStatus };
+  }
+
+  /** Every delivery event recorded for a resident, oldest first. Empty without a store. */
+  async deliveriesFor(residentId: string): Promise<CredentialDeliveryEvent[]> {
+    if (!this.deliveries) return [];
+    return this.deliveries.listByResident(residentId);
   }
 
   /** The credential's ORCS §10 status, with the pre-lifecycle reading applied. */
