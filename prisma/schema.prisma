@@ -143,6 +143,26 @@ model StatusListState {
 // The pre-authorized code and the transaction code are stored only as SHA-256 hashes.
 // The raw code lives in the QR the citizen scans and nowhere else, so a dump of this
 // table yields nothing that can be redeemed for a credential.
+// Credential delivery events: the step between issued and in the holder's hands. Appended,
+// never updated; one row per attempt or outcome, so a programme can see hand-over and
+// collection separately and count what never arrived. See src/core/credentials/delivery.ts.
+model CredentialDelivery {
+  id            String   @id @default(uuid())
+  residentId    String
+  countryCode   String
+  credentialId  String?
+  channel       String
+  status        String
+  at            DateTime
+  by            String?
+  failureReason String?
+  evidenceRef   String?
+  createdAt     DateTime @default(now())
+
+  @@index([residentId, at])
+  @@index([countryCode, channel, status])
+}
+
 model CredentialOffer {
   id                    String    @id @default(uuid())
   preAuthorizedCodeHash String    @unique

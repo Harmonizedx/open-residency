@@ -27,6 +27,7 @@ import {
   PrismaRefusalStore,
   PrismaOidcStore,
   PrismaIdentityLinkStore,
+  PrismaDeliveryStore,
 } from '../src/prisma/prisma.service';
 import { IdentityLinkRegistry } from '../src/core/identity/identity-link';
 import { ResidentRecord } from '../src/core/residency/ports';
@@ -276,6 +277,20 @@ async function main() {
   check('  from/to person refs survive on a move', ev.some((e) => e.operation === 'RELINK' && e.fromPersonRef === 'KT-STORE-0001-1' && e.toPersonRef === 'KT-STORE-0002-2'));
   const byLink = await links.history(linkId);
   check('  a link\'s history includes the move that closed it', byLink.length === 4 && byLink.map((e) => e.operation).join(',') === 'LINK,DISPUTE,DISPUTE_RESOLVED,RELINK');
+
+  console.log('\nCredential deliveries append, read back in order, and count without identifiers:');
+  const deliveries = new PrismaDeliveryStore(prisma);
+  const rid = 'KT-STORE-DELIV-1';
+  await deliveries.append({ id: 'd-store-1', residentId: rid, countryCode: 'NG', credentialId: 'urn:cred:1', channel: 'sms_link', status: 'pending', at: '2026-05-01T10:00:00.000Z', by: 'operator:desk', evidenceRef: 'msg:1' });
+  await deliveries.append({ id: 'd-store-2', residentId: rid, countryCode: 'NG', channel: 'agent_handover', status: 'failed', at: '2026-05-02T10:00:00.000Z', by: 'operator:field', failureReason: 'not at home' });
+  await deliveries.append({ id: 'd-store-3', residentId: rid, countryCode: 'NG', credentialId: 'urn:cred:1', channel: 'agent_handover', status: 'delivered', at: '2026-05-03T10:00:00.000Z', by: 'operator:field' });
+  const evs = await deliveries.listByResident(rid);
+  check('three events read back, oldest first', evs.length === 3 && evs.map((e) => e.status).join(',') === 'pending,failed,delivered');
+  check('  every column survives', evs[0].credentialId === 'urn:cred:1' && evs[0].evidenceRef === 'msg:1' && evs[0].by === 'operator:desk' && evs[1].failureReason === 'not at home' && evs[0].at === '2026-05-01T10:00:00.000Z');
+  check('  absent optionals read back absent, not null', evs[1].credentialId === undefined && evs[1].evidenceRef === undefined);
+  const counts = await deliveries.counts('NG');
+  check('counts group by channel then status', counts.agent_handover?.failed === 1 && counts.agent_handover?.delivered === 1 && counts.sms_link?.pending === 1);
+  check('  and are empty for a country with none', Object.keys(await deliveries.counts('XX')).length === 0);
 
   await prisma.$disconnect();
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);

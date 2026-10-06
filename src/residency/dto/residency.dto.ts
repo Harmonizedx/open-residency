@@ -3,6 +3,12 @@ import { Allow, IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength } from
 import { IsStringRecord } from '../../common/dto/is-string-record.validator';
 import { ApplicantBinding } from '../../core/proofing/binding';
 import { RESIDENCE_MODES, ResidenceEvidence, ResidenceMode } from '../../core/proofing/residence';
+import {
+  DELIVERY_CHANNELS,
+  DELIVERY_STATUSES,
+  DeliveryChannel,
+  DeliveryStatus,
+} from '../../core/credentials/delivery';
 
 /**
  * Request body for `POST /residency/issue`.
@@ -206,4 +212,31 @@ export class RelinkIdentityDto {
 export class MergeResidentsDto {
   @IsString() @MaxLength(128) duplicateResidentId!: string;
   @IsString() @MaxLength(512) reason!: string;
+}
+
+/** Request body for `POST /residency/{residentId}/credential/deliveries`. */
+export class CredentialDeliveryDto {
+  @IsIn(DELIVERY_CHANNELS as readonly string[])
+  channel!: DeliveryChannel;
+
+  @IsIn(DELIVERY_STATUSES as readonly string[])
+  status!: DeliveryStatus;
+
+  /** Required when `status` is `failed`; refused blank by the engine. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  failureReason?: string;
+
+  /** A batch id, courier receipt, message id or collection slip. Opaque. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  evidenceRef?: string;
+
+  /** When it happened, if not now. ISO 8601. */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}(T[0-9:.]+Z?)?$/, { message: 'at must be an ISO 8601 date or instant' })
+  at?: string;
 }

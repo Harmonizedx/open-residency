@@ -437,6 +437,16 @@ This repository is the generic public infrastructure, not a single-country app:
   rather than recorded blank when any of the four is missing. Suspension
   is published on its own status list, so a verifier can tell a suspended credential from a
   revoked one.
+- **Issued is not delivered.** Every card programme in Nigeria has stalled between the two:
+  records validated but cards uncollected, slips printed but never picked up. Delivery is
+  therefore recorded as its own event stream — which channel (wallet, printed QR, paper, SMS
+  link, USSD, agent handover), what happened (pending, delivered, collected, failed), when and
+  on whose word — appended by operators through `POST /residency/{id}/credential/deliveries`
+  and by the OpenID4VCI path itself when a wallet collects. The counts by channel and status are
+  on the statistics report. A deployment that hands over at the desk changes nothing; one with
+  a collection step sets `credential.activateOn: first_delivery` and the credential waits in
+  `ISSUED` until a delivery is recorded. An `ISSUED` credential still verifies: the gap is the
+  register's to see, not the holder's to be punished for.
 - **Who decides is a jurisdiction's choice, and it carries an obligation.** Whether an
   enrolment is decided by a person or by the software is not a switch — it follows from which
   binding and residence methods a jurisdiction accepts, and each decision records which it was.

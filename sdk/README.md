@@ -169,7 +169,7 @@ The named methods cover the integrator-facing surface:
 | Health | `live`, `ready` |
 | Identity | `identityChallenge`, `verifyIdentity` |
 | Residency | `countries`, `issueResidency`, `residencyStatus`, `verifyCredential`, `revokeResidency`, `eraseResidency`, `retentionSweep`, `provisionalSweep`, `reconcile` |
-| Relationship and credential lifecycle ([ADR-0007](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0007-residency-status-is-lifecycle.md)) | `relationship`, `transitionRelationship`, `credential`, `transitionCredential`, `refusal`, `reviewRefusal` |
+| Relationship and credential lifecycle ([ADR-0007](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0007-residency-status-is-lifecycle.md)) | `relationship`, `transitionRelationship`, `credential`, `transitionCredential`, `recordCredentialDelivery`, `credentialDeliveries`, `refusal`, `reviewRefusal` |
 | Identity links ([ADR-0014](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0014-identity-links-are-a-record-not-a-column.md)) | `identityLinks`, `linkIdentity`, `identityLink`, `disputeIdentityLink`, `resolveIdentityLinkDispute`, `unlinkIdentity`, `relinkIdentity`, `mergeResidents`, `merge`, `splitMerge` |
 | Assurance ([ADR-0008](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0008-assurance-registry-maps-existing-vocabularies.md)) | `assuranceProfiles`, `assuranceMappings`, `resolveAssurance`, `residentAssurance` |
 | Consent and legal bases ([ADR-0009](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0009-legal-basis-registry-closed-vocabulary.md)) | `listConsents`, `grantConsent`, `revokeConsent`, `legalBases`, `legalBasis`, `deactivateLegalBasis` |

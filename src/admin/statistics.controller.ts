@@ -63,13 +63,18 @@ export class StatisticsController {
   private async report(req: RequestWithOperator, format: 'json' | 'csv') {
     const residents = await this.collect();
     const stats = aggregateResidency(residents, { suppressionThreshold: this.threshold() });
+    // Delivery counts by channel and status: how many credentials reached people, by which
+    // route, and how many did not. Counts only, no identifier anywhere near them, and the one
+    // number a card-distribution programme most needs from its register. JSON only; the CSV
+    // is the per-cell resident table and stays so.
+    const deliveries = format === 'json' ? await this.platform.getDeliveries().counts() : undefined;
     await this.platform.getAudit().record({
       action: 'admin.read',
       actor: operatorActor(requireOperator(req)),
       outcome: 'success',
       metadata: { view: 'statistics', format },
     });
-    return stats;
+    return deliveries ? { ...stats, deliveries } : stats;
   }
 
   @Get('statistics')

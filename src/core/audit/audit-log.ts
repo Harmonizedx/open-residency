@@ -26,6 +26,10 @@ export type AuditAction =
   | 'residency.relationship.transition'
   // A CREDENTIAL changed state under ORCS §10: suspended, reinstated, revoked, replaced.
   | 'residency.credential.transition'
+  // A delivery event was recorded against a credential: handed over, collected, failed. The
+  // step between issuance and possession, which no other action records (ADR-0007 keeps the
+  // relationship and the credential apart; this is about neither, it is about the hand-over).
+  | 'residency.credential.delivery'
   // A provisional record was checked against the live foundational authority. Recorded on
   // every outcome, not only success: a live match naming a DIFFERENT person is the entry an
   // investigator most needs to find, and it exists nowhere else.
