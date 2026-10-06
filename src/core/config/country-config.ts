@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { permitsAutomatedDecisions } from '../residency/decision-mode';
 import { CONSENT_LEGAL_BASIS_ID } from '../consent/legal-basis';
 import { LEGACY_SUITES } from '../credentials/ld-suites';
+import { loadSubdivisionTable, unitCodeWarnings } from './iso3166-2';
 
 /**
  * A country configuration is the single source of truth for onboarding a new
@@ -906,10 +907,21 @@ const residentIdSchema = z
 export type ResidentIdConfig = z.infer<typeof residentIdSchema>;
 
 const subnationalUnitSchema = z.object({
-  code: z.string(), // e.g. KT for Katsina
+  code: z.string(), // e.g. KT for Katsina -- the deployment's own key, carried on records
   name: z.string(),
   parent: z.string().optional(), // country code
   level: z.enum(['state', 'province', 'region', 'lga', 'ward', 'county']),
+  /**
+   * The same unit in ISO 3166-2 (`NG-KD`). Optional, because ISO enumerates states and
+   * provinces, not wards. When present it is what external vocabularies receive
+   * (`issuing_jurisdiction`, `adminUnitL1`) and what a reported locality in either form -- bare
+   * suffix or full code -- reconciles against. Checked against the shipped table for the
+   * country at load time; a mismatch is reported, not refused (see `iso3166-2.ts`).
+   */
+  iso3166_2: z
+    .string()
+    .regex(/^[A-Za-z]{2}-[A-Za-z0-9]{1,3}$/, 'iso3166_2 must look like CC-XXX, e.g. NG-KD')
+    .optional(),
   /**
    * Per-unit Resident ID format. A federation lets each subnational unit run its own
    * numbering scheme -- one state on the Crockford default, another on a statutory 12-digit
@@ -1126,16 +1138,43 @@ export function parseCountryConfig(raw: unknown): CountryConfig {
  * platforms or filesystems, so without this the mode a deployment runs in could differ
  * between two machines holding identical files.
  */
-export function loadCountryConfigs(dir: string): Map<string, CountryConfig> {
+export function loadCountryConfigs(
+  dir: string,
+  /**
+   * Where `<CC>.json` ISO 3166-2 tables live, for the start-up unit-code check. Defaults to
+   * `../iso3166-2` beside the countries directory, which is the repository layout; a
+   * deployment that lays its config out differently names it. A country with no table there
+   * is simply not checked.
+   */
+  subdivisionTablesDir: string = join(dir, '..', 'iso3166-2'),
+): Map<string, CountryConfig> {
   const map = new Map<string, CountryConfig>();
   for (const file of readdirSync(dir).sort()) {
     if (!/\.(ya?ml)$/i.test(file)) continue;
     const raw = loadYaml(readFileSync(join(dir, file), 'utf8'));
     const cfg = parseCountryConfig(raw);
     assertHumanReviewDeclared(cfg, file);
+    reportUnknownUnitCodes(cfg, file, loadSubdivisionTable(subdivisionTablesDir, cfg.countryCode));
     map.set(cfg.countryCode.toUpperCase(), cfg);
   }
   return map;
+}
+
+
+/**
+ * Say, once at start-up, which declared unit codes the country's ISO 3166-2 table (a data
+ * file under `config/iso3166-2/`, when one ships) cannot vouch for. A warning rather than a refusal: wards and LGAs are not in ISO, and a jurisdiction's own
+ * scheme is legitimate. What this catches is the state code that was typed wrong, or declared
+ * in one form here and another in the register that will be reconciled against it.
+ */
+function reportUnknownUnitCodes(
+  cfg: CountryConfig,
+  file: string,
+  table: ReturnType<typeof loadSubdivisionTable>,
+): void {
+  for (const w of unitCodeWarnings(cfg.countryCode, cfg.subnationalUnits, table)) {
+    console.warn(`[country-config] ${file}: unit ${w.unitCode}: ${w.message}`);
+  }
 }
 
 

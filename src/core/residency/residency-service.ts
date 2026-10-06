@@ -491,7 +491,7 @@ export class ResidencyService {
       residenceEvidence.push({
         method: 'register_declared_residence',
         reportedUnit: identity.residenceAdminUnit,
-        adminUnit: reconcileUnit(cfg.subnationalUnits, identity.residenceAdminUnit),
+        adminUnit: reconcileUnit(cfg.subnationalUnits, identity.residenceAdminUnit, cfg.countryCode),
         // Foundational records rarely carry an as-of date; leaving it undated keeps the
         // evidence capped by the recency rule rather than silently trusted as fresh.
       });
@@ -499,7 +499,7 @@ export class ResidencyService {
     for (const ev of req.residenceEvidence ?? []) {
       residenceEvidence.push({
         ...ev,
-        adminUnit: ev.adminUnit ?? reconcileUnit(cfg.subnationalUnits, ev.reportedUnit),
+        adminUnit: ev.adminUnit ?? reconcileUnit(cfg.subnationalUnits, ev.reportedUnit, cfg.countryCode),
       });
     }
     // Address anchoring needs an address to anchor to. Refusing here, before evaluation,

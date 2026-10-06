@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ResidenceAddress, ResidenceAnchor, addressesMatch } from './address';
+import { canonicalUnitCode } from '../config/iso3166-2';
 /**
  * Proof of residence.
  *
@@ -146,18 +147,38 @@ function norm(s: string): string {
 
 /**
  * Map a provider/operator-reported locality onto a deployment's subnational unit code.
- * Matches by unit code first, then by unit name. Returns undefined when nothing matches --
- * an unmapped locality must not silently pass a unit-match check.
+ *
+ * Matches by unit code first, then by the unit's declared ISO 3166-2 code, then by unit name,
+ * and always returns the unit's own `code` -- the form records carry -- never the form that
+ * was reported. Code comparison is tolerant of the ISO country prefix: a register that says
+ * `NI` and a config that says `NG-NI` (or the reverse) agree, because they name the same unit
+ * and the difference is notation, not fact. Nothing else is normalised: `Niger` and `Niger
+ * State` are different strings to this function, by design (see `address.ts` for why the core
+ * does not guess at one country's abbreviations).
+ *
+ * Returns undefined when nothing matches -- an unmapped locality must not silently pass a
+ * unit-match check.
  */
 export function reconcileUnit(
-  units: Array<{ code: string; name: string }>,
+  units: Array<{ code: string; name: string; iso3166_2?: string }>,
   reported?: string,
+  /**
+   * The deployment's country, so that only ITS prefix is treated as notation. Without it a
+   * full ISO code keeps its prefix and matches only another full code: `GH-NI` never becomes
+   * Niger. Callers inside a deployment should always pass `cfg.countryCode`.
+   */
+  countryCode?: string,
 ): string | undefined {
   if (!reported) return undefined;
-  const r = norm(reported);
-  const byCode = units.find((u) => norm(u.code) === r);
+  const r = canonicalUnitCode(reported, countryCode);
+  const byCode = units.find((u) => canonicalUnitCode(u.code, countryCode) === r);
   if (byCode) return byCode.code;
-  const byName = units.find((u) => norm(u.name) === r);
+  const byIso = units.find(
+    (u) => u.iso3166_2 != null && canonicalUnitCode(u.iso3166_2, countryCode) === r,
+  );
+  if (byIso) return byIso.code;
+  const rn = norm(reported);
+  const byName = units.find((u) => norm(u.name) === rn);
   return byName?.code;
 }
 
