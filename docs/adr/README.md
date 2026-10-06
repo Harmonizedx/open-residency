@@ -19,6 +19,8 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0012](0012-subject-references-key-on-the-identifier.md) | A subject reference keys on the identifier type, not the provider code, so two routes to the same national identifier reconcile | Accepted |
 | [0013](0013-rate-limiting-identifies-the-caller.md) | Rate limiting keys on the client address, read from a declared number of trusted proxy hops and never from anything the caller controls; a proxy it was not told about is reported rather than absorbed. Per-operator budgets after authentication are deferred | Accepted |
 | [0014](0014-identity-links-are-a-record-not-a-column.md) | Which identifiers belong to which person is an append-only registry beside the record (LINK, DISPUTE, UNLINK, RELINK, MERGE, SPLIT), consulted by enrolment before `subjectRef`; a disputed link refuses issuance; unlinking the foundational identifier suspends first (ORCS §7); split restores identifiers, not relationships | Accepted |
+| [0015](0015-indigeneity-is-not-residency.md) | Indigeneity is not residency: the register holds no origin field in any form, a foundational origin never proves residence, and the credential states residence and nothing about belonging. Asserted by project criterion 14 | Accepted |
+| [0016](0016-applicants-without-a-foundational-identifier.md) | Applicants without a foundational identifier: proposes a counted referral that keeps the applicant's evidence now, and a jurisdiction-declared attested path for named classes later; rejects an attested-only credential by default | Proposed |
 
 ## Pending
 

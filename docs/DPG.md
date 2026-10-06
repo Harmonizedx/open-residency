@@ -162,10 +162,17 @@ roles, issuer-key custody against PKCS#11 HSM and AWS/Google Cloud KMS, the non-
 export, a full-stack run of the real application against PostgreSQL, and a container build.
 
 Secure development: Dependabot covers the application, the SDK and the GitHub Actions
-themselves; CodeQL runs `security-and-quality` on every pull request and weekly; a CycloneDX
-SBOM is generated from the installed tree and attached to every release, signed, alongside the
-source archive; the container image is scanned before it is pushed, published to GHCR, signed
-by digest, and carries build-provenance and SBOM attestations (`SECURITY.md`).
+themselves; CodeQL runs `security-and-quality` on every pull request and weekly; the OpenSSF
+Scorecard runs weekly with its result published to the public Scorecard API, so the score can be
+checked without trusting this page; a CycloneDX SBOM is generated from the installed tree and
+attached to every release, signed, alongside the source archive; the container image is scanned
+before it is pushed, published to GHCR, signed by digest, and carries build-provenance and SBOM
+attestations (`SECURITY.md`).
+
+The project's own acceptance suite (`npm run conformance:orcs`) is the open test suite this
+indicator asks for as evidence: fourteen criteria, each printing the external requirement it
+serves beside its verdict, held in CI at a recorded baseline that fails on regression. It is
+the project's own, not an external standard, and `README.md` says so where it describes it.
 
 **Stated plainly:** the dependency audit gate fails the build at *moderate* severity on
 runtime dependencies, and the tree currently reports **zero advisories at every severity,

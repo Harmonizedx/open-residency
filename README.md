@@ -1,5 +1,7 @@
 # OpenResidency
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Harmonizedx/open-residency/badge)](https://scorecard.dev/viewer/?uri=github.com/Harmonizedx/open-residency)
+
 **Millions can't prove where they live — and lose access to services because of it.**
 
 OpenResidency lets any state, province or county verify residents against their national ID,
@@ -44,6 +46,7 @@ are config and which are invariants nobody can override.
 | **Integrating** an existing service (an MDA, an education/health platform) | [Integrating a service](#integrating-a-service) → [`docs/API.md`](docs/API.md), [`docs/SDK.md`](docs/SDK.md), [`docs/INTEROP.md`](docs/INTEROP.md) |
 | **Evaluating** it as a Digital Public Good / funding it | [DPG alignment](#digital-public-good-alignment) → [`docs/DPG.md`](docs/DPG.md) |
 | **Running this in a country that already uses MOSIP** | [`docs/MOSIP.md`](docs/MOSIP.md) — eSignet sign-in, IDA authentication, verifying Inji Certify credentials, and how far each is actually verified |
+| **Governing a deployment: who operates, which law, who pays, remediation, trust between states** | [`docs/DEPLOYMENT-GOVERNANCE.md`](docs/DEPLOYMENT-GOVERNANCE.md) — the Safeguards questions, answered where the software can and assigned where the jurisdiction must |
 | **Setting a jurisdiction's issuance policy** | [The rules a jurisdiction sets](#the-rules-a-jurisdiction-sets) → `config/countries/ng.yaml` |
 | **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | **Standing one up with no KMS and no national ID API**, from a register extract | [First residency from a spreadsheet](docs/FIRST-RESIDENCY.md) |
