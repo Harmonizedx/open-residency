@@ -3,7 +3,9 @@ import { Body, Controller, Header, Post, UseGuards } from '@nestjs/common';
 import { UssdGatewayGuard } from '../common/ussd-gateway.guard';
 import { PlatformService } from '../platform/platform.service';
 import { encodeCredentialQr } from '../core/offline/qr';
-import { handleUssd } from '../core/offline/ussd';
+import { accessLogUssdSummary, handleUssd } from '../core/offline/ussd';
+import { accessLogFor } from '../core/audit/access-log';
+import { createHash } from 'node:crypto';
 import { shortHash } from '../core/foundational/util';
 import { QrDto, UssdDto } from './dto/offline.dto';
 
@@ -76,6 +78,46 @@ export class OfflineController {
       return `END If that residency ID is registered, a login code has been sent by SMS to the registered number.`;
     }
 
+    if (result.action?.type === 'accessLogSummary') {
+      // Answered on the SIM's own authority. The network attributed this session to
+      // `phoneNumber`; the register holds the hash of the number registered against the
+      // record; when they are the same SIM the summary is shown inline and nothing is sent
+      // or paid for. Any other case -- unknown id, known id dialled from another phone, the
+      // factor disabled on this deployment -- gets the reducer's generic line, identically.
+      const factors = this.platform.listConfigs()[0]?.selfService.accessLogFactors ?? [];
+      const e164 = normaliseE164(body.phoneNumber);
+      if (factors.includes('ussd') && e164) {
+        const record = await this.platform
+          .getStore()
+          .findByPhoneHash(createHash('sha256').update(e164).digest('hex'));
+        if (record && record.residentId === result.action.residentId) {
+          const audit = this.platform.getAudit();
+          const entries = await accessLogFor(audit, record.residentId);
+          await audit.record({
+            action: 'resident.access.read',
+            actor: record.residentId,
+            target: record.residentId,
+            outcome: 'success',
+            metadata: { entries: entries.length, factor: 'ussd' },
+          });
+          return `END ${accessLogUssdSummary(entries)}`;
+        }
+      }
+      return `END ${result.message}`;
+    }
+
     return `${result.continueSession ? 'CON' : 'END'} ${result.message}`;
   }
+}
+
+/**
+ * The form `recordContact` hashed: E.164 with a leading plus. Aggregators commonly deliver the
+ * number without the plus, so one is restored when the rest is a plausible international
+ * number; anything else is not matched at all, rather than guessed at.
+ */
+function normaliseE164(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const t = raw.trim();
+  const withPlus = t.startsWith('+') ? t : `+${t}`;
+  return /^\+[1-9]\d{6,14}$/.test(withPlus) ? withPlus : undefined;
 }

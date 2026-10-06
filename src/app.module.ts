@@ -9,6 +9,7 @@ import { ConsentModule } from './consent/consent.module';
 import { AuditModule } from './audit/audit.module';
 import { AdminModule } from './admin/admin.module';
 import { OfflineModule } from './offline/offline.module';
+import { MeModule } from './me/me.module';
 import { SsoModule } from './sso/oidc.module';
 import { Oid4vciModule } from './oid4vci/oid4vci.module';
 import { Oid4vpModule } from './oid4vp/oid4vp.module';
@@ -34,6 +35,7 @@ import { ObservabilityModule } from './observability/observability.module';
     AuditModule,
     AdminModule,
     OfflineModule,
+    MeModule,
     SsoModule,
     Oid4vciModule,
     Oid4vpModule,

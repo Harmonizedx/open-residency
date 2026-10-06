@@ -83,8 +83,12 @@ The software's part, each item verifiable in the acceptance suite or the smoke t
 - The credential carries the minimum: unit, assurance, binding method, residence level and
   method. Not the address unless the jurisdiction anchors on addresses; never how the person
   resides or who vouched for them.
-- Every operator read of a record is audited in a hash-chained log. What is not yet built, and
-  the suite reports as failing, is a way for the resident to see that log themselves.
+- Every operator read of a record is audited in a hash-chained log, and the resident can see
+  who has looked at their record: through their own credential presented from a wallet, through
+  a USSD session on the SIM registered against the record, both at no cost per use to the
+  agency, or through a one-time code by SMS as a fallback a deployment may switch off. Actors
+  are shown by kind, never as a named member of staff; each entry carries its audit event id so
+  a complaint can be investigated.
 
 The jurisdiction's part: the impact assessment and its filing; a named data protection officer;
 retention periods set in configuration, because the software deliberately ships no default and

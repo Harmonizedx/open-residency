@@ -479,6 +479,13 @@ This repository is the generic public infrastructure, not a single-country app:
 - **Source contracts vary.** The provided `ng.yaml`, `in.yaml`, `ke.yaml`, `xm-xml.yaml`, and
   `xf-import.yaml` mappings are illustrative shapes. Confirm the exact request/response contract
   (or extract schema) and legal basis (consent, data protection) with the identity authority.
+- **A resident can see who has looked at their record.** Every disclosure — an operator read,
+  a credential verification, a presentation to a service, a wallet collection — is listed for
+  the resident, oldest first, with the actor shown by kind and never as a named member of staff,
+  and with each entry's audit id so a complaint can be investigated. The resident proves who
+  they are the free way first: by presenting their own credential from a wallet, or over USSD
+  on the SIM registered against the record. A one-time code by SMS, which the agency pays for
+  per message, is a fallback a deployment can switch off in `selfService.accessLogFactors`.
 - **USSD as an inclusion channel.** The USSD webhook is wired to real delivery, not stubbed: a
   status lookup or a login code goes out as SMS to the number registered against the record —
   through the same `messaging` path as web sign-in, never back down the USSD session, so the
