@@ -2,7 +2,7 @@
 import { Allow, IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { IsStringRecord } from '../../common/dto/is-string-record.validator';
 import { ApplicantBinding } from '../../core/proofing/binding';
-import { ResidenceEvidence } from '../../core/proofing/residence';
+import { RESIDENCE_MODES, ResidenceEvidence, ResidenceMode } from '../../core/proofing/residence';
 
 /**
  * Request body for `POST /residency/issue`.
@@ -51,6 +51,21 @@ export class IssueDto {
   @IsOptional()
   @Allow()
   residenceEvidence?: ResidenceEvidence[];
+
+  // What the applicant declared about their residence. Shape-checked here; whether it counts
+  // is the engine's decision under the jurisdiction's policy (duration rule, intent, modes).
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'residenceSince must be an ISO date (YYYY-MM-DD)' })
+  residenceSince?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  intentToReside?: boolean;
+
+  @IsOptional()
+  @IsIn(RESIDENCE_MODES as readonly string[])
+  residenceMode?: ResidenceMode;
 
   @IsOptional()
   @IsString()

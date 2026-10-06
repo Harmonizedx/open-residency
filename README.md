@@ -156,6 +156,12 @@ residency:
     recencyDays: 365
     acceptFoundationalResidence: true
     methodCeiling: { document: RAL1 } # this jurisdiction trusts utility bills less
+    minimumDurationDays: 182          # the residence rule in this state's law (Kaduna: six months)
+    intentToResideSuffices: true      # ...or a declared intention to reside, where the law says so
+    attestation:
+      acceptedAttesterTypes: [ward_officer, traditional_ruler, ward_councillor]
+    modes:                            # people without an ordinary dwelling are not turned away
+      noFixedAbode: { allowed: true, acceptedAttesterTypes: [camp_manager, ward_officer], ceiling: RAL1 }
 ```
 
 Same code, different YAML:
@@ -168,6 +174,10 @@ Same code, different YAML:
 | `minAssurance: high`, provider yields `verified` | `REJECTED ASSURANCE_TOO_LOW_verified` |
 | `residence.targetLevel: RAL2`, no evidence supplied | `REJECTED PROOF_OF_RESIDENCE_BELOW_RAL2_GOT_RAL0` |
 | the same, plus a ward attestation | `ISSUED` |
+| `minimumDurationDays: 182`, evidence says residence began 40 days ago | `REJECTED RESIDENCE_DURATION_BELOW_MINIMUM_182D` |
+| the same, applicant declares intent and `intentToResideSuffices: true` | `ISSUED` |
+| `residenceMode: no_fixed_abode`, policy does not allow it | `REJECTED RESIDENCE_MODE_NOT_ACCEPTED_no_fixed_abode` |
+| the same, policy allows it, camp manager attests | `ISSUED` at the mode's ceiling |
 | a unit absent from `subnationalUnits` | `REJECTED UNKNOWN_SUBNATIONAL_UNIT` |
 
 ### Two ladders a jurisdiction picks its position on
@@ -197,7 +207,14 @@ register of record. Each evidence method has a ceiling a jurisdiction may lower 
 | `document`, `authority_attestation`, `geospatial_match` | RAL2 |
 
 With `recencyDays` set, evidence that is older than that — or carries no date at all — is capped at
-RAL1 and cannot reach the higher levels. Origin/indigeneity is deliberately absent from this table:
+RAL1 and cannot reach the higher levels. Separately from how *strong* the proof is, a jurisdiction
+whose law has a residence *rule* — Kaduna's six months, Lagos's three — declares it as
+`minimumDurationDays`, measured from the date the evidence says residence began (`since`) or, failing
+that, the applicant's own declaration; `intentToResideSuffices` lets a declared intention satisfy
+it where the law says so. Attestations may be restricted to listed kinds of attester, and two
+further residence modes — a reference address, or no fixed abode — can be admitted so that people
+without an ordinary dwelling can be registered on an accepted attester's word, at a level the
+jurisdiction caps. Neither the mode nor the attester is carried into the credential. Origin/indigeneity is deliberately absent from this table:
 it is not an evidence method and cannot be configured into one.
 
 ### The Resident ID format

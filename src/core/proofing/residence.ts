@@ -59,6 +59,65 @@ export type ResidenceEvidenceMethod =
   /** A captured location matched to the unit's boundary (open location code / polygon). */
   | 'geospatial_match';
 
+/**
+ * Who vouched, when the method is `authority_attestation`.
+ *
+ * Every register that accepts community attestation names the kind of attester it accepts:
+ * South Africa's ward councillor or traditional leader, Kenya's chief, India's gazetted
+ * officer, a camp manager for people in displacement, a landlord or host for a lodger. A
+ * jurisdiction lists the kinds it accepts; an attestation from an unlisted kind is real
+ * information and no evidence. `other` is deliberately available so a register is not forced
+ * to misfile an attester the vocabulary did not anticipate -- a policy that lists `other`
+ * accepts that. This vocabulary is a project profile, not a standard.
+ */
+export type AttesterType =
+  | 'ward_officer'
+  | 'registrar'
+  | 'traditional_ruler'
+  | 'ward_councillor'
+  | 'religious_leader'
+  | 'camp_manager'
+  | 'landlord_or_host'
+  | 'employer'
+  | 'institution'
+  | 'other';
+
+export const ATTESTER_TYPES: readonly AttesterType[] = [
+  'ward_officer',
+  'registrar',
+  'traditional_ruler',
+  'ward_councillor',
+  'religious_leader',
+  'camp_manager',
+  'landlord_or_host',
+  'employer',
+  'institution',
+  'other',
+];
+
+/**
+ * How the applicant resides, as distinct from where.
+ *
+ * `dwelling` -- the ordinary case: the person lives at a dwelling in the unit (and, under
+ * address anchoring, at the address claimed).
+ *
+ * `reference_address` -- the person has no dwelling of their own and uses an address for
+ * contact and registration: a shelter, a relative, an institution. Belgium's referentieadres
+ * and the Netherlands' briefadres are the statutory forms. Residence in the UNIT is still what
+ * is being established; the address is not where they sleep, so it is not matched as one.
+ *
+ * `no_fixed_abode` -- the person resides in the unit and has no address at all: street
+ * homelessness, a displacement camp, a host community. Every mature register has this escape
+ * hatch, because a register that cannot hold these people excludes exactly those who most
+ * need to be counted. Only an attestation by an accepted attester can establish it.
+ *
+ * A mode is recorded with the residence and never carried into the credential: whether a
+ * holder has a fixed address is nobody's business at a service counter.
+ */
+export type ResidenceMode = 'dwelling' | 'reference_address' | 'no_fixed_abode';
+
+export const RESIDENCE_MODES: readonly ResidenceMode[] = ['dwelling', 'reference_address', 'no_fixed_abode'];
+
 export interface ResidenceEvidence {
   method: ResidenceEvidenceMethod;
   /** The subnational unit code this evidence points at, AFTER reconciliation to the
@@ -75,6 +134,15 @@ export interface ResidenceEvidence {
    * Ignored entirely under `anchor: 'unit'`, which is the default.
    */
   address?: ResidenceAddress;
+  /**
+   * ISO date this evidence says residence BEGAN, where it says so: a tenancy's start date, the
+   * date a ward register first recorded the person, the move-in date on an attestation.
+   * Distinct from `asOf` (when the evidence was captured). This is what a minimum-duration rule
+   * is measured from; absent, the rule falls back to what the applicant declared.
+   */
+  since?: string;
+  /** Who vouched, for `authority_attestation`. Required when the policy lists accepted kinds. */
+  attesterType?: AttesterType;
 }
 
 /** The maximum RAL each method can yield on its own, before recency/unit-match downgrades. */
@@ -109,6 +177,44 @@ export interface ResidencePolicy {
   /** Auto-collect the residence locality returned by the foundational provider as
    *  `register_declared_residence` evidence. Off by default: a deployment opts in. */
   acceptFoundationalResidence: boolean;
+  /**
+   * The residence rule, where the jurisdiction's law has one: how long a person must have
+   * resided before the register may hold them (Kaduna: six months; Lagos: three; Korea: thirty
+   * days). Measured from the strongest evidence's `since`, else the applicant's declaration.
+   * Absent means no duration test, which is most of the world. Only enforced when `required`.
+   */
+  minimumDurationDays?: number;
+  /**
+   * Whether a declared intention to reside satisfies the duration rule on its own, as it does
+   * under the Kaduna law ("resident for six months OR intending to reside") and Korea's.
+   * Off by default: intent is a statement, and a jurisdiction opts in to counting it.
+   */
+  intentToResideSuffices?: boolean;
+  /** Which kinds of attester an `authority_attestation` is accepted from. Absent: any. */
+  attestation?: { acceptedAttesterTypes?: AttesterType[] };
+  /**
+   * The residence modes this jurisdiction admits beyond an ordinary dwelling. Each is off
+   * unless allowed, and each may narrow the attesters it accepts; `no_fixed_abode` may also
+   * cap the level it can reach, since there is less to corroborate.
+   */
+  modes?: {
+    referenceAddress?: { allowed: boolean; acceptedAttesterTypes?: AttesterType[] };
+    noFixedAbode?: {
+      allowed: boolean;
+      acceptedAttesterTypes?: AttesterType[];
+      ceiling?: ResidenceAssuranceLevel;
+    };
+  };
+}
+
+/** What the applicant declared about their residence, as distinct from what evidence says. */
+export interface DeclaredResidence {
+  /** ISO date residence began, by the applicant's own account. Used only when no evidence states one. */
+  since?: string;
+  /** The applicant intends to reside here. Counts only where the policy says it does. */
+  intentToReside?: boolean;
+  /** How the applicant resides. Defaults to `dwelling`. */
+  mode?: ResidenceMode;
 }
 
 /** A permissive default used when a config declares no residence policy: record, never gate. */
@@ -136,6 +242,14 @@ export interface ResidenceOutcome {
   /** The reconciled unit the achieved residence is anchored to, when known. */
   unit?: string;
   asOf?: string;
+  /** When residence began, from the winning evidence or else the declaration. */
+  since?: string;
+  /** How the applicant resides. Recorded, never carried into the credential. */
+  mode?: ResidenceMode;
+  /** Who vouched, when the winning evidence was an attestation. */
+  attesterType?: AttesterType;
+  /** Whether the applicant declared an intention to reside. */
+  intentDeclared?: boolean;
   /** Machine-readable reason when a required policy is not satisfied. */
   reason?: string;
 }
@@ -208,13 +322,27 @@ export function evaluateResidence(
    * parameter existing.
    */
   claimedAddress?: ResidenceAddress,
+  /** What the applicant declared: when residence began, intent, and how they reside. */
+  declared?: DeclaredResidence,
 ): ResidenceOutcome {
   const ceiling = { ...DEFAULT_METHOD_CEILING, ...(policy.methodCeiling ?? {}) };
   const claim = norm(claimedUnit);
+  const mode: ResidenceMode = declared?.mode ?? 'dwelling';
 
   let best: ResidenceOutcome = { level: 'RAL0', satisfied: false, method: 'self_declared' };
 
-  for (const ev of evidences) {
+  // A mode the jurisdiction has not admitted contributes nothing, whatever the evidence: the
+  // refusal names the mode so the applicant is told what was not accepted, rather than being
+  // told their proof was weak when it was their situation that was not provided for.
+  const modeRule =
+    mode === 'reference_address'
+      ? policy.modes?.referenceAddress
+      : mode === 'no_fixed_abode'
+        ? policy.modes?.noFixedAbode
+        : undefined;
+  const modeAdmitted = mode === 'dwelling' || modeRule?.allowed === true;
+
+  for (const ev of modeAdmitted ? evidences : []) {
     // Origin and any non-accepted method contribute nothing. self_declared is only ever
     // the floor, so it is skipped here (best starts at RAL0/self_declared already).
     if (ev.method === 'self_declared' || !policy.acceptedMethods.includes(ev.method)) continue;
@@ -231,9 +359,30 @@ export function evaluateResidence(
     // method. A ward officer's attestation that somebody "lives in Rigasa" is real evidence
     // about a unit and says nothing about which door -- treating it as address proof would
     // silently downgrade what address anchoring means.
-    if (policy.anchor === 'address' && !addressesMatch(ev.address, claimedAddress)) continue;
+    if (mode === 'dwelling' && policy.anchor === 'address' && !addressesMatch(ev.address, claimedAddress)) {
+      continue;
+    }
+
+    // Outside an ordinary dwelling, only somebody vouching can establish residence: there is
+    // no tenancy to produce and no address to match, and a register field or a geospatial fix
+    // says where a person was, not that they live here. So in those modes an attestation is
+    // the only admissible method, and the mode may narrow which attesters it accepts.
+    if (mode !== 'dwelling' && ev.method !== 'authority_attestation') continue;
+
+    // Attester gate: an attestation from a kind of attester the jurisdiction (or this mode)
+    // does not accept is information, not evidence. A listed policy with no attesterType on
+    // the evidence fails the gate: the kind must be stated, not assumed.
+    if (ev.method === 'authority_attestation') {
+      const accepted = modeRule?.acceptedAttesterTypes ?? policy.attestation?.acceptedAttesterTypes;
+      if (accepted && (ev.attesterType == null || !accepted.includes(ev.attesterType))) continue;
+    }
 
     let level = ceiling[ev.method];
+
+    // No fixed abode: less to corroborate, so the jurisdiction may cap what it can reach.
+    if (mode === 'no_fixed_abode' && policy.modes?.noFixedAbode?.ceiling) {
+      level = minLevel(level, policy.modes.noFixedAbode.ceiling);
+    }
 
     // Recency: undated or stale evidence cannot reach RAL2+.
     if (policy.recencyDays != null && ageInDays(ev.asOf, nowIso) > policy.recencyDays) {
@@ -248,14 +397,41 @@ export function evaluateResidence(
         unit: ev.adminUnit,
         address: ev.address,
         asOf: ev.asOf,
+        since: ev.since,
+        attesterType: ev.attesterType,
       };
     }
   }
 
+  // The duration rule. Evidence that states when residence began outranks the applicant's
+  // account; the applicant's account is used only when no evidence speaks to it. An intention
+  // to reside satisfies the rule only where the jurisdiction has said so. A missing date under
+  // a duration rule is its own reason -- "we could not tell how long" is a different thing to
+  // tell an applicant than "not long enough", and a different thing for them to fix.
+  const since = best.since ?? declared?.since;
+  let durationReason: string | undefined;
+  if (policy.minimumDurationDays != null) {
+    const intentSuffices = declared?.intentToReside === true && policy.intentToResideSuffices === true;
+    if (!intentSuffices) {
+      if (!since) durationReason = 'RESIDENCE_DURATION_UNKNOWN';
+      else if (ageInDays(since, nowIso) < policy.minimumDurationDays) {
+        durationReason = `RESIDENCE_DURATION_BELOW_MINIMUM_${policy.minimumDurationDays}D`;
+      }
+    }
+  }
+
+  best.since = since;
+  best.mode = mode;
+  if (declared?.intentToReside != null) best.intentDeclared = declared.intentToReside;
+
   const meetsTarget = RESIDENCE_LEVEL_RANK[best.level] >= RESIDENCE_LEVEL_RANK[policy.targetLevel];
-  best.satisfied = !policy.required || meetsTarget;
-  if (policy.required && !meetsTarget) {
-    best.reason = `PROOF_OF_RESIDENCE_BELOW_${policy.targetLevel}_GOT_${best.level}`;
+  best.satisfied = !policy.required || (modeAdmitted && meetsTarget && durationReason == null);
+  if (policy.required && !best.satisfied) {
+    best.reason = !modeAdmitted
+      ? `RESIDENCE_MODE_NOT_ACCEPTED_${mode}`
+      : !meetsTarget
+        ? `PROOF_OF_RESIDENCE_BELOW_${policy.targetLevel}_GOT_${best.level}`
+        : durationReason;
   }
   return best;
 }

@@ -4,7 +4,12 @@ import { ResidentId } from '../kernel/branded';
 import { RelationshipAttributes } from './lifecycle';
 import { CredentialStatusRecord, StatusPurpose } from '../credentials/credential-lifecycle';
 import { ApplicantBinding } from '../proofing/binding';
-import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../proofing/residence';
+import {
+  AttesterType,
+  ResidenceAssuranceLevel,
+  ResidenceEvidenceMethod,
+  ResidenceMode,
+} from '../proofing/residence';
 import { ResidenceAddress } from '../proofing/address';
 
 /**
@@ -39,6 +44,18 @@ export interface ResidentRecord {
      */
     address?: ResidenceAddress;
     asOf?: string;
+    /** When residence began, from evidence or declaration. What a duration rule measured. */
+    since?: string;
+    /**
+     * How the person resides, when not an ordinary dwelling: `reference_address` or
+     * `no_fixed_abode`. Absent means a dwelling. Recorded for the register's own account and
+     * never carried into the credential -- a verifier has no business knowing it.
+     */
+    mode?: ResidenceMode;
+    /** Who vouched, when residence was established by attestation. */
+    attesterType?: AttesterType;
+    /** Whether the applicant declared an intention to reside. */
+    intentDeclared?: boolean;
   };
   provisional: boolean;
   /**

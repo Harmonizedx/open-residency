@@ -3241,6 +3241,25 @@ components:
           description: >-
             Proof-of-residence evidence an operator attests. Only meaningful from a trusted
             enrolment context. Validated semantically by the engine, not by the request schema.
+        residenceSince:
+          type: string
+          format: date
+          description: >-
+            When the applicant says their residence here began. Used by a minimum-duration rule
+            only when no evidence states a start date. Validated semantically by the engine.
+        intentToReside:
+          type: boolean
+          description: >-
+            The applicant declares an intention to reside. Satisfies a duration rule only where
+            the jurisdiction's policy says intent suffices (`intentToResideSuffices`).
+        residenceMode:
+          type: string
+          enum: [dwelling, reference_address, no_fixed_abode]
+          description: >-
+            How the applicant resides. `dwelling` is the default. `reference_address` (a
+            shelter, a relative, an institution used for contact) and `no_fixed_abode` (a camp,
+            a host community, the street) are admitted only where the policy allows them, can be
+            established only by an accepted attester, and are never carried into the credential.
         phone:
           type: string
           pattern: '^\+?[0-9]{6,20}$'
@@ -4047,6 +4066,21 @@ components:
         address:
           $ref: '#/components/schemas/ResidenceAddress'
           description: 'Ignored under `anchor: unit`, the default.'
+        since:
+          type: string
+          format: date
+          description: >-
+            When this evidence says residence BEGAN (a tenancy start, a register's first entry,
+            the move-in date on an attestation). Distinct from `asOf`. What a jurisdiction's
+            minimum-duration rule is measured from; absent, the rule falls back to the
+            applicant's declared `residenceSince`.
+        attesterType:
+          type: string
+          enum: [ward_officer, registrar, traditional_ruler, ward_councillor, religious_leader, camp_manager, landlord_or_host, employer, institution, other]
+          description: >-
+            Who vouched, for `authority_attestation`. Required when the jurisdiction lists the
+            kinds of attester it accepts; an attestation from an unlisted kind is recorded and
+            counts for nothing.
     ResidentRecord:
       type: object
       description: >-
@@ -4080,6 +4114,21 @@ components:
             unit: { type: string }
             address: { $ref: '#/components/schemas/ResidenceAddress' }
             asOf: { type: string }
+            since:
+              type: string
+              format: date
+              description: When residence began, from the winning evidence or else the declaration.
+            mode:
+              type: string
+              enum: [reference_address, no_fixed_abode]
+              description: >-
+                Present only when the person does not reside at an ordinary dwelling. Recorded
+                for the register's own account; never carried into the credential.
+            attesterType:
+              type: string
+              enum: [ward_officer, registrar, traditional_ruler, ward_councillor, religious_leader, camp_manager, landlord_or_host, employer, institution, other]
+              description: Who vouched, when residence was established by attestation.
+            intentDeclared: { type: boolean, description: Whether the applicant declared an intention to reside. }
         provisional: { type: boolean }
         relationship:
           $ref: '#/components/schemas/RelationshipAttributes'

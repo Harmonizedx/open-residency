@@ -65,6 +65,15 @@ residency:
     acceptedMethods: [register_declared_residence, authority_attestation, document]
     unitMatchRequired: true
     acceptFoundationalResidence: true
+    # The residence RULE comes from each state's law and is not asserted here for Katsina. A
+    # Kaduna deployment, under the KADRIMA Law 2021 ("resident for at least six months, or
+    # intending to reside"), would declare:
+    #   minimumDurationDays: 182
+    #   intentToResideSuffices: true
+    # and, to register people in displacement or host communities on an accepted word:
+    #   attestation: { acceptedAttesterTypes: [ward_officer, traditional_ruler, ward_councillor] }
+    #   modes:
+    #     noFixedAbode: { allowed: true, acceptedAttesterTypes: [camp_manager, ward_officer], ceiling: RAL1 }
 
 credential:
   issuerDid: did:web:id.katsina.gov.ng

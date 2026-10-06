@@ -57,6 +57,10 @@ import {
   ResidencePolicy,
   evaluateResidence,
   reconcileUnit,
+  AttesterType,
+  ResidenceMode,
+  ResidenceAssuranceLevel,
+  ResidenceEvidenceMethod,
 } from '../proofing/residence';
 
 /**
@@ -148,6 +152,16 @@ export interface IssueResidencyRequest {
    * before this. See `core/proofing/address.ts`.
    */
   address?: ResidenceAddress;
+  /**
+   * What the applicant declared about their residence, as distinct from evidence: when it
+   * began (`residenceSince`, used only when no evidence states a start), whether they intend
+   * to reside (counts only where the policy says it does), and how they reside
+   * (`residenceMode`: an ordinary dwelling, a reference address, or no fixed abode -- the last
+   * two only where the policy admits them). See `core/proofing/residence.ts`.
+   */
+  residenceSince?: string;
+  intentToReside?: boolean;
+  residenceMode?: ResidenceMode;
   /**
    * Who took the enrolment decision, for ORCS §4.3 decision provenance. An operator id from
    * the authenticated enrolment context; defaults to a generic marker rather than inventing
@@ -288,9 +302,36 @@ export class ResidencyService {
       applicantBinding: record.binding,
       person: record.person,
       proofOfResidence: cfg.residency.proofOfResidence,
-      residence: record.residence,
+      residence: this.credentialResidence(record.residence),
       provisional: record.provisional,
     };
+  }
+
+  /**
+   * The residence claim a credential carries: the level, the method, the unit, the date, and
+   * -- where the jurisdiction anchors on addresses -- the address the residence was
+   * established at. Picked field by field on purpose. The record also holds the inputs to the
+   * residence RULE (when residence began, how the person resides, who vouched, whether intent
+   * was declared), and none of that belongs in a holder's wallet: whether somebody has a fixed
+   * address, or needed a camp manager to vouch for them, is a fact about their circumstances
+   * that a service counter has no business reading. Passing the record's residence through
+   * whole would carry it, silently, into every credential.
+   */
+  private credentialResidence(r: ResidentRecord['residence']): {
+    assuranceLevel: ResidenceAssuranceLevel;
+    method: ResidenceEvidenceMethod;
+    unit?: string;
+    asOf?: string;
+    address?: ResidenceAddress;
+  } {
+    const out: ReturnType<ResidencyService['credentialResidence']> = {
+      assuranceLevel: r.assuranceLevel,
+      method: r.method,
+    };
+    if (r.unit) out.unit = r.unit;
+    if (r.asOf) out.asOf = r.asOf;
+    if (r.address) out.address = r.address;
+    return out;
   }
 
   /** The proof-of-residence policy for a country, defaulted when the config omits one. */
@@ -306,6 +347,10 @@ export class ResidencyService {
       recencyDays: p.recencyDays,
       methodCeiling: p.methodCeiling,
       acceptFoundationalResidence: p.acceptFoundationalResidence,
+      minimumDurationDays: p.minimumDurationDays,
+      intentToResideSuffices: p.intentToResideSuffices,
+      attestation: p.attestation,
+      modes: p.modes,
     };
   }
 
@@ -515,6 +560,7 @@ export class ResidencyService {
       req.subnationalUnit,
       new Date().toISOString(),
       req.address,
+      { since: req.residenceSince, intentToReside: req.intentToReside, mode: req.residenceMode },
     );
     if (residencePolicy.required && !residence.satisfied) {
       return this.refuse(cfg, req, residence.reason ?? 'PROOF_OF_RESIDENCE_REQUIRED', identity.subjectRef);
@@ -525,10 +571,18 @@ export class ResidencyService {
       unit?: string;
       address?: ResidenceAddress;
       asOf?: string;
+      since?: string;
+      mode?: ResidenceMode;
+      attesterType?: AttesterType;
+      intentDeclared?: boolean;
     } = { assuranceLevel: residence.level, method: residence.method };
     if (residence.unit) residenceClaim.unit = residence.unit;
     if (residence.address) residenceClaim.address = residence.address;
     if (residence.asOf) residenceClaim.asOf = residence.asOf;
+    if (residence.since) residenceClaim.since = residence.since;
+    if (residence.mode && residence.mode !== 'dwelling') residenceClaim.mode = residence.mode;
+    if (residence.attesterType) residenceClaim.attesterType = residence.attesterType;
+    if (residence.intentDeclared != null) residenceClaim.intentDeclared = residence.intentDeclared;
 
     // 5. Mint residency id + assign a revocation status index.
     //
@@ -570,7 +624,7 @@ export class ResidencyService {
         gender: identity.gender,
       },
       proofOfResidence: req.proofOfResidence ?? cfg.residency.proofOfResidence,
-      residence: residenceClaim,
+      residence: this.credentialResidence(residenceClaim),
       provisional,
     };
 

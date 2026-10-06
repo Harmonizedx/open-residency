@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { load as loadYaml } from 'js-yaml';
 import { z } from 'zod';
 import { permitsAutomatedDecisions } from '../residency/decision-mode';
+import { ATTESTER_TYPES, AttesterType } from '../proofing/residence';
 import { CONSENT_LEGAL_BASIS_ID } from '../consent/legal-basis';
 import { LEGACY_SUITES } from '../credentials/ld-suites';
 import { loadSubdivisionTable, unitCodeWarnings } from './iso3166-2';
@@ -172,6 +173,8 @@ const residenceLevelEnum = z.enum(['RAL0', 'RAL1', 'RAL2', 'RAL3']);
  * source register, undated, and coarser than a ward. `unitMatchRequired` forces that
  * evidence to reconcile to the claimed unit before it counts.
  */
+const attesterTypeEnum = z.enum(ATTESTER_TYPES as [AttesterType, ...AttesterType[]]);
+
 const residencePolicySchema = z.object({
   required: z.boolean().default(false),
   targetLevel: residenceLevelEnum.default('RAL1'),
@@ -196,6 +199,43 @@ const residencePolicySchema = z.object({
   recencyDays: z.number().int().positive().optional(),
   methodCeiling: z.record(residenceMethodEnum, residenceLevelEnum).optional(),
   acceptFoundationalResidence: z.boolean().default(false),
+  /**
+   * The residence rule where the jurisdiction's law has one: the days a person must have
+   * resided before the register may hold them. Kaduna's law says six months, Lagos's three.
+   * Read from the law, never invented here; absent means no duration test. Enforced only when
+   * `required` is true, and measured from the evidence's `since` or else the declaration.
+   */
+  minimumDurationDays: z.number().int().positive().optional(),
+  /** Whether a declared intention to reside satisfies the duration rule (Kaduna: yes). */
+  intentToResideSuffices: z.boolean().default(false),
+  /** Which kinds of attester an `authority_attestation` is accepted from. Absent: any kind. */
+  attestation: z
+    .object({ acceptedAttesterTypes: z.array(attesterTypeEnum).min(1).optional() })
+    .optional(),
+  /**
+   * Residence modes beyond an ordinary dwelling. Each is off unless allowed. A person using a
+   * reference address (a shelter, a relative) or with no fixed abode (a camp, a host
+   * community, the street) can only be established by an attestation, from the attesters the
+   * mode lists (falling back to `attestation.acceptedAttesterTypes`), and `noFixedAbode` may
+   * cap the level reachable. See `src/core/proofing/residence.ts` (`ResidenceMode`).
+   */
+  modes: z
+    .object({
+      referenceAddress: z
+        .object({
+          allowed: z.boolean().default(false),
+          acceptedAttesterTypes: z.array(attesterTypeEnum).min(1).optional(),
+        })
+        .optional(),
+      noFixedAbode: z
+        .object({
+          allowed: z.boolean().default(false),
+          acceptedAttesterTypes: z.array(attesterTypeEnum).min(1).optional(),
+          ceiling: residenceLevelEnum.optional(),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 export type ResidencePolicyConfig = z.infer<typeof residencePolicySchema>;

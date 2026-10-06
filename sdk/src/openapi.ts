@@ -5630,6 +5630,18 @@ export interface components {
             binding?: components["schemas"]["ApplicantBinding"];
             /** @description Proof-of-residence evidence an operator attests. Only meaningful from a trusted enrolment context. Validated semantically by the engine, not by the request schema. */
             residenceEvidence?: components["schemas"]["ResidenceEvidence"][];
+            /**
+             * Format: date
+             * @description When the applicant says their residence here began. Used by a minimum-duration rule only when no evidence states a start date. Validated semantically by the engine.
+             */
+            residenceSince?: string;
+            /** @description The applicant declares an intention to reside. Satisfies a duration rule only where the jurisdiction's policy says intent suffices (`intentToResideSuffices`). */
+            intentToReside?: boolean;
+            /**
+             * @description How the applicant resides. `dwelling` is the default. `reference_address` (a shelter, a relative, an institution used for contact) and `no_fixed_abode` (a camp, a host community, the street) are admitted only where the policy allows them, can be established only by an accepted attester, and are never carried into the credential.
+             * @enum {string}
+             */
+            residenceMode?: "dwelling" | "reference_address" | "no_fixed_abode";
             /** @description The applicant's contact number. Only an E.164 value (`+` followed by 7-15 digits) is kept; anything else passes validation and is silently discarded. Stored as a hash for USSD matching, and as ciphertext only under `contactDirectory.mode: encrypted`. Never written to the credential, the audit log or any response. */
             phone?: string;
             offline?: boolean;
@@ -6338,6 +6350,16 @@ export interface components {
             ref?: string;
             /** @description Ignored under `anchor: unit`, the default. */
             address?: components["schemas"]["ResidenceAddress"];
+            /**
+             * Format: date
+             * @description When this evidence says residence BEGAN (a tenancy start, a register's first entry, the move-in date on an attestation). Distinct from `asOf`. What a jurisdiction's minimum-duration rule is measured from; absent, the rule falls back to the applicant's declared `residenceSince`.
+             */
+            since?: string;
+            /**
+             * @description Who vouched, for `authority_attestation`. Required when the jurisdiction lists the kinds of attester it accepts; an attestation from an unlisted kind is recorded and counts for nothing.
+             * @enum {string}
+             */
+            attesterType?: "ward_officer" | "registrar" | "traditional_ruler" | "ward_councillor" | "religious_leader" | "camp_manager" | "landlord_or_host" | "employer" | "institution" | "other";
         };
         /** @description A residency record as persisted (`src/core/residency/ports.ts`). No raw national id is ever stored. Returned in full by `POST /residency/issue` to the registrar who supplied the data -- including `subjectRef`, `person` and, where the jurisdiction anchors on addresses, `residence.address` -- so a client must treat the issuance response as personal data. */
         ResidentRecord: {
@@ -6365,6 +6387,23 @@ export interface components {
                 unit?: string;
                 address?: components["schemas"]["ResidenceAddress"];
                 asOf?: string;
+                /**
+                 * Format: date
+                 * @description When residence began, from the winning evidence or else the declaration.
+                 */
+                since?: string;
+                /**
+                 * @description Present only when the person does not reside at an ordinary dwelling. Recorded for the register's own account; never carried into the credential.
+                 * @enum {string}
+                 */
+                mode?: "reference_address" | "no_fixed_abode";
+                /**
+                 * @description Who vouched, when residence was established by attestation.
+                 * @enum {string}
+                 */
+                attesterType?: "ward_officer" | "registrar" | "traditional_ruler" | "ward_councillor" | "religious_leader" | "camp_manager" | "landlord_or_host" | "employer" | "institution" | "other";
+                /** @description Whether the applicant declared an intention to reside. */
+                intentDeclared?: boolean;
             };
             provisional: boolean;
             /** @description Absent on rows written before the lifecycle existed; always present on new records. */

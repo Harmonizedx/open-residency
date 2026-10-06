@@ -49,6 +49,15 @@ model Resident {
   // identifying data -- see PrismaResidencyStore.erase.
   residenceAddress    Json?
   residenceAsOf       DateTime?
+  // The residence rule's inputs, where a jurisdiction's law has one: when residence began,
+  // how the person resides (NULL = an ordinary dwelling; reference_address / no_fixed_abode
+  // only where the policy admits them), who vouched, and whether intent was declared. All
+  // nullable, so rows written before the rule existed read as "not recorded", never as
+  // failing it. None of these is carried into the credential.
+  residenceSince        DateTime?
+  residenceMode         String?
+  residenceAttesterType String?
+  residenceIntent       Boolean?
   provisional         Boolean   @default(false)
   // ORCS §4.3: what this relationship states about itself over time. Added additively under
   // ORRA §15 -- every column either defaults or is nullable, so rows written before the
