@@ -824,7 +824,7 @@ export interface paths {
         put?: never;
         /**
          * Move a residency relationship to another state
-         * @description End, suspend, or reinstate a person's relationship with this jurisdiction (ORCS §6.2), recording who decided, when, and why. This is the act revoking a credential cannot express: revocation says a key is dead, this says the person's standing changed.
+         * @description End, suspend, or reinstate a person's relationship with this jurisdiction, recording who decided, when, and why. This is the act revoking a credential cannot express: revocation says a key is dead, this says the person's standing changed.
          *
          *     Permitted moves are ACTIVE -> SUSPENDED -> ACTIVE, and from either into the terminal states ENDED, REVOKED or EXPIRED. Nothing leaves a terminal state. A terminal transition MUST carry a `reason`; the engine refuses one without it rather than writing a blank. The refusal reason is returned as the 400 message (`RELATIONSHIP_ALREADY_ENDED`, `TRANSITION_NOT_PERMITTED_ACTIVE_TO_ACTIVE`, `REASON_REQUIRED_FOR_ENDED`, ...).
          *
@@ -905,7 +905,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What this relationship states about itself (ORCS §4.3)
+         * What this relationship states about itself
          * @description The attributes that can change over a residency's life: status, validity, policy version, evidence references, assurance profile, issuer and decision provenance. Separate from `GET /residency/{residentId}`, which reports registration details that cannot. A record written before the lifecycle existed reads as ACTIVE with `migration:pre-lifecycle-record` as its provenance, so it is never mistaken for a recorded decision. Open, like the sibling lookup.
          */
         get: {
@@ -958,10 +958,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Move a credential through its ORCS §10 lifecycle
+         * Move a credential through its lifecycle
          * @description Suspend, reinstate, revoke, expire, or record the replacement of the credential -- whether this key still works, as distinct from `/relationship/transition`, which says whether the person still resides here. Permitted moves are ISSUED or ACTIVE -> SUSPENDED -> ACTIVE, and from any of those into the terminal states REVOKED, EXPIRED or REPLACED. `ISSUED` is never a target.
          *
-         *     ORCS §10 requires a revocation to preserve reason, authority, timestamp and appeal path. The authority is always the authenticated operator and the timestamp the clock; the caller supplies the `reason` (required for every terminal state) and, for REVOKED, the `appealPath`, which defaults to the jurisdiction's configured `credential.appealPath` and is refused if neither is set (`APPEAL_PATH_REQUIRED_FOR_REVOCATION`). REPLACED requires `supersededBy` (`SUPERSEDED_BY_REQUIRED_FOR_REPLACEMENT`). The refusal reason is returned as the 400 message; other reasons are `CREDENTIAL_ALREADY_REVOKED`, `CREDENTIAL_TRANSITION_NOT_PERMITTED_ACTIVE_TO_ACTIVE` and `REASON_REQUIRED_FOR_EXPIRED`.
+         *     A revocation preserves reason, authority, timestamp and appeal path, and is refused when any is missing. The authority is always the authenticated operator and the timestamp the clock; the caller supplies the `reason` (required for every terminal state) and, for REVOKED, the `appealPath`, which defaults to the jurisdiction's configured `credential.appealPath` and is refused if neither is set (`APPEAL_PATH_REQUIRED_FOR_REVOCATION`). REPLACED requires `supersededBy` (`SUPERSEDED_BY_REQUIRED_FOR_REPLACEMENT`). The refusal reason is returned as the 400 message; other reasons are `CREDENTIAL_ALREADY_REVOKED`, `CREDENTIAL_TRANSITION_NOT_PERMITTED_ACTIVE_TO_ACTIVE` and `REASON_REQUIRED_FOR_EXPIRED`.
          *
          *     The status-list bits are published together with the record: SUSPENDED sets the suspension bit, ACTIVE clears it, and the terminal states set the revocation bit and clear suspension, so a verifier can never see a state the register does not hold. A refused transition is audited as a failure before the 400 is returned.
          *
@@ -1181,7 +1181,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The credential's ORCS §10 status
+         * The credential's lifecycle status
          * @description Why the credential was suspended or revoked, by whom, when, and how the holder contests it. A record written before the lifecycle existed is read from its revocation bit: ACTIVE if clear, otherwise REVOKED with `migration:pre-lifecycle-record` as the authority and a reason saying the original one is not recoverable. Open, like the sibling lookup.
          */
         get: {
@@ -1438,7 +1438,7 @@ export interface paths {
         };
         /**
          * A person's identity links and their history (registrar)
-         * @description Every link the person has held, current and closed, the events behind them, and whether ORCS §11 currently restricts high-risk use (an open dispute). A record written before the registry existed has its foundational link created here from its own `subjectRef`, once. Requires the `registrar` role.
+         * @description Every link the person has held, current and closed, the events behind them, and whether an open dispute currently restricts high-risk use. A record written before the registry existed has its foundational link created here from its own `subjectRef`, once. Requires the `registrar` role.
          */
         get: {
             parameters: {
@@ -1801,7 +1801,7 @@ export interface paths {
         put?: never;
         /**
          * UNLINK an identifier from a person (revoker)
-         * @description Removes the association while preserving the history: the link becomes UNLINKED and keeps everything it recorded. For the person's foundational identifier this is ORCS §7's remedy for a relationship built on an identity-link error, in ORCS's order: the relationship is SUSPENDED first (reason `IDENTITY_LINK_UNLINKED: ...`), then the record stops matching the identifier, so a fresh enrolment with that identifier opens a new record rather than finding this one. The reference lives on in the closed link, and RELINK can restore it after adjudication. Requires the `revoker` role.
+         * @description Removes the association while preserving the history: the link becomes UNLINKED and keeps everything it recorded. For the person's foundational identifier this is the remedy for a relationship built on an identity-link error, in order: the relationship is SUSPENDED first (reason `IDENTITY_LINK_UNLINKED: ...`), then the record stops matching the identifier, so a fresh enrolment with that identifier opens a new record rather than finding this one. The reference lives on in the closed link, and RELINK can restore it after adjudication. Requires the `revoker` role.
          */
         post: {
             parameters: {
@@ -2312,7 +2312,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Every registered legal basis (ORCS §9)
+         * Every registered legal basis
          * @description Requires the `support` role.
          */
         get: {
@@ -4094,7 +4094,7 @@ export interface paths {
         };
         /**
          * Signed Bitstring Status List (revocation or suspension) for one jurisdiction
-         * @description The status list credential that residency credentials name in `credentialStatus.statusListCredential`, per W3C Bitstring Status List 1.0 §3. `{cc}.json` is the revocation list (`statusPurpose: revocation`); `{cc}-suspension.json` is the suspension list (`statusPurpose: suspension`). They are separate documents because ORCS §10 treats SUSPENDED and REVOKED as different states, and a verifier that read one as the other would get them backwards.
+         * @description The status list credential that residency credentials name in `credentialStatus.statusListCredential`, per W3C Bitstring Status List 1.0 §3. `{cc}.json` is the revocation list (`statusPurpose: revocation`); `{cc}-suspension.json` is the suspension list (`statusPurpose: suspension`). They are separate documents because the credential lifecycle treats SUSPENDED and REVOKED as different states, and a verifier that read one as the other would get them backwards.
          *
          *     Served as a SIGNED `BitstringStatusListCredential` -- `@context` `https://www.w3.org/ns/credentials/v2`, `type` `[VerifiableCredential, BitstringStatusListCredential]`, `credentialSubject.type: BitstringStatusList`, `encodedList` as multibase base64url (`u` prefix) of the GZIP-compressed bitstring -- with a Data Integrity proof (`eddsa-rdfc-2022`) whose `verificationMethod` is the Multikey in the DID document. A verifier caches this snapshot and checks revocation offline against it, so the cached artifact must be self-authenticating; TLS only protects it in flight. Signing is content-addressed and cached, so a poll never re-invokes the issuer key (HSM/KMS): until a bit changes, the same document, same `validFrom`, same proof, comes back. `Cache-Control: public, max-age=300`.
          */
@@ -5187,7 +5187,7 @@ export interface paths {
         put?: never;
         /**
          * Approve the consent screen and resume the OIDC flow
-         * @description Browser-only; the consent page's Allow button posts here with no body. Reuses the grant an active consent for this relying party already holds, or mints one, adds the requested scopes, and writes a consent record with `evidence.method` `sso_consent_screen` and `evidence.reference` `interaction:{uid}` (ORCS §9), so a disputed grant can be checked against the session it was approved in. The `openid` scope is recorded as the `subject_identifier` data category. If the consent register refuses the grant, a freshly minted grant is destroyed and the interaction is not finished. The interaction cookie must accompany the request.
+         * @description Browser-only; the consent page's Allow button posts here with no body. Reuses the grant an active consent for this relying party already holds, or mints one, adds the requested scopes, and writes a consent record with `evidence.method` `sso_consent_screen` and `evidence.reference` `interaction:{uid}`, so a disputed grant can be checked against the session it was approved in. The `openid` scope is recorded as the `subject_identifier` data category. If the consent register refuses the grant, a freshly minted grant is destroyed and the interaction is not finished. The interaction cookie must accompany the request.
          */
         post: {
             parameters: {
@@ -5368,7 +5368,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Every canonical profile an assurance value can resolve to (ORCS §8)
+         * Every canonical profile an assurance value can resolve to
          * @description The governed records behind `assuranceLevel`. Each states, per dimension, what a value means, and is versioned and attributed to the authority that governs it. The shipped set is a deployment default (`orcs:profile:unverified`, `basic`, `verified`, `high`, `test-only`, `federation-sso`); a deployment publishes its own.
          */
         get: {
@@ -5407,7 +5407,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What each identity source publishes about its own verification (ORCS §8.1)
+         * What each identity source publishes about its own verification
          * @description Per provider and declared value: the canonical profile it reaches, the mapping's version and issuer, how the verification is actually performed, and what it does not establish. The shipped mappings are stated as published by the deployment pending the authority's own, and say so in `issuer`.
          */
         get: {
@@ -5447,7 +5447,7 @@ export interface paths {
         };
         /**
          * Resolve one declared assurance value to its governed profile
-         * @description Resolves by the value alone, through the registry's global aliases (`none`, `basic`, `verified`, `high` in the shipped set). There is no provider qualifier on this route, so it reports what the word means in general, not what a particular source means by it; `GET /residency/{residentId}/assurance` applies the provider mapping. A value that does not resolve is a 404 rather than an empty result: "not a governed value" is the answer ORCS §8 wants a caller to receive.
+         * @description Resolves by the value alone, through the registry's global aliases (`none`, `basic`, `verified`, `high` in the shipped set). There is no provider qualifier on this route, so it reports what the word means in general, not what a particular source means by it; `GET /residency/{residentId}/assurance` applies the provider mapping. A value that does not resolve is a 404 rather than an empty result: "not a governed value" is the answer a governed registry owes a caller.
          */
         get: {
             parameters: {
@@ -5496,7 +5496,7 @@ export interface paths {
         /**
          * OpenID Connect discovery for the SSO provider
          * @description The discovery document (OpenID Connect Discovery 1.0 §4) of the "Sign in with <State>" provider. It is served by the OpenID Provider mounted at `/oidc`, not by an API controller, and `issuer` is `<PUBLIC_BASE_URL>/oidc`; the endpoint URLs in the document are built from the request's Host header and the `/oidc` mount, so they follow whatever origin the caller reached. This is the document the SDK's `oidcDiscovery()` fetches, and it is distinct from `/.well-known/openid-configuration`, which is the OpenID4VCI issuer's OAuth metadata.
-         *     The provider's other routes -- `/oidc/auth`, `/oidc/token`, `/oidc/me` (userinfo), `/oidc/jwks`, `/oidc/token/revocation`, `/oidc/token/introspection`, `/oidc/session/end`, and `/oidc/request` (pushed authorization requests) -- are the standard OpenID Connect and OAuth 2.0 endpoints and are discoverable from this document's `*_endpoint` fields rather than enumerated here. PKCE (S256) is required of every client; relying parties are registered from the jurisdiction config with `authorization_code` and `refresh_token`, `response_type` `code`, and `client_secret_basic`; ID tokens are signed with EdDSA (Ed25519). Claim release is gated on the consent record (ORCS §9): a withdrawn, lapsed, or unlawfully based consent degrades userinfo and later tokens to `sub` alone.
+         *     The provider's other routes -- `/oidc/auth`, `/oidc/token`, `/oidc/me` (userinfo), `/oidc/jwks`, `/oidc/token/revocation`, `/oidc/token/introspection`, `/oidc/session/end`, and `/oidc/request` (pushed authorization requests) -- are the standard OpenID Connect and OAuth 2.0 endpoints and are discoverable from this document's `*_endpoint` fields rather than enumerated here. PKCE (S256) is required of every client; relying parties are registered from the jurisdiction config with `authorization_code` and `refresh_token`, `response_type` `code`, and `client_secret_basic`; ID tokens are signed with EdDSA (Ed25519). Claim release is gated on the consent record: a withdrawn, lapsed, or unlawfully based consent degrades userinfo and later tokens to `sub` alone.
          */
         get: {
             parameters: {
@@ -5699,7 +5699,7 @@ export interface components {
             scopes: string[];
             validityDays?: number;
             /**
-             * @description Classes of personal data released (ORCS §9), distinct from the OIDC scopes that carry them. Required: a grant with none is refused, not written blank.
+             * @description Classes of personal data released, distinct from the OIDC scopes that carry them. Required: a grant with none is refused, not written blank.
              * @example [
              *       "identity",
              *       "residence"
@@ -5743,7 +5743,7 @@ export interface components {
             /** Format: date-time */
             revokedAt?: string | null;
             receiptId: string;
-            /** @description The body accountable for the processing (ORCS §9). */
+            /** @description The body accountable for the processing. */
             controller: string;
             processor?: string | null;
             dataCategories: string[];
@@ -5769,7 +5769,7 @@ export interface components {
             reference: string;
             capturedBy?: string | null;
         };
-        /** @description A lawful basis for processing (ORCS §9). Bases are declared per jurisdiction in `dataProtection.legalBases`; `orcs:legal-basis:consent` is registered by the platform. */
+        /** @description A lawful basis for processing. Bases are declared per jurisdiction in `dataProtection.legalBases`; `orcs:legal-basis:consent` is registered by the platform. */
         LegalBasis: {
             /** @example ng:kt:residency-register-bylaw-2026 */
             id?: string;
@@ -6369,7 +6369,7 @@ export interface components {
             provisional: boolean;
             /** @description Absent on rows written before the lifecycle existed; always present on new records. */
             relationship?: components["schemas"]["RelationshipAttributes"];
-            /** @description Absent on rows written before ORCS §10 status tracking existed. */
+            /** @description Absent on rows written before credential status tracking existed. */
             credentialStatus?: components["schemas"]["CredentialStatusRecord"];
             /**
              * Format: date-time
@@ -6389,7 +6389,7 @@ export interface components {
                 gender?: string;
             };
         };
-        /** @description The ORCS §4.3 attributes a relationship states about itself. Jurisdiction is not repeated here: it is `countryCode` and `subnationalUnit` on the record. `type` and `purpose` are recorded and never read -- the reason a person resides somewhere must not determine what they can reach (ADR-0007). */
+        /** @description The attributes a relationship states about itself. Jurisdiction is not repeated here: it is `countryCode` and `subnationalUnit` on the record. `type` and `purpose` are recorded and never read -- the reason a person resides somewhere must not determine what they can reach (ADR-0007). */
         RelationshipAttributes: {
             /** @enum {string} */
             type: "GENERAL_RESIDENCY" | "FORMER_RESIDENCY";
@@ -6428,7 +6428,7 @@ export interface components {
             endedReason?: string;
             endedBy?: string;
         };
-        /** @description What ORCS §10 requires be preserved about a credential status decision. */
+        /** @description What is preserved about a credential status decision. */
         CredentialStatusRecord: {
             status: components["schemas"]["CredentialStatus"];
             /** @description Why. Present for every terminal transition. */
@@ -6463,7 +6463,7 @@ export interface components {
             createdAt: string;
         };
         /**
-         * @description ORCS §6.2 relationship states this deployment can hold. DRAFT, SUBMITTED, EVIDENCE_PENDING, UNDER_REVIEW and REJECTED describe a submission workflow a single-jurisdiction deployment does not have and are deliberately absent. EXPIRED is accepted as a terminal state but never entered by the software itself.
+         * @description Relationship states this deployment can hold. DRAFT, SUBMITTED, EVIDENCE_PENDING, UNDER_REVIEW and REJECTED describe a submission workflow a single-jurisdiction deployment does not have and are deliberately absent. EXPIRED is accepted as a terminal state but never entered by the software itself.
          * @enum {string}
          */
         RelationshipStatus: "ACTIVE" | "SUSPENDED" | "ENDED" | "REVOKED" | "EXPIRED";
@@ -6476,7 +6476,7 @@ export interface components {
             reason?: string;
         };
         /**
-         * @description ORCS §10 credential states. ISSUED is distinct from ACTIVE because §10 lists it; this implementation issues and delivers in one step, so it records ACTIVE immediately.
+         * @description Credential states. ISSUED is distinct from ACTIVE so delivery can be recorded apart from issuance; this implementation issues and delivers in one step, so it records ACTIVE immediately.
          * @enum {string}
          */
         CredentialStatus: "ISSUED" | "ACTIVE" | "SUSPENDED" | "REVOKED" | "EXPIRED" | "REPLACED";
@@ -6580,7 +6580,7 @@ export interface components {
             /** @description Resident ids whose credentials were revoked. Confirmed run only. */
             residents?: string[];
         };
-        /** @description The five ORCS §8 dimensions. Every field is optional because a profile is honest about its reach: a national ID registry's mapping speaks to identity and says nothing about how a credential is protected. */
+        /** @description The five assurance dimensions. Every field is optional because a profile is honest about its reach: a national ID registry's mapping speaks to identity and says nothing about how a credential is protected. */
         AssuranceDimensions: {
             /** @enum {string} */
             identity?: "IAL1" | "IAL2" | "IAL3";
@@ -6593,7 +6593,7 @@ export interface components {
             /** @enum {string} */
             credential?: "CA1" | "CA2" | "CA3";
         };
-        /** @description A governed profile record (ORCS §8): what an assurance value resolves to. `version` and `issuer` are what make it governed rather than merely structured. */
+        /** @description A governed profile record: what an assurance value resolves to. `version` and `issuer` are what make it governed rather than merely structured. */
         AssuranceProfile: {
             /** @example orcs:profile:verified */
             id: string;
@@ -6607,7 +6607,7 @@ export interface components {
             /** @description What this profile does NOT establish. */
             limitations: string[];
         };
-        /** @description What one identity source publishes about its own verification (ORCS §8.1). */
+        /** @description What one identity source publishes about its own verification. */
         ProviderAssuranceMapping: {
             /** @example NG_NIN */
             providerCode: string;
@@ -6907,7 +6907,7 @@ export interface components {
          */
         IdentityLinkStatus: "ACTIVE" | "DISPUTED" | "UNLINKED";
         /**
-         * @description The ORCS §11 operations, plus the closing half of DISPUTE.
+         * @description The identity-link operations, plus the closing half of DISPUTE.
          * @enum {string}
          */
         IdentityLinkOperation: "LINK" | "DISPUTE" | "DISPUTE_RESOLVED" | "UNLINK" | "RELINK" | "MERGE" | "SPLIT";

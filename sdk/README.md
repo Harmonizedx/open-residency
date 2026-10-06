@@ -18,8 +18,9 @@ reachable with its request and response types.
   and the OpenAPI 3.1 description every instance serves at `/openapi.yaml` and `/docs`.
 - Integrating a service: [`docs/INTEGRATION.md`](https://github.com/Harmonizedx/open-residency/blob/main/docs/INTEGRATION.md).
 - Wallets and standards: [`docs/INTEROP.md`](https://github.com/Harmonizedx/open-residency/blob/main/docs/INTEROP.md).
-- The specification the server implements is ORCS-001, the OpenResidency Core
-  Specification. Section numbers below (ORCS §6, §7, §9, §10) refer to it.
+- Design decisions behind each surface are recorded as ADRs in
+  [`docs/adr/`](https://github.com/Harmonizedx/open-residency/tree/main/docs/adr); the table
+  below links the relevant one per area.
 
 ```bash
 npm install @openresidency/sdk
@@ -103,13 +104,13 @@ switch (issued.status) {
   case 'rejected':  // issued.reason, and issued.reference for the appeal
 }
 
-// The residency relationship's ORCS §6 state, and moving it
+// The residency relationship's lifecycle state, and moving it (ADR-0007)
 await jurisdiction.transitionRelationship(issued.residentId!, {
   status: 'SUSPENDED',
   reason: 'Address under review',
 });
 
-// Consent for a sector to read the record (ORCS §9), with a signed receipt
+// Consent for a sector to read the record (ADR-0009), with a signed receipt
 await jurisdiction.grantConsent({
   residentId: issued.residentId!,
   relyingParty: 'health',
@@ -168,10 +169,10 @@ The named methods cover the integrator-facing surface:
 | Health | `live`, `ready` |
 | Identity | `identityChallenge`, `verifyIdentity` |
 | Residency | `countries`, `issueResidency`, `residencyStatus`, `verifyCredential`, `revokeResidency`, `eraseResidency`, `retentionSweep`, `provisionalSweep`, `reconcile` |
-| Relationship and credential lifecycle (ORCS §6, §10) | `relationship`, `transitionRelationship`, `credential`, `transitionCredential`, `refusal`, `reviewRefusal` |
-| Identity links (ORCS §11) | `identityLinks`, `linkIdentity`, `identityLink`, `disputeIdentityLink`, `resolveIdentityLinkDispute`, `unlinkIdentity`, `relinkIdentity`, `mergeResidents`, `merge`, `splitMerge` |
-| Assurance (ORCS §7) | `assuranceProfiles`, `assuranceMappings`, `resolveAssurance`, `residentAssurance` |
-| Consent and legal bases (ORCS §9) | `listConsents`, `grantConsent`, `revokeConsent`, `legalBases`, `legalBasis`, `deactivateLegalBasis` |
+| Relationship and credential lifecycle ([ADR-0007](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0007-residency-status-is-lifecycle.md)) | `relationship`, `transitionRelationship`, `credential`, `transitionCredential`, `refusal`, `reviewRefusal` |
+| Identity links ([ADR-0014](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0014-identity-links-are-a-record-not-a-column.md)) | `identityLinks`, `linkIdentity`, `identityLink`, `disputeIdentityLink`, `resolveIdentityLinkDispute`, `unlinkIdentity`, `relinkIdentity`, `mergeResidents`, `merge`, `splitMerge` |
+| Assurance ([ADR-0008](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0008-assurance-registry-maps-existing-vocabularies.md)) | `assuranceProfiles`, `assuranceMappings`, `resolveAssurance`, `residentAssurance` |
+| Consent and legal bases ([ADR-0009](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0009-legal-basis-registry-closed-vocabulary.md)) | `listConsents`, `grantConsent`, `revokeConsent`, `legalBases`, `legalBasis`, `deactivateLegalBasis` |
 | Operator identity | `operatorLogin`, `me`, `listOperators`, `createOperator`, `disableOperator`, `listKeys`, `createKey`, `rotateKey`, `revokeKey` |
 | Audit and admin | `auditLog`, `verifyAuditChain`, `listResidents`, `stats`, `statistics`, `statisticsCsv` |
 | Offline | `qr`, `ussd` |

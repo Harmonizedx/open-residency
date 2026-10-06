@@ -79,18 +79,34 @@ credential:
 # each state run its own statutory numbering: a unit may carry its own `residentId` block to
 # override the country default wholesale. It is validated exactly like the country format
 # (entropy floor, checksum/alphabet coherence), so a state cannot configure an unsafe ID.
+#
+# Unit codes. `code` is the deployment's own key and is what records, resident IDs and
+# credentials carry. `iso3166_2` names the same unit in ISO 3166-2 (NG-KT, NG-KD, ...), which is
+# what NIPOST's digital postcode leads with and what the EUDI/ISO credential vocabularies expect
+# in `issuing_jurisdiction`. Either the bare suffix (KT) or the full code (NG-KT) is accepted
+# wherever a reported locality is reconciled to a unit, so a register that says "NI" and a config
+# that says "NG-NI" agree. A code that is not in the ISO 3166-2 table for this country is
+# reported at start-up, not refused: a jurisdiction may legitimately run wards or LGAs that ISO
+# does not enumerate.
+#
+# This file is written as a Katsina deployment (defaultSubnationalUnit, issuerDid). A Kaduna
+# deployment sets `defaultSubnationalUnit: KD` and its own `credential.issuerDid` and
+# `issuerName`; nothing else in the file is Katsina-specific.
 subnationalUnits:
-  - { code: KT, name: Katsina, parent: NG, level: state } # inherits the country default
+  - { code: KT, name: Katsina, parent: NG, level: state, iso3166_2: NG-KT } # inherits the country default
+  - { code: KD, name: Kaduna, parent: NG, level: state, iso3166_2: NG-KD } # inherits the country default
   # Niger runs a statutory 12-digit numeric ID with a Luhn check instead of the Crockford
-  # default -- no prefix, so it is pure digits (e.g. 481930274516).
+  # default -- no prefix, so it is pure digits (e.g. 481930274516). Its code is written in the
+  # full ISO form here deliberately, to show that both forms reconcile.
   - code: NG-NI
     name: Niger
     parent: NG
     level: state
+    iso3166_2: NG-NI
     residentId:
       alphabet: numeric
       groups: [11] # 11 random digits + 1 Luhn check = 12
       separator: ''
       prefix: { mode: none }
       checkDigit: { enabled: true, algorithm: luhn }
-  - { code: ZA, name: Zamfara, parent: NG, level: state } # inherits the country default
+  - { code: ZA, name: Zamfara, parent: NG, level: state, iso3166_2: NG-ZA } # inherits the country default

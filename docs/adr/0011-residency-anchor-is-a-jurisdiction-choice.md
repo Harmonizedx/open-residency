@@ -95,6 +95,16 @@ absent from the credential unless a deployment puts it there.
 separate entities and that a person MAY have several -- descriptive, with no MUST. So this is a
 design choice rather than a conformance repair, and is recorded as one.
 
+**External precedent.** The unit/address split is how the European Commission's SEMIC Core
+Person Vocabulary 2.1.0 (2023-05-15) models a person's residence: `residency` has range
+*Jurisdiction* ("the jurisdiction where the Person has their dwelling, i.e. a fixed, permanent
+and principal home for legal purposes"), and `domicile` has range *Address* ("the place that the
+Person treats as permanent home"). `anchor: 'unit'` records the first; `anchor: 'address'` adds
+the second and still requires the first. Naming the unit for external consumers uses ISO 3166-2
+(`NG-KD`), which is also what the EUDI PID and ISO 18013-5 vocabularies carry as
+`issuing_jurisdiction` and what Core Location carries as `adminUnitL1`; units may declare it as
+`iso3166_2` beside their own `code`.
+
 ## Consequences
 
 **Good.** The software becomes usable where residency is address registration. Unit-anchored

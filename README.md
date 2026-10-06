@@ -389,13 +389,14 @@ This repository is the generic public infrastructure, not a single-country app:
 - **`assurance_level` resolves to a registry, and still is not an authentication signal.** The
   value released over SSO now resolves through the Assurance Registry (`src/core/assurance/`)
   rather than being a bare string: each canonical profile is versioned and attributed to the
-  authority that governs it, and each provider publishes an ORCS §8.1 mapping stating which
-  profile its verification reaches, at what version, by what method, and what it does not cover.
+  authority that governs it, and each provider publishes a mapping stating which profile its
+  verification reaches, at what version, by what method, and what it does not cover
+  ([ADR-0008](docs/adr/0008-assurance-registry-maps-existing-vocabularies.md)).
   A provider config must state its level explicitly — `foundational.assuranceOnSuccess` is
   required, and a config omitting it is refused at load rather than defaulting to a high rung.
   What remains true is the separation, and it is deliberate: the registry describes **identity**
   assurance only, and carries no authentication dimension, because folding one into the other is
-  the conflation ORCS §8 exists to prevent. So **step up on the standard OIDC `acr` claim**
+  the conflation the registry exists to prevent. So **step up on the standard OIDC `acr` claim**
   (`urn:openresidency:aal1`–`aal3`, with `amr` naming the factors used) — it is derived from the
   factors actually presented, always released with the `openid` scope, and is the only one of the
   two that says anything about *this* sign-in. `assurance_level` tells a relying party how well
@@ -407,16 +408,16 @@ This repository is the generic public infrastructure, not a single-country app:
   sign that policy, so a decision cannot be reliably reproduced after the policy changes — record
   the ruleset alongside any decision you need to defend later. Wire it to your attestation or
   register source.
-- **Ending a residency is a separate act from revoking a credential.** A record carries an ORCS
-  §6.2 lifecycle status, so a jurisdiction can record that somebody left — with the reason, the
+- **Ending a residency is a separate act from revoking a credential.** A record carries a
+  lifecycle status, so a jurisdiction can record that somebody left — with the reason, the
   deciding authority and the moment — rather than only killing their credential. The two stay
   separate on purpose: one is a statement about a person's relationship to the jurisdiction, the
   other about a key, and ending a residency does **not** revoke the credential as a side effect.
   A caller doing both makes both calls, and both are audited. Residency is permanent until ended:
   validity dates are recorded, but nothing lapses on its own
   ([ADR-0007](docs/adr/0007-residency-status-is-lifecycle.md)). Revocation, separately, preserves
-  what ORCS §10 requires — reason, authority, timestamp and the appeal path a holder contests it
-  through — and is refused rather than recorded blank when any of the four is missing. Suspension
+  reason, authority, timestamp and the appeal path a holder contests it through — and is refused
+  rather than recorded blank when any of the four is missing. Suspension
   is published on its own status list, so a verifier can tell a suspended credential from a
   revoked one.
 - **Who decides is a jurisdiction's choice, and it carries an obligation.** Whether an
@@ -432,7 +433,19 @@ This repository is the generic public infrastructure, not a single-country app:
   polling unit, occupation, address. The `Resident` model holds the minimized attributes carried
   into the credential and nothing else. A jurisdiction replacing an existing enrolment-desk system
   keeps that system, or builds the capture layer on top; the citizen-facing artifact here is the
-  credential and its QR, which is what verifies offline.
+  credential and its QR, which is what verifies offline. A card, a printed QR and a USSD lookup
+  are all carriers of the same record, and a deployment may issue any of them or none.
+- **What the credential does not prove.** It states that this jurisdiction holds a residency
+  record for a person whose identity was verified against a named foundational source, at a
+  stated assurance level, by a stated method. It does not prove identity on its own — the
+  foundational source does that, and the credential names it. It does not prove or record
+  indigeneship, state of origin or ancestry: no origin field exists on the record or in the
+  credential, and a foundational source's origin field is never used as evidence of residence.
+  It does not prove ownership or occupancy of any address. It does not establish immigration or
+  citizenship status, and it confers no entitlement by itself — which services it unlocks is the
+  jurisdiction's decision, made in the jurisdiction's law and its relying-party configuration,
+  not in this software. It is not an electoral instrument: nothing here reads or writes a voter
+  roll, and bulk export of records by any attribute is governed by the operator role and audited.
 - **Source contracts vary.** The provided `ng.yaml`, `in.yaml`, `ke.yaml`, `xm-xml.yaml`, and
   `xf-import.yaml` mappings are illustrative shapes. Confirm the exact request/response contract
   (or extract schema) and legal basis (consent, data protection) with the identity authority.
@@ -458,6 +471,16 @@ gaps, what an adopter completes before production, and the registry submission p
 ## Standards conformance
 
 Claims about conformance should be checkable, so here is exactly what is and is not verified.
+
+**The project's own acceptance criteria** (`npm run conformance:orcs`): nine criteria the project
+set for itself — concurrent relationships across a federation, conflict only under an explicit
+rule, assurance values resolving to a governed registry, a complete consent lifecycle, credential
+status and revocation, the identity-link lifecycle, federated sign-in without surrendering data,
+versioned events, and no Nigeria-specific hard-coding in the core. The suite prints a verdict per
+criterion and CI holds each verdict at its recorded baseline, failing on any regression. These are
+internal criteria, written and checked by this project; they are not an external standard and no
+external conformance is claimed for them. The external standards the software builds on are the
+ones below.
 
 **Checked in CI, on every pull request** (`npm run test:conformance`): the normative requirements
 of [VC Data Model 2.0](https://www.w3.org/TR/vc-data-model-2.0/),

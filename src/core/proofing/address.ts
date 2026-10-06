@@ -22,6 +22,15 @@
  * governed registry, who decides is derived from configured methods. This is the same pattern
  * applied to the thing residency is anchored to.
  *
+ * The split is not this project's invention. The European Commission's SEMIC Core Person
+ * Vocabulary 2.1.0 models exactly these two things as distinct properties: `residency`, whose
+ * range is a Jurisdiction ("the jurisdiction where the Person has their dwelling"), and
+ * `domicile`, whose range is an Address ("the place that the Person treats as permanent home").
+ * `anchor: 'unit'` is the first; `anchor: 'address'` adds the second on top. Where an external
+ * vocabulary is needed for the unit, ISO 3166-2 (`issuing_jurisdiction` in the EUDI PID and ISO
+ * 18013-5 vocabularies; `adminUnitL1` in Core Location) is the one these systems share -- see
+ * `config/iso3166-2.ts`.
+ *
  * ## What this deliberately does NOT do
  *
  * It does not parse, geocode, or canonicalise addresses. Address formats are jurisdictional to
