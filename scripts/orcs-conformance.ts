@@ -35,6 +35,21 @@
  *
  * Each criterion prints PASS, FAIL or PARTIAL with the finding id, so the output doubles as
  * a progress report against the gap analysis.
+ *
+ * EVERY CRITERION NAMES WHAT IT SERVES. ORCS is this project's own specification, written
+ * by this project; a criterion that existed only "because ORCS requires it" would be the
+ * project grading its own homework. So each one also states the external requirement it
+ * satisfies -- a data-protection article, a W3C or OpenID specification, a GovStack
+ * requirement, an ID4D principle -- and that line is printed with the verdict. Where a
+ * criterion serves nothing external, it says so, and that is a finding about the criterion.
+ *
+ * TWO SECTIONS. Criteria 1-9 are ORCS §15's nine, kept as the specification numbers them.
+ * Criteria 10 onward are PROJECT acceptance criteria: things the research into where
+ * registration programmes actually fail said matter, that §15 does not sample -- a decision
+ * for a person without a foundational identifier, delivery as distinct from issuance, a
+ * resident seeing who read their record, a home for people with no fixed abode, and the
+ * absence of any origin field. They are held to the same ratchet. Say "seven of nine §15
+ * criteria pass" and "N of M project criteria pass", never a single blended number.
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -53,6 +68,8 @@ import { didKeyFromJwk } from '../src/core/credentials/did';
 import { StatusList } from '../src/core/credentials/status-list';
 import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
 import { buildDefaultAssuranceRegistry } from '../src/core/assurance/profiles';
+import { InMemoryRefusalStore } from '../src/core/residency/refusal';
+import { InMemoryDeliveryStore } from '../src/core/credentials/delivery';
 
 type Verdict = 'PASS' | 'FAIL' | 'PARTIAL';
 
@@ -62,9 +79,32 @@ interface Result {
   verdict: Verdict;
   finding?: string;
   detail: string;
+  /** The external requirement this criterion serves. Printed with the verdict. */
+  serves: string;
 }
 
 const results: Result[] = [];
+
+/**
+ * What each criterion serves beyond ORCS itself. Cited by identifier so a reviewer can check
+ * the claim, and kept here rather than at each call site so the list can be read in one place.
+ */
+const SERVES: Record<number, string> = {
+  1: 'ORCS §4.4 across deployments; ID4D Principle 4 (interoperable platform); W3C VC 2.0 verification of a peer issuer',
+  2: 'nothing external yet: no framework asks a subnational register to adjudicate conflicts; see the rewrite below',
+  3: 'NIST SP 800-63-3 IAL/AAL/FAL vocabulary; ID4D Principle 3 (a trusted identity: accurate, with stated assurance)',
+  4: 'Nigeria GAID 2025 Art. 41(9) (explicit, revocable consent for third-party sharing); DPG Standard indicator 9a; GovStack Consent BB',
+  5: 'W3C Bitstring Status List 1.0; ORCS §10 revocation record; EUDI ARF status checking; DPG Standard indicator 9a (integrity)',
+  6: 'ID4D Principle 10 (grievance and correction); NDPA 2023 data-subject right to rectification; GovStack Digital Registries DRS-7 (integrity of change logs)',
+  7: 'OpenID Connect Core 1.0 with pairwise subject identifiers; OAuth 2.0 PKCE (RFC 7636); ID4D Principle 6 (privacy by design); DPG indicator 9a',
+  8: 'nothing external yet: ORCS §12 is the only source asking for a publishable event envelope',
+  9: 'ID4D Principle 5 (open standards, no lock-in); DPG Standard indicator 4 (platform independence)',
+  10: 'ID4D Principles 1-2 (universal access, remove barriers); GAID 2025 Schedule 6 (vulnerability); NDPA 2023 s.37 (human review of an automated decision)',
+  11: 'ID4D Practitioner\'s Guide on delivery and collection; World Bank Nigeria ID4D ISR (printed is not collected); GovStack Registration BB (status visible to the applicant)',
+  12: 'GovStack Digital Registries DRS-8 and DRS-37 (log every read; data owners view access); DPG Standard indicator 9a; ID4D Practitioner\'s Guide (a person can see who accessed their record)',
+  13: 'Registers with a reference-address or no-fixed-abode provision (BE, NL, DK, ZA); ID4D Principle 1; GAID 2025 Schedule 6 (vulnerable data subjects)',
+  14: 'Constitution of Nigeria s.42 (no disability by circumstances of birth); ID4D Principle 1 (free from discrimination); GAID 2025 data minimisation',
+};
 
 function record(
   n: number,
@@ -73,7 +113,7 @@ function record(
   detail: string,
   finding?: string,
 ): void {
-  results.push({ n, criterion, verdict, finding, detail });
+  results.push({ n, criterion, verdict, finding, detail, serves: SERVES[n] ?? 'unstated' });
 }
 
 async function main() {
@@ -283,12 +323,23 @@ async function main() {
   // ---------------------------------------------------------------------------
   // 2. A conflict is detected only under an explicit exclusivity rule.
   // ---------------------------------------------------------------------------
+  //
+  // What this criterion will assert, once the code exists: a deployment holds an explicit
+  // per-peer exclusivity policy (none | record | suspend | end); a peer's signed arrival
+  // notice -- carrying this deployment's own credential id and no personal data -- is the
+  // evidence it evaluates; under `none` two ACTIVE residencies coexist and NO conflict is
+  // recorded (the false-positive half of the criterion), and under `record` or stronger a
+  // conflict is recorded, attributed to the peer and the rule, with a reason. Adjudication
+  // stays local and human: no central adjudicator, which ORCS §1.2 and ADR-0004 rule out.
+  // Nothing in src/core evaluates exclusivity yet, so both halves fail.
   record(
     2,
     'Conflict detected only under an explicit exclusivity rule',
     'FAIL',
-    'no conflict detector or adjudication service exists; nothing in src/core evaluates ' +
-      'exclusivity, so neither true conflicts nor false ones can be distinguished',
+    'no exclusivity policy, no arrival-notice endpoint and no conflict record exist; nothing ' +
+      'in src/core evaluates exclusivity, so neither a true conflict nor a false one can be ' +
+      'distinguished. The design is settled (per-peer policy over a signed peer notice) and ' +
+      'awaits an ADR and the code',
     'G-06',
   );
 
@@ -729,12 +780,22 @@ async function main() {
   // ---------------------------------------------------------------------------
   // 8. Events are versioned, minimal, attributable and legally authorised.
   // ---------------------------------------------------------------------------
+  //
+  // What exists: a hash-chained, checkpointed, redactable audit log that is attributable
+  // (every entry names an actor) and minimal (references, never payloads). What does not: a
+  // versioned envelope, a registry of event types, a legal-basis reference on each event, and
+  // any way for a sectoral system to subscribe. ORCS §12 asks for the second set; nothing
+  // external does, and the pending decision in the tracker is whether an event architecture
+  // is built at all or the audit chain is declared to be the record and §12 amended. Until
+  // that is decided this is honestly FAIL, not PARTIAL: half an event system is none.
   record(
     8,
     'Events versioned, minimal, attributable, legally authorised',
     'FAIL',
-    'no event registry, broker, envelope or subscriptions. AuditEvent is an internal ' +
-      'hash-chained integrity record and is deliberately not a publishable event',
+    'no event registry, envelope, legal-basis reference per event, or subscriptions. The ' +
+      'audit log is attributable and minimal but is an internal integrity record, deliberately ' +
+      'not a publishable event. Whether to build an event architecture or amend §12 is an open ' +
+      'decision in the tracker',
     'G-04',
   );
 
@@ -811,27 +872,266 @@ async function main() {
     neutral ? undefined : 'G-11',
   );
 
+  // ===========================================================================
+  // PROJECT ACCEPTANCE CRITERIA (10 onward). Not in ORCS §15. What the research into where
+  // registration programmes fail said a register must be able to do, held to the same ratchet.
+  // ===========================================================================
+
+  // Shared fixture: a Kaduna-shaped deployment with refusals recorded, deliveries recorded,
+  // a residence rule, the no-fixed-abode mode admitted, and activation on first delivery.
+  const projectCfg = (over: Record<string, unknown> = {}) =>
+    parseCountryConfig({
+      countryCode: 'NG',
+      countryName: 'Nigeria',
+      defaultSubnationalUnit: 'KD',
+      foundational: {
+        provider: 'MOCK',
+        inputs: [{ key: 'nin', label: 'NIN', pattern: '^\\d{11}$' }],
+        assuranceOnSuccess: 'verified',
+      },
+      residency: {
+        minAssurance: 'verified',
+        proofOfResidence: 'attestation',
+        residence: {
+          required: true,
+          targetLevel: 'RAL1',
+          acceptedMethods: ['register_declared_residence', 'authority_attestation'],
+          unitMatchRequired: true,
+          acceptFoundationalResidence: true,
+          attestation: { acceptedAttesterTypes: ['ward_officer', 'camp_manager'] },
+          modes: { noFixedAbode: { allowed: true, acceptedAttesterTypes: ['camp_manager'], ceiling: 'RAL1' } },
+        },
+      },
+      credential: {
+        issuerDid,
+        issuerName: 'Kaduna State Residents Identity Management Agency',
+        type: 'StateResidencyCredential',
+        validityDays: 365,
+        context: ['https://www.w3.org/ns/credentials/v2'],
+        appealPath: 'KADRIMA Head Office, Kaduna; or the Agency\'s published appeal form',
+        activateOn: 'first_delivery',
+      },
+      subnationalUnits: [
+        { code: 'KD', name: 'Kaduna', parent: 'NG', level: 'state', iso3166_2: 'NG-KD' },
+        { code: 'KN', name: 'Kano', parent: 'NG', level: 'state', iso3166_2: 'NG-KN' },
+      ],
+      ...over,
+    });
+  const projectRefusals = new InMemoryRefusalStore();
+  const projectDeliveries = new InMemoryDeliveryStore();
+  const projectStore = new InMemoryStore();
+  const project = new ResidencyService(
+    new ProviderRegistry('project-pepper'),
+    new VcIssuer(key),
+    projectStore,
+    () => 'https://id.kaduna.gov.ng/status/ng.json',
+    undefined,
+    buildDefaultAssuranceRegistry(),
+    projectRefusals,
+    undefined,
+    projectDeliveries,
+  );
+  const pcfg = projectCfg();
+
+  // ---------------------------------------------------------------------------
+  // 10. An applicant whose foundational identity cannot be verified reaches a decision with
+  //     a human review path, rather than silently nothing.
+  // ---------------------------------------------------------------------------
+  //
+  // The MOCK source verifies even last digits only, so an odd one stands in for the person
+  // whose national identifier does not resolve. What is asserted: the decision is recorded,
+  // carries a reference the person can quote, names the reason, and names where they are
+  // heard. What is NOT yet true, and keeps this PARTIAL: there is no path to a residency
+  // record for a person with no foundational identifier at all -- the pipeline is
+  // foundational-first, and the ADR deciding whether an attested-only record exists, and what
+  // it would certify, has not been written.
+  const noId = await project.issue(pcfg, {
+    countryCode: 'NG', subnationalUnit: 'KD', identifiers: { nin: '12345678901' },
+    residenceEvidence: [{ method: 'authority_attestation', reportedUnit: 'KD', attesterType: 'ward_officer' }],
+  });
+  const refusalRef = noId.status === 'rejected' ? noId.reference : undefined;
+  const refusalRecord = refusalRef ? await projectRefusals.findByReference(refusalRef) : null;
+  const decisionRecorded = noId.status === 'rejected' && !!refusalRef && !!refusalRecord && !!refusalRecord.reason;
+  const reviewPathNamed = noId.status === 'rejected' && !!noId.appealPath && !/UNDECLARED/i.test(noId.appealPath);
+  record(
+    10,
+    'An applicant without a verifiable foundational identity reaches a recorded, appealable decision',
+    decisionRecorded && reviewPathNamed ? 'PARTIAL' : 'FAIL',
+    decisionRecorded && reviewPathNamed
+      ? `the refusal is recorded under reference ${refusalRef} with reason ${refusalRecord?.reason} and the ` +
+        `jurisdiction's appeal path; what does not exist is any route to a residency record for a person ` +
+        `with no foundational identifier at all, which the ADR on applicants without a foundational ID must decide`
+      : `decision recorded: ${decisionRecorded}; review path named: ${reviewPathNamed}`,
+    'G-15',
+  );
+
+  // ---------------------------------------------------------------------------
+  // 11. A credential is not ACTIVE until it has been delivered or collected, where the
+  //     jurisdiction says delivery is a step.
+  // ---------------------------------------------------------------------------
+  const nfaNin = '12345678904';
+  const waiting = await project.issue(pcfg, {
+    countryCode: 'NG', subnationalUnit: 'KD', identifiers: { nin: nfaNin, residenceUnit: 'KD' },
+    residenceEvidence: [{ method: 'authority_attestation', reportedUnit: 'KD', attesterType: 'ward_officer' }],
+  });
+  const issuedState = waiting.status === 'issued' ? (await project.credentialStatusFor(pcfg, waiting.residentId))?.status : undefined;
+  const pendingOnly = waiting.status === 'issued'
+    ? await project.recordDelivery(pcfg, waiting.residentId, { channel: 'sms_link', status: 'pending', by: 'operator:desk' })
+    : null;
+  const stillIssued = waiting.status === 'issued' ? (await project.credentialStatusFor(pcfg, waiting.residentId))?.status : undefined;
+  const handed = waiting.status === 'issued'
+    ? await project.recordDelivery(pcfg, waiting.residentId, { channel: 'agent_handover', status: 'delivered', by: 'operator:field' })
+    : null;
+  const activeAfter = waiting.status === 'issued' ? await project.credentialStatusFor(pcfg, waiting.residentId) : null;
+  const deliveryGates =
+    issuedState === 'ISSUED' &&
+    pendingOnly?.ok === true && pendingOnly.activated === false && stillIssued === 'ISSUED' &&
+    handed?.ok === true && handed.activated === true &&
+    activeAfter?.status === 'ACTIVE' && activeAfter.reason === 'DELIVERED_agent_handover';
+  record(
+    11,
+    'A credential is not ACTIVE until delivered or collected, where delivery is a step',
+    deliveryGates ? 'PASS' : 'FAIL',
+    deliveryGates
+      ? 'under activateOn: first_delivery the credential is ISSUED on issue, a pending dispatch leaves it ' +
+        'ISSUED, and the first delivered event moves it to ACTIVE through the ordinary transition with the ' +
+        'delivery as reason and the recording operator as authority; the events are on the record and ' +
+        'counted by channel and status'
+      : `issued state: ${issuedState}; pending left it: ${stillIssued}; delivery activated: ${handed && handed.ok ? handed.activated : 'n/a'}; ` +
+        `final: ${activeAfter?.status}/${activeAfter?.reason}`,
+    deliveryGates ? undefined : 'G-16',
+  );
+
+  // ---------------------------------------------------------------------------
+  // 12. A resident can see every read of their record.
+  // ---------------------------------------------------------------------------
+  //
+  // The audit log records operator reads and is readable by operators with the auditor role.
+  // Nothing lets the person whose record it is ask "who has looked at me", which GovStack's
+  // Digital Registries requirements, the DPG privacy framework and the ID4D guide all ask for.
+  record(
+    12,
+    'A resident can list every read of their own record',
+    'FAIL',
+    'no resident-facing surface exposes the audit entries that target a record; reads are logged ' +
+      'and visible to operators holding the auditor role only',
+    'G-17',
+  );
+
+  // ---------------------------------------------------------------------------
+  // 13. A person with no fixed abode can be registered on an accepted attester's word.
+  // ---------------------------------------------------------------------------
+  const nfa = await project.issue(pcfg, {
+    countryCode: 'NG', subnationalUnit: 'KD', identifiers: { nin: '12345678906' },
+    residenceMode: 'no_fixed_abode',
+    residenceEvidence: [{ method: 'authority_attestation', reportedUnit: 'KD', attesterType: 'camp_manager' }],
+  });
+  const nfaWrongAttester = await project.issue(pcfg, {
+    countryCode: 'NG', subnationalUnit: 'KD', identifiers: { nin: '12345678908' },
+    residenceMode: 'no_fixed_abode',
+    residenceEvidence: [{ method: 'authority_attestation', reportedUnit: 'KD', attesterType: 'ward_officer' }],
+  });
+  const nfaCredentialText = nfa.status === 'issued' ? Buffer.from(nfa.credentialJwt.split('.')[1], 'base64url').toString('utf8') : '';
+  const nfaOk =
+    nfa.status === 'issued' &&
+    nfa.record.residence.mode === 'no_fixed_abode' &&
+    nfa.record.residence.attesterType === 'camp_manager' &&
+    nfa.record.residence.assuranceLevel === 'RAL1' &&
+    nfaWrongAttester.status === 'rejected' &&
+    !nfaCredentialText.includes('no_fixed_abode') && !nfaCredentialText.includes('attesterType');
+  record(
+    13,
+    'A person with no fixed abode can be registered on an accepted attester\'s word',
+    nfaOk ? 'PASS' : 'FAIL',
+    nfaOk
+      ? 'with the mode admitted, a camp manager\'s attestation issues at the mode\'s ceiling; an attester the ' +
+        'mode does not list is refused; the record carries the mode and the attester, the credential carries neither'
+      : `issued: ${nfa.status}${nfa.status === 'rejected' ? ` (${nfa.reason})` : ''}; wrong attester refused: ${nfaWrongAttester.status === 'rejected'}; ` +
+        `mode on record: ${nfa.status === 'issued' ? nfa.record.residence.mode : 'n/a'}; leaked into credential: ${nfaCredentialText.includes('no_fixed_abode')}`,
+    nfaOk ? undefined : 'G-18',
+  );
+
+  // ---------------------------------------------------------------------------
+  // 14. No origin field exists, and a foundational source's origin never proves residence.
+  // ---------------------------------------------------------------------------
+  //
+  // Nigeria's national record carries both a residence state and an origin (indigeneity)
+  // state. The second is what gates jobs, admissions and land in practice, is issued at
+  // discretion and sold, and is what a register of who-lives-where must never become a proxy
+  // for. Three things are asserted: the credential subject has no key naming origin; the
+  // record has no column for it; and a foundational origin that matches the claimed unit
+  // while the residence state does not is refused, never accepted as residence evidence.
+  const originOnly = await project.issue(pcfg, {
+    countryCode: 'NG', subnationalUnit: 'KD',
+    identifiers: { nin: '12345678910', originUnit: 'KD', residenceUnit: 'KN' },
+  });
+  const residenceMatches = await project.issue(pcfg, {
+    countryCode: 'NG', subnationalUnit: 'KD',
+    identifiers: { nin: '12345678912', originUnit: 'KN', residenceUnit: 'KD' },
+  });
+  const credText = residenceMatches.status === 'issued'
+    ? Buffer.from(residenceMatches.credentialJwt.split('.')[1], 'base64url').toString('utf8') : '';
+  const recordText = residenceMatches.status === 'issued' ? JSON.stringify(residenceMatches.record) : '';
+  const originRefused = originOnly.status === 'rejected' && /PROOF_OF_RESIDENCE/.test(originOnly.reason);
+  const noOriginField = !/origin|indigen/i.test(credText) && !/origin|indigen/i.test(recordText);
+  const prismaSchema = readFileSync(join(process.cwd(), 'prisma/schema.prisma'), 'utf8');
+  const noOriginColumn = !/^\s*\w*[Oo]rigin\w*\s+(String|Json|Boolean)/m.test(prismaSchema);
+  const originNeverEvidence = originRefused && residenceMatches.status === 'issued';
+  record(
+    14,
+    'No origin field exists, and a foundational origin never proves residence',
+    noOriginField && noOriginColumn && originNeverEvidence ? 'PASS' : 'FAIL',
+    noOriginField && noOriginColumn && originNeverEvidence
+      ? 'the credential subject and the record carry no key naming origin or indigeneity; the Resident table has ' +
+        'no such column; a foundational origin matching the claimed unit while the residence state does not is ' +
+        'refused for want of residence proof, and the reverse issues'
+      : `no origin key in credential/record: ${noOriginField}; no origin column: ${noOriginColumn}; ` +
+        `origin alone refused: ${originRefused} (${originOnly.status === 'rejected' ? originOnly.reason : originOnly.status}); ` +
+        `residence alone issues: ${residenceMatches.status}`,
+    noOriginField && noOriginColumn && originNeverEvidence ? undefined : 'G-19',
+  );
+
   // --- Report -----------------------------------------------------------------
   const icon: Record<Verdict, string> = { PASS: '✓', FAIL: '✗', PARTIAL: '~' };
-  for (const r of results) {
-    const tag = r.finding ? ` [${r.finding}]` : '';
-    console.log(`  ${icon[r.verdict]} ${r.n}. ${r.criterion} — ${r.verdict}${tag}`);
-    console.log(`      ${r.detail}`);
-  }
+  const printed = new Set<number>();
+  const section = (title: string, pick: (r: Result) => boolean) => {
+    const rows = results.filter(pick);
+    if (!rows.length) return;
+    console.log(`\n-- ${title} --\n`);
+    for (const r of rows) {
+      printed.add(r.n);
+      const tag = r.finding ? ` [${r.finding}]` : '';
+      console.log(`  ${icon[r.verdict]} ${r.n}. ${r.criterion} — ${r.verdict}${tag}`);
+      console.log(`      ${r.detail}`);
+      console.log(`      serves: ${r.serves}`);
+    }
+  };
+  section('ORCS §15 acceptance criteria (1-9)', (r) => r.n <= 9);
+  section('Project acceptance criteria (10 onward)', (r) => r.n >= 10);
 
-  const pass = results.filter((r) => r.verdict === 'PASS').length;
-  const partial = results.filter((r) => r.verdict === 'PARTIAL').length;
-  const fail = results.filter((r) => r.verdict === 'FAIL').length;
+  const tally = (pick: (r: Result) => boolean) => {
+    const rows = results.filter(pick);
+    return {
+      total: rows.length,
+      pass: rows.filter((r) => r.verdict === 'PASS').length,
+      partial: rows.filter((r) => r.verdict === 'PARTIAL').length,
+      fail: rows.filter((r) => r.verdict === 'FAIL').length,
+    };
+  };
+  const spec = tally((r) => r.n <= 9);
+  const proj = tally((r) => r.n >= 10);
 
-  console.log(`\n== ORCS §15: ${pass} pass, ${partial} partial, ${fail} fail (of ${results.length}) ==`);
+  console.log(`\n== ORCS §15: ${spec.pass} pass, ${spec.partial} partial, ${spec.fail} fail (of ${spec.total}) ==`);
+  console.log(`== Project criteria: ${proj.pass} pass, ${proj.partial} partial, ${proj.fail} fail (of ${proj.total}) ==`);
+  const open = [...new Set(results.filter((r) => r.finding).map((r) => r.finding))];
   console.log(
-    fail === 0 && partial === 0
+    spec.fail === 0 && spec.partial === 0
       ? '\nAll nine ORCS §15 acceptance criteria pass.\n\n' +
-        'This is NOT a statement of ORCS conformance. §15 is a sample of the specification --\n' +
-        'nine acceptance criteria over sixteen sections of entities, registries, state machines,\n' +
-        'closed vocabularies and interoperability obligations. Findings that map to no criterion\n' +
-        'are not measured here at all; see the implementation tracker for those.\n'
-      : `\nORCS §15 not satisfied. Open findings: ${[...new Set(results.filter((r) => r.finding).map((r) => r.finding))].join(', ')}\n`,
+        'This is NOT a statement of ORCS conformance, and ORCS is this project\'s own specification.\n' +
+        '§15 is a sample -- nine acceptance criteria over sixteen sections. What each criterion\n' +
+        'serves beyond ORCS is printed above; findings that map to no criterion are not measured\n' +
+        'here at all; see the implementation tracker for those.\n'
+      : `\nORCS §15 not satisfied. Open findings: ${open.join(', ')}\n`,
   );
 
   process.exit(ratchet(results));
