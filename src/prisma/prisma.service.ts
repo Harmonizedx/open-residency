@@ -15,7 +15,12 @@ import {
   StatusPurpose,
 } from '../core/credentials/credential-lifecycle';
 import { BindingMethod } from '../core/proofing/binding';
-import { ResidenceAssuranceLevel, ResidenceEvidenceMethod } from '../core/proofing/residence';
+import {
+  AttesterType,
+  ResidenceAssuranceLevel,
+  ResidenceEvidenceMethod,
+  ResidenceMode,
+} from '../core/proofing/residence';
 import { ResidenceAddress } from '../core/proofing/address';
 import {
   PendingUpstreamAuth,
@@ -108,6 +113,10 @@ export class PrismaResidencyStore implements ResidencyStore {
         unit: r.residenceUnit ?? undefined,
         address: (r.residenceAddress ?? undefined) as ResidenceAddress | undefined,
         asOf: r.residenceAsOf ? r.residenceAsOf.toISOString() : undefined,
+        since: r.residenceSince ? r.residenceSince.toISOString().slice(0, 10) : undefined,
+        mode: (r.residenceMode ?? undefined) as ResidenceMode | undefined,
+        attesterType: (r.residenceAttesterType ?? undefined) as AttesterType | undefined,
+        intentDeclared: r.residenceIntent ?? undefined,
       },
       provisional: r.provisional,
       // ORCS §4.3 attributes. Reconstructed only when the row carries a decision -- a row
@@ -267,6 +276,10 @@ export class PrismaResidencyStore implements ResidencyStore {
       // Prisma distinguishes a JSON `null` VALUE from a NULL column; DbNull is the column.
       residenceAddress: (record.residence?.address ?? Prisma.DbNull) as unknown as Prisma.InputJsonValue,
       residenceAsOf: record.residence?.asOf ? new Date(record.residence.asOf) : undefined,
+      residenceSince: record.residence?.since ? new Date(record.residence.since) : undefined,
+      residenceMode: record.residence?.mode,
+      residenceAttesterType: record.residence?.attesterType,
+      residenceIntent: record.residence?.intentDeclared,
       provisional: record.provisional,
       relationshipType: rel?.type ?? 'GENERAL_RESIDENCY',
       relationshipPurpose: rel?.purpose ?? '',
