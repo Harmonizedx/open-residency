@@ -175,6 +175,7 @@ The named methods cover the integrator-facing surface:
 | Consent and legal bases ([ADR-0009](https://github.com/Harmonizedx/open-residency/blob/main/docs/adr/0009-legal-basis-registry-closed-vocabulary.md)) | `listConsents`, `grantConsent`, `revokeConsent`, `legalBases`, `legalBasis`, `deactivateLegalBasis` |
 | Operator identity | `operatorLogin`, `me`, `listOperators`, `createOperator`, `disableOperator`, `listKeys`, `createKey`, `rotateKey`, `revokeKey` |
 | Audit and admin | `auditLog`, `verifyAuditChain`, `listResidents`, `stats`, `statistics`, `statisticsCsv` |
+| Data protection (admin) | `recordOfProcessing`, `dpiaFacts`, `breaches`, `recordBreach` |
 | Offline | `qr`, `ussd` |
 | Resident self-service | `accessLogFactors`, `accessLogPresentationStart`, `accessLogPresentation`, `accessLogStart`, `accessLog` |
 | OpenID4VCI (issuing into a wallet) | `credentialIssuerMetadata`, `oauthAuthorizationServerMetadata`, `createCredentialOffer`, `walletToken`, `walletNonce`, `walletCredential` |

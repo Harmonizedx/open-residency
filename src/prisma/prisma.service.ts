@@ -41,6 +41,7 @@ import {
   DeliveryStatus,
   DeliveryStore,
 } from '../core/credentials/delivery';
+import { BreachCategory, BreachRecord, BreachStore } from '../core/privacy/breach';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
 import { OidcStore, OidcStoredItem } from '../core/sso/oidc-store';
@@ -500,6 +501,61 @@ export class PrismaAuditStore implements AuditStore {
  * would make issuance fail roughly (1 - 1/replicas) of the time.
  */
 @Injectable()
+export class PrismaBreachStore implements BreachStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toRecord = (r: any): BreachRecord => {
+    const b: BreachRecord = {
+      id: r.id,
+      countryCode: r.countryCode,
+      detectedAt: r.detectedAt.toISOString(),
+      recordedAt: r.recordedAt.toISOString(),
+      recordedBy: r.recordedBy,
+      categories: r.categories as BreachCategory[],
+      description: r.description,
+      highRisk: r.highRisk,
+      notifyAuthorityBy: r.notifyAuthorityBy.toISOString(),
+      notifySubjects: r.notifySubjects,
+    };
+    if (r.subjectsAffected != null) b.subjectsAffected = r.subjectsAffected;
+    if (r.containment) b.containment = r.containment;
+    if (r.authorityNotifiedAt) b.authorityNotifiedAt = r.authorityNotifiedAt.toISOString();
+    if (r.subjectsNotifiedAt) b.subjectsNotifiedAt = r.subjectsNotifiedAt.toISOString();
+    if (r.amends) b.amends = r.amends;
+    return b;
+  };
+
+  async append(record: BreachRecord): Promise<void> {
+    await this.prisma.dataBreach.create({
+      data: {
+        id: record.id,
+        countryCode: record.countryCode,
+        detectedAt: new Date(record.detectedAt),
+        recordedAt: new Date(record.recordedAt),
+        recordedBy: record.recordedBy,
+        categories: record.categories,
+        description: record.description,
+        subjectsAffected: record.subjectsAffected ?? null,
+        highRisk: record.highRisk,
+        containment: record.containment ?? null,
+        notifyAuthorityBy: new Date(record.notifyAuthorityBy),
+        notifySubjects: record.notifySubjects,
+        authorityNotifiedAt: record.authorityNotifiedAt ? new Date(record.authorityNotifiedAt) : null,
+        subjectsNotifiedAt: record.subjectsNotifiedAt ? new Date(record.subjectsNotifiedAt) : null,
+        amends: record.amends ?? null,
+      },
+    });
+  }
+
+  async list(countryCode?: string): Promise<BreachRecord[]> {
+    const rows = await this.prisma.dataBreach.findMany({
+      where: countryCode ? { countryCode: countryCode.toUpperCase() } : undefined,
+      orderBy: { recordedAt: 'asc' },
+    });
+    return rows.map(this.toRecord);
+  }
+}
+
 export class PrismaDeliveryStore implements DeliveryStore {
   constructor(private prisma: PrismaService) {}
 

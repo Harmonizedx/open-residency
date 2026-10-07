@@ -152,6 +152,11 @@ Stated because a privacy notice that omits them is worth less than one that does
 
 ## 9. What a deployer must complete
 
+Start from what the system can state about itself: `GET /admin/compliance/ropa` and
+`GET /admin/compliance/dpia` generate the record of processing and the impact-assessment facts
+from the live configuration, labelled as skeletons with every unknown listed to complete, and
+`docs/templates/SCHEDULE-6-VULNERABILITY-CHECKLIST.md` covers the vulnerable-subject indexes.
+
 - A Data Protection Impact Assessment against governing law (for Nigeria, the Nigeria Data
   Protection Act) and a record of processing activities. Templates: `docs/templates/`.
 - Retention periods for §5, who may set a legal hold, and who runs the sweep and how often.
