@@ -3651,6 +3651,219 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/compliance/ropa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The record of processing activities, generated from the live configuration
+         * @description A factual skeleton of the record a data-protection regulator asks for: controller, officer, registration, legal bases, and one entry per processing activity with purpose, data subjects, personal data held and deliberately not held, recipients, retention and security. Labelled as not a filing; every field the software cannot know (hosting, processors, review date) is listed to complete. Requires the `admin` role; audited.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Defaults to the first configured jurisdiction. */
+                    countryCode?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The record of processing skeleton */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RecordOfProcessing"];
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Role not permitted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/compliance/dpia": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The facts an impact assessment starts from, and which triggers apply
+         * @description For each ground on which Nigeria's Directive requires a data protection impact assessment before processing -- a legal instrument requiring processing of the public's data, sensitive data such as biometrics, vulnerable data subjects, automated decisions, new technology -- whether it applies to this deployment and why, read from the configuration; the processing described in the terms the template uses; the mitigations present in the software; and what the officer must complete. Not an assessment. Requires the `admin` role; audited.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    countryCode?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The impact-assessment facts */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DpiaFacts"];
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Role not permitted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/compliance/breaches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The breach register, oldest first */
+        get: {
+            parameters: {
+                query?: {
+                    countryCode?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The register */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            breaches?: components["schemas"]["BreachRecord"][];
+                        };
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Role not permitted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Enter a personal-data breach in the register
+         * @description Append-only. The 72-hour clock to notify the Commission runs from `detectedAt`, when the controller became aware, not from when the entry is made; the deadline is computed and returned. Where `highRisk` is true the record says affected people are to be told immediately. An entry is amended or closed by a later entry naming it in `amends`, never edited. The register describes incidents and counts; it never holds the identifiers of the people affected. Requires the `admin` role; audited.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RecordBreachRequest"];
+                };
+            };
+            responses: {
+                /** @description The entry as recorded, with the computed deadline */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BreachRecord"];
+                    };
+                };
+                /** @description Unknown countryCode or invalid body */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Role not permitted */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/access-log/factors": {
         parameters: {
             query?: never;
@@ -6870,6 +7083,120 @@ export interface components {
             endedAt?: string;
             endedReason?: string;
             endedBy?: string;
+        };
+        /** @description A factual skeleton of the record of processing activities. Not a filing. */
+        RecordOfProcessing: {
+            /** Format: date-time */
+            generatedAt: string;
+            status: string;
+            controller: string;
+            processor?: string;
+            jurisdiction: string;
+            dataProtectionOfficer?: {
+                name?: string;
+                email?: string;
+                phone?: string;
+            };
+            supervisoryRegistration?: {
+                authority?: string;
+                registrationNumber?: string;
+                /** @enum {string} */
+                tier?: "standard" | "extra_high" | "ultra_high";
+            };
+            legalBases: {
+                id?: string;
+                kind?: string;
+                instrument?: string;
+            }[];
+            activities: {
+                id: string;
+                purpose: string;
+                legalBasisRefs: string[];
+                dataSubjects: string[];
+                personalData: string[];
+                notHeld: string[];
+                recipients: string[];
+                retention: string;
+                security: string[];
+                toComplete: string[];
+            }[];
+            toComplete: string[];
+        };
+        /** @description The facts an impact assessment starts from. Not an assessment. */
+        DpiaFacts: {
+            /** Format: date-time */
+            generatedAt: string;
+            status: string;
+            controller: string;
+            jurisdiction: string;
+            triggers: {
+                ground: string;
+                applies: boolean;
+                because: string;
+            }[];
+            processing: {
+                purposes?: string[];
+                categoriesOfDataSubject?: string[];
+                categoriesOfPersonalData?: string[];
+                specialCategoryData?: string[];
+                recipients?: string[];
+                retention?: string;
+                automatedDecisionsPermitted?: boolean;
+                humanReviewPath?: string;
+                /** @enum {string} */
+                residenceAnchor?: "unit" | "address";
+                vulnerableSubjectModesAdmitted?: string[];
+                selfServiceFactors?: string[];
+            };
+            mitigationsInSoftware: string[];
+            toComplete: string[];
+        };
+        RecordBreachRequest: {
+            countryCode: string;
+            /**
+             * Format: date-time
+             * @description When the controller became aware. The 72-hour clock runs from here.
+             */
+            detectedAt: string;
+            categories: ("confidentiality" | "integrity" | "availability")[];
+            description: string;
+            /** @description Approximate count. Never identifiers. */
+            subjectsAffected?: number;
+            highRisk: boolean;
+            containment?: string;
+            /** Format: date-time */
+            authorityNotifiedAt?: string;
+            /** Format: date-time */
+            subjectsNotifiedAt?: string;
+            /** @description An earlier entry this one amends or closes. */
+            amends?: string;
+        };
+        BreachRecord: {
+            /** Format: uuid */
+            id: string;
+            countryCode: string;
+            /** Format: date-time */
+            detectedAt: string;
+            /** Format: date-time */
+            recordedAt: string;
+            recordedBy: string;
+            categories: ("confidentiality" | "integrity" | "availability")[];
+            description: string;
+            subjectsAffected?: number;
+            highRisk: boolean;
+            containment?: string;
+            /**
+             * Format: date-time
+             * @description detectedAt plus 72 hours.
+             */
+            notifyAuthorityBy: string;
+            /** @enum {string} */
+            notifySubjects: "immediately" | "not required unless risk rises";
+            /** Format: date-time */
+            authorityNotifiedAt?: string;
+            /** Format: date-time */
+            subjectsNotifiedAt?: string;
+            amends?: string;
         };
         AccessLogEntry: {
             /** @description The audit event id */

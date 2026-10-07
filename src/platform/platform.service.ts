@@ -7,6 +7,7 @@ import { ProviderRegistry } from '../core/foundational/registry';
 import { OidcFoundationalAdapter } from '../core/foundational/adapters/oidc.adapter';
 import { IssuerKey } from '../core/credentials/keystore';
 import { KeyCustody } from './key-custody';
+import { NEUTRAL_PROFILE, RegulatoryProfile, loadRegulatoryProfile } from '../core/privacy/compliance';
 import { BackgroundJobs } from './background-jobs';
 import { ResidentMessaging } from './resident-messaging';
 import { OperatorIdentity, OperatorAuthContext } from './operator-identity';
@@ -60,6 +61,7 @@ import {
   PrismaUpstreamAuthStore,
   PrismaAuditCheckpointStore,
   PrismaDeliveryStore,
+  PrismaBreachStore,
 } from '../prisma/prisma.service';
 import { tokenizeSubject } from '../core/foundational/util';
 import { IdentityLinkRegistry } from '../core/identity/identity-link';
@@ -124,6 +126,7 @@ export class PlatformService implements OnModuleDestroy {
     private auditCheckpointStore: PrismaAuditCheckpointStore,
     private custody: KeyCustody,
     private deliveryStore: PrismaDeliveryStore,
+    private breachStore: PrismaBreachStore,
   ) {}
 
   private initialized = false;
@@ -509,6 +512,18 @@ export class PlatformService implements OnModuleDestroy {
   }
   getVerifier(): VcVerifier {
     return this.verifier;
+  }
+  getBreaches(): PrismaBreachStore {
+    return this.breachStore;
+  }
+  /**
+   * The country's data-protection rules as data (`config/privacy/<CC>.json`), or the neutral
+   * profile when none ships. Read on demand: a profile is small and may be corrected without
+   * a restart mattering.
+   */
+  getRegulatoryProfile(countryCode: string): RegulatoryProfile {
+    const dir = process.env.PRIVACY_PROFILE_DIR ?? join(process.env.COUNTRY_CONFIG_DIR ?? join(process.cwd(), 'config/countries'), '..', 'privacy');
+    return loadRegulatoryProfile(dir, countryCode) ?? NEUTRAL_PROFILE;
   }
   getDeliveries(): PrismaDeliveryStore {
     return this.deliveryStore;

@@ -584,6 +584,22 @@ export class OpenResidencyClient {
   stats() {
     return this.request('get', '/admin/stats', { auth: 'operator' });
   }
+  /** Admin. The record of processing activities, generated from the live configuration. Not a filing. */
+  recordOfProcessing(query?: QueryParams<Operation<'get', '/admin/compliance/ropa'>>) {
+    return this.request('get', '/admin/compliance/ropa', { query, auth: 'operator' });
+  }
+  /** Admin. The impact-assessment facts and which triggers apply. Not an assessment. */
+  dpiaFacts(query?: QueryParams<Operation<'get', '/admin/compliance/dpia'>>) {
+    return this.request('get', '/admin/compliance/dpia', { query, auth: 'operator' });
+  }
+  /** Admin. The breach register, oldest first. */
+  breaches(query?: QueryParams<Operation<'get', '/admin/compliance/breaches'>>) {
+    return this.request('get', '/admin/compliance/breaches', { query, auth: 'operator' });
+  }
+  /** Admin. Enter a personal-data breach; the 72-hour clock runs from detection. */
+  recordBreach(body: RequestBody<Operation<'post', '/admin/compliance/breaches'>>) {
+    return this.request('post', '/admin/compliance/breaches', { body, auth: 'operator' });
+  }
   /** Aggregate, non-PII statistics (the open-data surface), as JSON. */
   statistics(query?: QueryParams<Operation<'get', '/admin/statistics'>>) {
     return this.request('get', '/admin/statistics', { query, auth: 'operator' });
