@@ -50,6 +50,8 @@ are config and which are invariants nobody can override.
 | **Setting a jurisdiction's issuance policy** | [The rules a jurisdiction sets](#the-rules-a-jurisdiction-sets) → `config/countries/ng.yaml` |
 | **Understanding the design** | [Architecture](#architecture) → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | **Standing one up with no KMS and no national ID API**, from a register extract | [First residency from a spreadsheet](docs/FIRST-RESIDENCY.md) |
+| **Migrating an existing register** without carrying its faults | [`docs/MIGRATION.md`](docs/MIGRATION.md) — provenance on every row, the old residence as evidence not fact, no activation until delivered |
+| **What is next, what triggers it, and what is not planned** | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 
 ## Why this is different from a bespoke state ID system
 
