@@ -20,6 +20,15 @@ the prerequisites each needs and how far each has actually been verified.
 | Standard | Version | Where |
 |---|---|---|
 | [W3C Verifiable Credentials Data Model](https://www.w3.org/TR/vc-data-model-2.0/) | 2.0 | `src/core/credentials/` |
+
+> **Inji and the data-model version.** The Inji wallet's own documentation lists Data Model 1.1
+> for JSON-LD credentials and names 2.0 for SVG rendering. This project issues under the 2.0
+> context. The checks below run against reference implementations and published behaviour, not
+> a live Inji instance, so acceptance of a 2.0-context credential by a current Inji wallet is
+> unverified here. Confirm it against the wallet version a deployment will ship with, and raise
+> an issue with the result. If a deployment needs 1.1-shaped credentials, that is an issuer
+> change (`validFrom`/`validUntil` become `issuanceDate`/`expirationDate` under the 1.1 context),
+> not a configuration switch, and is on the roadmap as a trigger-driven item.
 | [W3C Bitstring Status List](https://www.w3.org/TR/vc-bitstring-status-list/) | 1.0 | `src/core/credentials/status-list.ts` |
 | [VC Data Integrity — `eddsa-rdfc-2022`](https://www.w3.org/TR/vc-di-eddsa/) | 1.0 | `src/core/credentials/ldp-issuer.ts` |
 | [OpenID for Verifiable Credential Issuance](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html) | 1.0 **and** Draft 13 | `src/core/oid4vci/` |

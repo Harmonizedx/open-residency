@@ -117,6 +117,38 @@ are deployment-wide, and are read from the first config loaded — files are loa
 sorted filename order. If you run several countries from one deployment, put these blocks
 in the config that sorts first, or the mode you get will not be the mode you wrote.
 
+## Hosting in the jurisdiction's country
+
+A residency register is government data, and most countries' rules now say where government data
+may live. Nigeria's is explicit: the national cloud computing guideline approved in 2026 makes
+in-country hosting the default for government data at its higher classifications, the federal
+government's sovereign-cloud arrangements run through Galaxy Backbone, and states are encouraged
+to adopt the same policy; the data-protection directive treats reliance on offshore cloud and
+cross-border flows as risk factors that raise a controller's tier. A deployment should assume
+that everything holding personal data sits in-country unless its regulator has said otherwise in
+writing.
+
+What that means for this software, which was built to make it easy:
+
+- **The database and the application** run anywhere PostgreSQL and a container run. Nothing in
+  the stack calls home. A state data centre, a national sovereign cloud, or an in-country region
+  of a commercial cloud are all the same to it.
+- **Issuer keys** live in a hardware module or a key service. The PKCS#11 path works with an
+  on-premises HSM; the cloud KMS paths work with an in-country region. The private key is never
+  exportable from any of them, so the question is only where the module is.
+- **Outbound traffic carrying personal data** is limited to two destinations the deployment
+  chooses: the foundational identity authority's verification service (an identifier and a date
+  of birth per check) and the messaging aggregator (a phone number and a one-time code). Both are
+  in-country for a Nigerian deployment by the nature of the counterparties. Federation with a
+  peer jurisdiction exchanges credentials and status lists, not records.
+- **Backups** are the deployment's. The software erases the live record; a backup restored later
+  reinstates it, so the backup location and its ageing are part of the hosting decision and the
+  impact assessment, not an afterthought.
+- **The statistics export** holds no personal data and may be published anywhere.
+
+Record the hosting decision in the record of processing (`GET /admin/compliance/ropa` lists it
+among the fields the deployment must complete) and in the impact assessment.
+
 ## Operating
 
 What the service gives a monitoring stack, and what to do with it.
