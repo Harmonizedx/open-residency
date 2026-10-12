@@ -1029,6 +1029,30 @@ const dataProtectionSchema = z.object({
   legalBases: z.array(legalBasisSchema).default([]),
   /** Basis for grants that name none. Defaults to consent itself. */
   defaultLegalBasisReference: z.string().min(1).optional(),
+  /**
+   * The data protection officer. Under Nigeria's Directive a controller of major importance
+   * designates one, accredited, who vets the impact assessment and files the semi-annual
+   * report; a deployment names theirs here so the generated record of processing carries it.
+   */
+  dpo: z
+    .object({
+      name: z.string().min(1).optional(),
+      email: z.string().min(3).optional(),
+      phone: z.string().min(3).optional(),
+    })
+    .optional(),
+  /**
+   * Registration with the supervisory authority. In Nigeria: the Commission, a registration
+   * number, and the tier -- ministries, departments and agencies are expressly extra-high;
+   * more than five thousand data subjects in six months is ultra-high.
+   */
+  supervisoryRegistration: z
+    .object({
+      authority: z.string().min(1).optional(),
+      registrationNumber: z.string().min(1).optional(),
+      tier: z.enum(['standard', 'extra_high', 'ultra_high']).optional(),
+    })
+    .optional(),
 });
 
 export type LegalBasisConfig = z.infer<typeof legalBasisSchema>;

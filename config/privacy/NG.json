@@ -1,0 +1,38 @@
+{
+  "_comment": "Regulatory profile for Nigeria: the data-protection authority, the grounds on which an impact assessment is required before processing, the retention rule where no statutory period is set, and the breach-notification clock. Read by the compliance generators; the core evaluates the conditions and cites nothing itself. Verify every citation against the current text of the Act and the Directive before filing anything.",
+  "authority": "Nigeria Data Protection Commission",
+  "law": "Nigeria Data Protection Act 2023 and the General Application and Implementation Directive 2025",
+  "controllerOfMajorImportance": "a controller processing the data of more than two hundred data subjects in six months is of major importance; ministries, departments and agencies are expressly placed at the extra-high tier, and more than five thousand data subjects in six months at the ultra-high tier",
+  "dpiaTriggers": [
+    {
+      "when": "always",
+      "ground": "GAID 2025 Art. 28(3)(l): a legal instrument or policy requiring the processing of personal data of members of the general public",
+      "because": "a residents' registration law is such an instrument; this trigger applies to every deployment"
+    },
+    {
+      "when": "biometrics",
+      "ground": "GAID 2025 Art. 28(3): sensitive or highly personal data, including biometrics",
+      "because": "a biometric provider is configured"
+    },
+    {
+      "when": "vulnerable",
+      "ground": "GAID 2025 Art. 28(3) and Schedule 6: vulnerable data subjects",
+      "because": "a register of residents reaches children, the displaced and people without digital access"
+    },
+    {
+      "when": "automated",
+      "ground": "NDPA 2023 s.37: decisions by automated means producing legal or similarly significant effects",
+      "because": "the accepted binding and residence methods permit an issuance decision with no person in the loop"
+    },
+    {
+      "when": "new_technology",
+      "ground": "GAID 2025 Art. 28(3): new technology for processing",
+      "because": "verifiable credentials, offline verification and federated sign-in are new to most state registers"
+    }
+  ],
+  "retentionLapseWhereUnset": "where the law sets no period, GAID 2025 Art. 49(3) lapses storage six months after purpose (subject to the exception in 49(4)); set residency.retention.residencyDays or document the statutory period relied on",
+  "thirdPartySharing": "GAID 2025 Art. 41(9): sharing with a third party requires explicit, revocable consent stating purpose, scope and duration",
+  "breachNotificationHours": 72,
+  "breachSubjectNotification": "affected data subjects are notified immediately where the risk to them is high",
+  "hostingNote": "the national cloud computing guideline approved in 2026 makes in-country hosting the default for government data at its higher classifications and encourages states to adopt it"
+}

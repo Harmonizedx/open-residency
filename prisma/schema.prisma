@@ -146,6 +146,27 @@ model StatusListState {
 // Credential delivery events: the step between issued and in the holder's hands. Appended,
 // never updated; one row per attempt or outcome, so a programme can see hand-over and
 // collection separately and count what never arrived. See src/core/credentials/delivery.ts.
+// The breach register: append-only entries, detection time first, no subject identifiers.
+model DataBreach {
+  id                  String   @id @default(uuid())
+  countryCode         String
+  detectedAt          DateTime
+  recordedAt          DateTime
+  recordedBy          String
+  categories          String[]
+  description         String
+  subjectsAffected    Int?
+  highRisk            Boolean
+  containment         String?
+  notifyAuthorityBy   DateTime
+  notifySubjects      String
+  authorityNotifiedAt DateTime?
+  subjectsNotifiedAt  DateTime?
+  amends              String?
+
+  @@index([countryCode, recordedAt])
+}
+
 model CredentialDelivery {
   id            String   @id @default(uuid())
   residentId    String
