@@ -114,6 +114,12 @@ export interface ResidencyStore {
    */
   erase(residentId: ResidentId, tombstone: string, at: Date): Promise<ResidentRecord | null>;
   findByResidentId(residentId: ResidentId): Promise<ResidentRecord | null>;
+  /**
+   * The record whose current credential carries this id. An arrival notice from a peer
+   * names the credential a person presented there, and nothing else, so this is the only
+   * way such a notice reaches a record (ADR-0018).
+   */
+  findByCredentialId(credentialId: string): Promise<ResidentRecord | null>;
   nextStatusIndex(countryCode: string): Promise<number>;
   save(record: ResidentRecord): Promise<ResidentRecord>;
   /**
@@ -152,6 +158,10 @@ export class InMemoryStore implements ResidencyStore {
 
   async findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null> {
     return this.residents.get(subjectRef) ?? null;
+  }
+  async findByCredentialId(credentialId: string): Promise<ResidentRecord | null> {
+    for (const r of this.residents.values()) if (r.credentialId === credentialId) return r;
+    return null;
   }
   async erase(residentId: string, tombstone: string, at: Date): Promise<ResidentRecord | null> {
     const existing = this.byResidentId.get(residentId);

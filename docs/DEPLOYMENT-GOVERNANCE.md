@@ -125,7 +125,12 @@ on every change. The details and the reporting route are in `SECURITY.md`.
 
 A person's relationships live across deployments: Katsina's register holds Katsina's, and
 verifies a credential Kano issued through a list of trusted issuers (`src/core/credentials/
-federation.ts`). Who keeps that list, and on what authority, is the institutional question no
+federation.ts`). When a person Katsina registered registers with Kano, Kano tells Katsina with
+a signed notice, and what Katsina does about it is the rule Katsina declared for Kano: note it,
+record a conflict, or suspend or end after a grace period
+([ADR-0018](adr/0018-arrival-notices-under-a-declared-exclusivity-rule.md)). That rule is the
+substance of a bilateral agreement between two states, and belongs in the same instrument as
+the trust-list entry. Who keeps that list, and on what authority, is the institutional question no
 Nigerian precedent yet answers: there is no inter-state identity or residency agreement, and the
 existing shared registers are federal programmes or utilities rather than state-to-state
 arrangements.

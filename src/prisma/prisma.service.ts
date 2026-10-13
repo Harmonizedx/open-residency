@@ -41,6 +41,14 @@ import {
   DeliveryStatus,
   DeliveryStore,
 } from '../core/credentials/delivery';
+import {
+  ArrivalNotice,
+  ArrivalNoticeDirection,
+  ArrivalNoticeResolution,
+  ArrivalNoticeStatus,
+  ArrivalNoticeStore,
+} from '../core/residency/arrival-notice';
+import { ExclusivityRule } from '../core/credentials/federation';
 import { BreachCategory, BreachRecord, BreachStore } from '../core/privacy/breach';
 import { Oid4vpStore, PresentationRequestRecord } from '../core/oid4vp/ports';
 import { OtpChallengeRecord, OtpStore } from '../core/sso/otp';
@@ -186,6 +194,11 @@ export class PrismaResidencyStore implements ResidencyStore {
    */
   async findBySubjectRef(subjectRef: string): Promise<ResidentRecord | null> {
     const r = await this.prisma.resident.findUnique({ where: { subjectRef } });
+    return r ? this.toRecord(r) : null;
+  }
+
+  async findByCredentialId(credentialId: string): Promise<ResidentRecord | null> {
+    const r = await this.prisma.resident.findFirst({ where: { credentialId } });
     return r ? this.toRecord(r) : null;
   }
 
@@ -1611,5 +1624,114 @@ export class PrismaIdentityLinkStore implements IdentityLinkStore {
   async findMerge(id: string): Promise<MergeRecord | null> {
     const r = await this.prisma.identityMerge.findUnique({ where: { id } });
     return r ? this.toMerge(r) : null;
+  }
+}
+
+@Injectable()
+export class PrismaArrivalNoticeStore implements ArrivalNoticeStore {
+  constructor(private prisma: PrismaService) {}
+
+  private toNotice = (r: any): ArrivalNotice => {
+    const n: ArrivalNotice = {
+      id: r.id,
+      direction: r.direction as ArrivalNoticeDirection,
+      peerDid: r.peerDid,
+      credentialId: r.credentialId,
+      presentationHash: r.presentationHash,
+      presentedAt: r.presentedAt.toISOString(),
+      registeredAt: r.registeredAt.toISOString(),
+      at: r.at.toISOString(),
+      status: r.status as ArrivalNoticeStatus,
+      conflict: r.conflict,
+      notice: r.notice,
+    };
+    if (r.peerName) n.peerName = r.peerName;
+    if (r.residentId) n.residentId = r.residentId;
+    if (r.countryCode) n.countryCode = r.countryCode;
+    if (r.rule) n.rule = r.rule as ExclusivityRule;
+    if (r.graceDays != null) n.graceDays = r.graceDays;
+    if (r.effectiveAt) n.effectiveAt = r.effectiveAt.toISOString();
+    if (r.appliedAt) n.appliedAt = r.appliedAt.toISOString();
+    if (r.appliedTransition) n.appliedTransition = r.appliedTransition;
+    if (r.applyFailure) n.applyFailure = r.applyFailure;
+    if (r.resolvedAt) n.resolvedAt = r.resolvedAt.toISOString();
+    if (r.resolvedBy) n.resolvedBy = r.resolvedBy;
+    if (r.resolution) n.resolution = r.resolution as ArrivalNoticeResolution;
+    if (r.resolutionReason) n.resolutionReason = r.resolutionReason;
+    if (r.attempts != null) n.attempts = r.attempts;
+    if (r.lastAttemptAt) n.lastAttemptAt = r.lastAttemptAt.toISOString();
+    if (r.deliveryDetail) n.deliveryDetail = r.deliveryDetail;
+    return n;
+  };
+
+  async save(n: ArrivalNotice): Promise<void> {
+    const data = {
+      direction: n.direction,
+      peerDid: n.peerDid,
+      peerName: n.peerName ?? null,
+      credentialId: n.credentialId,
+      presentationHash: n.presentationHash,
+      presentedAt: new Date(n.presentedAt),
+      registeredAt: new Date(n.registeredAt),
+      at: new Date(n.at),
+      residentId: n.residentId ?? null,
+      countryCode: n.countryCode ?? null,
+      rule: n.rule ?? null,
+      graceDays: n.graceDays ?? null,
+      effectiveAt: n.effectiveAt ? new Date(n.effectiveAt) : null,
+      status: n.status,
+      conflict: n.conflict,
+      appliedAt: n.appliedAt ? new Date(n.appliedAt) : null,
+      appliedTransition: n.appliedTransition ?? null,
+      applyFailure: n.applyFailure ?? null,
+      resolvedAt: n.resolvedAt ? new Date(n.resolvedAt) : null,
+      resolvedBy: n.resolvedBy ?? null,
+      resolution: n.resolution ?? null,
+      resolutionReason: n.resolutionReason ?? null,
+      attempts: n.attempts ?? 0,
+      lastAttemptAt: n.lastAttemptAt ? new Date(n.lastAttemptAt) : null,
+      deliveryDetail: n.deliveryDetail ?? null,
+      notice: n.notice,
+    };
+    await this.prisma.arrivalNotice.upsert({ where: { id: n.id }, create: { id: n.id, ...data }, update: data });
+  }
+
+  async findById(id: string): Promise<ArrivalNotice | null> {
+    const r = await this.prisma.arrivalNotice.findUnique({ where: { id } });
+    return r ? this.toNotice(r) : null;
+  }
+
+  async list(opts: Parameters<ArrivalNoticeStore['list']>[0] = {}): Promise<{ total: number; items: ArrivalNotice[] }> {
+    const where: Record<string, unknown> = {};
+    if (opts.direction) where.direction = opts.direction;
+    if (opts.status) where.status = opts.status;
+    if (opts.residentId) where.residentId = opts.residentId;
+    if (opts.countryCode) where.countryCode = opts.countryCode;
+    const [total, rows] = await Promise.all([
+      this.prisma.arrivalNotice.count({ where }),
+      this.prisma.arrivalNotice.findMany({
+        where,
+        orderBy: { at: 'asc' },
+        skip: opts.offset ?? 0,
+        take: Math.min(opts.limit ?? 50, 500),
+      }),
+    ]);
+    return { total, items: rows.map(this.toNotice) };
+  }
+
+  async due(now: string): Promise<ArrivalNotice[]> {
+    const rows = await this.prisma.arrivalNotice.findMany({
+      where: { direction: 'inbound', status: 'pending', effectiveAt: { lte: new Date(now) } },
+      orderBy: { effectiveAt: 'asc' },
+    });
+    return rows.map(this.toNotice);
+  }
+
+  async failedOutbound(): Promise<ArrivalNotice[]> {
+    const rows = await this.prisma.arrivalNotice.findMany({
+      where: { direction: 'outbound', status: 'failed' },
+      orderBy: { at: 'asc' },
+    });
+    return rows.map(this.toNotice);
   }
 }

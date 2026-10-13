@@ -119,6 +119,11 @@ jobs:
       - name: Federation (cross-issuer trust)
         run: npm run smoke:federation
 
+      # Arrival notices between federated jurisdictions under a declared exclusivity rule
+      # (ADR-0018): what a notice may carry, who is heard, and what each rule does.
+      - name: Arrival notices (exclusivity rule over a peer's signed notice)
+        run: npm run smoke:arrival-notice
+
       # The three suites below cover verifying and authenticating against systems we do not
       # control. They are gated for the same reason the custody adapters are: each one is a
       # place where being subtly wrong means accepting something we should have refused, and

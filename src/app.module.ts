@@ -19,6 +19,7 @@ import { OperatorModule } from './operator/operator.module';
 import { UpstreamModule } from './upstream/upstream.module';
 import { CallerThrottlerGuard } from './common/caller-throttler.guard';
 import { AssuranceModule } from './assurance/assurance.module';
+import { FederationModule } from './federation/federation.module';
 import { ObservabilityModule } from './observability/observability.module';
 
 @Module({
@@ -43,6 +44,7 @@ import { ObservabilityModule } from './observability/observability.module';
     MetaModule,
     OperatorModule,
     AssuranceModule,
+    FederationModule,
     UpstreamModule,
     ObservabilityModule,
   ],

@@ -27,12 +27,14 @@ export interface BackgroundJobDeps {
   /** Peers are resolved lazily: federation is configured after this is constructed. */
   federatedPeers: () => unknown[];
   syncFederatedStatusLists: () => Promise<unknown>;
+  sweepArrivalNotices: () => Promise<unknown>;
 }
 
 export class BackgroundJobs {
   private readonly log = new Logger('BackgroundJobs');
   private federationTimer?: NodeJS.Timeout;
   private oidcPurgeTimer?: NodeJS.Timeout;
+  private arrivalNoticeTimer?: NodeJS.Timeout;
   private auditCheckpointTimer?: NodeJS.Timeout;
 
   constructor(private deps: BackgroundJobDeps) {}
@@ -42,11 +44,12 @@ export class BackgroundJobs {
     this.startAuditCheckpoints();
     this.startFederationRefresh();
     this.startOidcPurge();
+    this.startArrivalNoticeSweep();
   }
 
   /** Stop every job. Safe to call when none were started. */
   stop(): void {
-    for (const t of [this.federationTimer, this.oidcPurgeTimer, this.auditCheckpointTimer]) {
+    for (const t of [this.federationTimer, this.oidcPurgeTimer, this.auditCheckpointTimer, this.arrivalNoticeTimer]) {
       if (t) clearInterval(t);
     }
   }
@@ -101,6 +104,24 @@ export class BackgroundJobs {
     }, seconds * 1000);
     // Do not hold the process open for a cache refresh.
     this.federationTimer.unref?.();
+  }
+
+  /**
+   * Apply arrival notices whose grace period has run, and retry the ones we could not
+   * deliver. Only when there are peers: without a trust list nothing can arrive or be sent.
+   * `ARRIVAL_NOTICE_SWEEP_SECONDS=0` disables it for deployments that call the sweep route.
+   */
+  private startArrivalNoticeSweep(): void {
+    if (!this.deps.federatedPeers().length) return;
+    const seconds = Number(process.env.ARRIVAL_NOTICE_SWEEP_SECONDS ?? 3600);
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    this.arrivalNoticeTimer = setInterval(() => {
+      void this.deps
+        .sweepArrivalNotices()
+        .then(() => recordJobSuccess('arrival_notice_sweep'))
+        .catch((e) => this.log.warn(`Arrival notices: sweep failed: ${(e as Error).message}`));
+    }, seconds * 1000);
+    this.arrivalNoticeTimer.unref?.();
   }
 
   /**

@@ -241,6 +241,56 @@ against the reference **implementations** of these suites, not against a **live 
 deployment's** credentials. Confirming that requires a credential from a real Inji Certify
 instance, which this repo's CI cannot obtain.
 
+## Arrival notices between peers
+
+Federation verifies a peer's credential. It also has to carry one message back: a person who
+holds this deployment's residency has registered with the peer. The pattern is the one
+Germany's registration law uses between municipalities, where the authority that registers a
+mover notifies the one the mover came from and that notice, not a shared register, drives
+deregistration at the old address ([ADR-0018](adr/0018-arrival-notices-under-a-declared-exclusivity-rule.md)).
+
+When a person presents a federated peer's credential at this deployment's desk and is
+registered here, an operator calls `POST /federation/arrival-notices/outbound` with the
+credential as presented. The deployment verifies it through the trust list, then signs a
+notice with its issuer key and posts it to the `arrivalNoticeUrl` the peer declared in the
+trust list. The notice is a JWT, `typ: arrival-notice+jwt`, and carries:
+
+```json
+{
+  "iss": "did:web:id.kano.gov.ng",
+  "aud": "did:web:id.katsina.gov.ng",
+  "jti": "urn:uuid:…",
+  "iat": 1760346000,
+  "exp": 1762938000,
+  "credentialId": "urn:uuid:…",
+  "presentationHash": "<base64url SHA-256 of the credential as presented>",
+  "presentedAt": "2026-10-13T08:30:00.000Z",
+  "registeredAt": "2026-10-13T08:45:00.000Z"
+}
+```
+
+Nothing about the person: the issuing deployment already holds every personal fact the
+notice could name. A notice carrying any other claim is refused outright.
+
+What the receiving deployment does is its own rule for that peer, declared next to the
+peer's keys:
+
+```yaml
+federation:
+  trustedIssuers:
+    - did: did:web:id.kano.gov.ng
+      name: Kano State Residency Authority
+      publicJwks: [...]
+      arrivalNoticeUrl: https://id.kano.gov.ng/federation/arrival-notices
+      exclusivity: { rule: suspend, graceDays: 3 }
+```
+
+`none` notes the notice and opens no conflict; `record` opens one for a person; `suspend` and
+`end` act on the relationship once the grace period has run, through the ordinary lifecycle
+and attributed to the rule and the peer, unless a person reverses the conflict first. The
+default is `record` with three days. The credential is not touched: ending a residency and
+revoking its credential stay two acts.
+
 ## Presenting a credential (OpenID4VP)
 
 A relying party — a clinic, a subsidy desk, a bank — opens a presentation request, shows

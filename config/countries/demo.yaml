@@ -401,6 +401,11 @@ contactDirectory:
 #       publicJwks:
 #         - { kty: OKP, crv: Ed25519, x: "<base64url>", kid: kano-key-1 }
 #       statusListUrl: https://id.kano.gov.ng/.well-known/status/ng.json
+#       # Where Kano receives arrival notices about credentials it issued, and this
+#       # deployment's rule for notices FROM Kano: none | record | suspend | end, with a grace
+#       # period in days. Omitted: record, three days. See docs/adr/0018.
+#       arrivalNoticeUrl: https://id.kano.gov.ng/federation/arrival-notices
+#       exclusivity: { rule: record, graceDays: 3 }
 #     - did: did:web:id.partner.example.gov
 #       name: A MOSIP-era partner issuer
 #       publicJwks:

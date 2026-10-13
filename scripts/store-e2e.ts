@@ -28,7 +28,9 @@ import {
   PrismaOidcStore,
   PrismaIdentityLinkStore,
   PrismaDeliveryStore,
+  PrismaArrivalNoticeStore,
 } from '../src/prisma/prisma.service';
+import { ArrivalNotice } from '../src/core/residency/arrival-notice';
 import { IdentityLinkRegistry } from '../src/core/identity/identity-link';
 import { ResidentRecord } from '../src/core/residency/ports';
 import { RefusalRecord } from '../src/core/residency/refusal';
@@ -291,6 +293,39 @@ async function main() {
   const counts = await deliveries.counts('NG');
   check('counts group by channel then status', counts.agent_handover?.failed === 1 && counts.agent_handover?.delivered === 1 && counts.sms_link?.pending === 1);
   check('  and are empty for a country with none', Object.keys(await deliveries.counts('XX')).length === 0);
+
+  console.log('\nArrival notices: both directions, replaced in place, found by what the sweep needs:');
+  const notices = new PrismaArrivalNoticeStore(prisma);
+  const inbound: ArrivalNotice = {
+    id: 'urn:uuid:notice-in-1', direction: 'inbound', peerDid: 'did:web:id.kano.gov.ng', peerName: 'Kano',
+    credentialId: 'urn:uuid:cred-1', presentationHash: 'h'.repeat(43), presentedAt: '2026-10-13T08:30:00.000Z',
+    registeredAt: '2026-10-13T08:45:00.000Z', at: '2026-10-13T09:00:00.000Z', residentId: 'KT-STORE-0001-A', countryCode: 'NG',
+    rule: 'suspend', graceDays: 3, effectiveAt: '2026-10-16T09:00:00.000Z', status: 'pending', conflict: true, notice: 'a.b.c',
+  };
+  await notices.save(inbound);
+  await notices.save({ ...inbound, id: 'urn:uuid:notice-in-2', rule: 'none', graceDays: 0, effectiveAt: undefined, status: 'noted', conflict: false, at: '2026-10-13T09:05:00.000Z' });
+  await notices.save({ id: 'urn:uuid:notice-out-1', direction: 'outbound', peerDid: 'did:web:id.katsina.gov.ng', credentialId: 'urn:uuid:cred-9', presentationHash: 'k'.repeat(43), presentedAt: '2026-10-13T10:00:00.000Z', registeredAt: '2026-10-13T10:10:00.000Z', at: '2026-10-13T10:11:00.000Z', countryCode: 'NG', status: 'failed', conflict: false, attempts: 1, lastAttemptAt: '2026-10-13T10:11:00.000Z', deliveryDetail: 'ECONNREFUSED', notice: 'x.y.z' });
+  const back = await notices.findById('urn:uuid:notice-in-1');
+  check('an inbound notice reads back whole', !!back && back.rule === 'suspend' && back.graceDays === 3 && back.effectiveAt === '2026-10-16T09:00:00.000Z' && back.conflict === true && back.residentId === 'KT-STORE-0001-A' && back.notice === 'a.b.c' && back.peerName === 'Kano');
+  check('  absent optionals read back absent, not null', back?.appliedAt === undefined && back?.resolution === undefined && back?.attempts === 0);
+  check('nothing is due before the grace period runs', (await notices.due('2026-10-16T08:59:59.000Z')).length === 0);
+  check('  and exactly the pending one is due after it', (await notices.due('2026-10-16T09:00:00.000Z')).map((n) => n.id).join() === 'urn:uuid:notice-in-1');
+  await notices.save({ ...inbound, status: 'applied', appliedAt: '2026-10-16T09:00:01.000Z', appliedTransition: 'SUSPENDED' });
+  const applied = await notices.findById('urn:uuid:notice-in-1');
+  check('saving again replaces the row in place', applied?.status === 'applied' && applied?.appliedTransition === 'SUSPENDED' && (await notices.due('2026-10-20T00:00:00.000Z')).length === 0);
+  const failed = await notices.failedOutbound();
+  check('failed outbound notices are found for retry, with their attempt count', failed.length === 1 && failed[0].id === 'urn:uuid:notice-out-1' && failed[0].attempts === 1 && failed[0].deliveryDetail === 'ECONNREFUSED');
+  const byResident = await notices.list({ residentId: 'KT-STORE-0001-A' });
+  check('listing filters by resident and comes oldest first', byResident.total === 2 && byResident.items.map((n) => n.id).join() === 'urn:uuid:notice-in-1,urn:uuid:notice-in-2');
+  check('  and by direction and status', (await notices.list({ direction: 'outbound', status: 'failed' })).total === 1 && (await notices.list({ direction: 'inbound', status: 'noted' })).total === 1);
+  const credRec = fullRecord();
+  credRec.id = '66666666-6666-6666-6666-666666666666';
+  credRec.residentId = 'KT-CRED-0001-C' as ResidentRecord['residentId'];
+  credRec.subjectRef = 'subject-ref-credential-lookup';
+  credRec.credentialId = 'urn:uuid:lookup-cred-1';
+  await residency.save(credRec);
+  const byCredential = await residency.findByCredentialId('urn:uuid:lookup-cred-1');
+  check('a record is found by the credential it carries, which is all a notice names', byCredential?.residentId === 'KT-CRED-0001-C' && (await residency.findByCredentialId('urn:uuid:nobody')) === null);
 
   await prisma.$disconnect();
   console.log(`\n== ${pass} passed, ${fail} failed ==\n`);

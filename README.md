@@ -69,7 +69,12 @@ are config and which are invariants nobody can override.
    relying party can verify it without integrating anything OpenResidency-specific. Verification
    runs the other way too: credentials signed by an outside issuer with an older proof suite
    (`Ed25519Signature2020/2018`, `RsaSignature2018`) verify here, per federated peer and
-   verify-only. See [`docs/INTEROP.md`](docs/INTEROP.md).
+   verify-only. When a person presents a peer's credential here and is registered here, the
+   peer is told with a signed **arrival notice** that names the credential and nothing about
+   the person; what the peer does with it is its own declared rule for this deployment
+   (`none`, `record`, `suspend`, `end`, with a grace period), decided locally
+   ([ADR-0018](docs/adr/0018-arrival-notices-under-a-declared-exclusivity-rule.md)). See
+   [`docs/INTEROP.md`](docs/INTEROP.md).
 3. **Offline-first inclusion.** Credentials fit in a single QR code, verify against a cached
    issuer key with zero connectivity, and revocation is checked against a synced status list.
    Feature phones are served over USSD and SMS.

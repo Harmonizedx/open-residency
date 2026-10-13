@@ -139,7 +139,7 @@ export function observeVerification(input: {
   verificationDuration.observe({ provider: input.provider }, input.durationMs / 1000);
 }
 
-export type BackgroundJob = 'audit_checkpoint' | 'federation_status_refresh' | 'oidc_purge';
+export type BackgroundJob = 'audit_checkpoint' | 'federation_status_refresh' | 'oidc_purge' | 'arrival_notice_sweep';
 
 export function recordJobSuccess(job: BackgroundJob, at: number = Date.now()): void {
   jobLastSuccess.set({ job }, at / 1000);

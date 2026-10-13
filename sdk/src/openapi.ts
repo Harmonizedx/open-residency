@@ -2302,6 +2302,391 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/federation/arrival-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Notices in either direction
+         * @description Oldest first. Filter by direction, status, resident or country.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    direction?: "inbound" | "outbound";
+                    status?: components["schemas"]["ArrivalNoticeStatus"];
+                    residentId?: string;
+                    countryCode?: string;
+                    limit?: number;
+                    offset?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of notices */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            total: number;
+                            items: components["schemas"]["ArrivalNotice"][];
+                        };
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the `registrar` role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        /**
+         * A peer delivers a signed arrival notice
+         * @description A federated peer reports that a person holding one of this deployment's credentials registered with it. The body is the notice as a compact JWT, `typ: arrival-notice+jwt`, signed with the peer's issuer key. It is accepted only from a peer in the federation trust list, signed by a key the list holds for that peer, addressed (`aud`) to one of this deployment's issuer DIDs, within its validity, and never seen before. It carries the presented credential's id, a base64url SHA-256 of the credential as presented, and when it was presented and registered -- and nothing about the person. A notice carrying any other claim is refused.
+         *
+         *     What happens next is this deployment's declared rule for the sending peer: `none` notes the notice and opens no conflict; `record` opens a conflict for a person; `suspend` and `end` open a conflict that is applied to the relationship once the grace period has run (`pending`, with `effectiveAt`), or at once when the grace period is zero (`applied`, with `appliedTransition`). A notice for a credential this register never issued is kept as `unmatched`. Public: the signature is the credential. Rate-limited like every public route.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ArrivalNoticeDelivery"];
+                };
+            };
+            responses: {
+                /** @description The notice was accepted; what the rule did */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @description The notice's `jti` */
+                            id: string;
+                            status: components["schemas"]["ArrivalNoticeStatus"];
+                            conflict: boolean;
+                            rule?: components["schemas"]["ExclusivityRule"];
+                            graceDays?: number;
+                            /** Format: date-time */
+                            effectiveAt?: string;
+                            /** @enum {string} */
+                            appliedTransition?: "SUSPENDED" | "ENDED";
+                        };
+                    };
+                };
+                /** @description Not a notice (`WRONG_TYPE`, `MALFORMED_NOTICE`, `UNSUPPORTED_ALGORITHM`, `MISSING_OR_MALFORMED_CLAIMS`), or one carrying something about the person (`UNEXPECTED_CLAIM_<name>`) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not from a listed peer, or not provably so: `UNTRUSTED_PEER`, `BAD_SIGNATURE`, `EXPIRED`, `NOT_ADDRESSED_TO_THIS_DEPLOYMENT` */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description A notice with this `jti` was already received (`REPLAY`) */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/federation/arrival-notices/outbound": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tell a peer that a holder of its credential was registered here
+         * @description A person presented a federated peer's residency credential at this deployment's desk and was registered here. The credential is verified through the federation trust list first, so this deployment never vouches to a peer for a credential it would not itself accept; a credential this deployment issued is not a move and gets no notice (`CREDENTIAL_IS_OURS`). A signed notice naming the credential -- and nothing about the person -- is posted to the `arrivalNoticeUrl` the peer declared in the trust list (`PEER_HAS_NO_ARRIVAL_NOTICE_ENDPOINT` when it declared none). The stored notice is returned with its delivery status; a `failed` one is retried by the sweep.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ArrivalNoticeSendRequest"];
+                };
+            };
+            responses: {
+                /** @description The notice as stored, with its delivery status */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ArrivalNotice"];
+                    };
+                };
+                /** @description The credential did not verify (`CREDENTIAL_<reason>`), was issued here (`CREDENTIAL_IS_OURS`), names no id, is from an unlisted issuer, or the peer declared no endpoint */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the `registrar` role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/federation/arrival-notices/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply due notices and retry failed deliveries
+         * @description Apply every inbound notice whose grace period has run, and retry outbound notices whose delivery failed (up to ten attempts each). Each applied transition is audited, attributed to the rule and the peer. The background job does the same on `ARRIVAL_NOTICE_SWEEP_SECONDS`; this is for a deployment that drives it by hand.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Counts */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            applied: number;
+                            /** @description Due notices the lifecycle refused to apply; a person looks */
+                            openedForReview: number;
+                            resent: number;
+                            stillFailed: number;
+                        };
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the `registrar` role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/federation/arrival-notices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One notice, as stored */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The notice's `jti`. */
+                    id: components["parameters"]["ArrivalNoticeId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The notice, including the signed notice itself */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ArrivalNotice"];
+                    };
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the `registrar` role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown notice */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/federation/arrival-notices/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A person decides a conflict
+         * @description `upheld` on a pending notice applies the rule now; `reversed` on a pending notice cancels it; `reversed` on an applied suspension reinstates the relationship through the ordinary transition, attributed to the operator. An ended relationship cannot be reversed from here (`CANNOT_REVERSE_ENDED`): ENDED is terminal and the person re-enrols. A notice with nothing to decide (`noted`, `unmatched`) or already decided is refused. Requires the `revoker` role: the same privilege as the relationship transition route, because it can end, suspend or reinstate one.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The notice's `jti`. */
+                    id: components["parameters"]["ArrivalNoticeId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        resolution: "upheld" | "reversed";
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The notice as it now stands */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ArrivalNotice"];
+                    };
+                };
+                /** @description `NOTHING_TO_RESOLVE`, `ALREADY_RESOLVED`, `CANNOT_REVERSE_ENDED`, `OUTBOUND_NOTICE_NOT_RESOLVABLE`, or the lifecycle refused the transition */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Operator authentication required */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description The operator lacks the `revoker` role */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unknown notice */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/consent/resident/{residentId}": {
         parameters: {
             query?: never;
@@ -7293,6 +7678,83 @@ export interface components {
          * @enum {string}
          */
         RelationshipStatus: "ACTIVE" | "SUSPENDED" | "ENDED" | "REVOKED" | "EXPIRED";
+        /**
+         * @description What this deployment does when a peer reports that a person it registered has registered there. Declared per peer in the federation trust list; default `record` (ADR-0018).
+         * @enum {string}
+         */
+        ExclusivityRule: "none" | "record" | "suspend" | "end";
+        /**
+         * @description Inbound: `noted` (rule none, or nothing to act on), `unmatched` (no record here carries that credential), `open` (a conflict for a person), `pending` (a transition falls due at `effectiveAt`), `applied`, `resolved`. Outbound: `sent`, `failed`.
+         * @enum {string}
+         */
+        ArrivalNoticeStatus: "noted" | "unmatched" | "open" | "pending" | "applied" | "resolved" | "sent" | "failed";
+        ArrivalNoticeDelivery: {
+            /**
+             * @description The signed notice, as a compact JWT with `typ: arrival-notice+jwt`.
+             * @example eyJhbGciOiJFZERTQSIsImtpZCI6ImRpZDp3ZWI6aWQua2Fuby5nb3YubmcjaXNzdWVyLWtleS0xIiwidHlwIjoiYXJyaXZhbC1ub3RpY2Urand0In0.eyJpc3MiOiJkaWQ6d2ViOmlkLmthbm8uZ292Lm5nIn0.c2ln
+             */
+            notice: string;
+        };
+        ArrivalNoticeSendRequest: {
+            /** @description The jurisdiction here that registered the mover; names the issuer DID the notice is signed as. */
+            countryCode: string;
+            /** @description The peer's residency credential exactly as presented, in compact VC-JWT form. */
+            credential: string;
+            /** Format: date-time */
+            presentedAt?: string;
+            /** Format: date-time */
+            registeredAt?: string;
+        };
+        ArrivalNotice: {
+            /** @description The notice's `jti` */
+            id: string;
+            /** @enum {string} */
+            direction: "inbound" | "outbound";
+            /** @description Sender of an inbound notice; recipient of an outbound one */
+            peerDid: string;
+            peerName?: string;
+            /** @description The presented credential's `jti` */
+            credentialId: string;
+            /** @description base64url SHA-256 of the credential as presented */
+            presentationHash: string;
+            /** Format: date-time */
+            presentedAt: string;
+            /** Format: date-time */
+            registeredAt: string;
+            /**
+             * Format: date-time
+             * @description Received (inbound) or first sent (outbound)
+             */
+            at: string;
+            /** @description Inbound: our record for that credential, when one exists */
+            residentId?: string;
+            countryCode?: string;
+            rule?: components["schemas"]["ExclusivityRule"];
+            graceDays?: number;
+            /** Format: date-time */
+            effectiveAt?: string;
+            status: components["schemas"]["ArrivalNoticeStatus"];
+            conflict: boolean;
+            /** Format: date-time */
+            appliedAt?: string;
+            /** @enum {string} */
+            appliedTransition?: "SUSPENDED" | "ENDED";
+            /** @description Why the lifecycle refused the rule's transition; a person looks */
+            applyFailure?: string;
+            /** Format: date-time */
+            resolvedAt?: string;
+            resolvedBy?: string;
+            /** @enum {string} */
+            resolution?: "upheld" | "reversed";
+            resolutionReason?: string;
+            /** @description Outbound: delivery attempts so far */
+            attempts?: number;
+            /** Format: date-time */
+            lastAttemptAt?: string;
+            deliveryDetail?: string;
+            /** @description The signed notice as sent or received; verifiable by anyone holding the peer's key */
+            notice: string;
+        };
         RelationshipTransitionRequest: {
             status: components["schemas"]["RelationshipStatus"];
             /**
@@ -7862,6 +8324,8 @@ export interface components {
         ResidentId: string;
         /** @description The interaction id oidc-provider minted when the authorization request at `GET /oidc/auth` needed a human step. It arrives in the redirect the provider issues and is echoed in the resume URL `/oidc/auth/{uid}`; the interaction itself is looked up from the provider's `_interaction` cookie, not from this value. */
         InteractionUid: string;
+        /** @description The notice's `jti`. */
+        ArrivalNoticeId: string;
         LinkId: string;
     };
     requestBodies: never;

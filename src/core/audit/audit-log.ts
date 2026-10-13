@@ -30,6 +30,13 @@ export type AuditAction =
   // step between issuance and possession, which no other action records (ADR-0007 keeps the
   // relationship and the credential apart; this is about neither, it is about the hand-over).
   | 'residency.credential.delivery'
+  // Arrival notices between federated jurisdictions (ADR-0018). `receive` is what a peer told
+  // us and what our rule did on receipt; `apply` is a transition the rule made once a grace
+  // period ran; `resolve` is a person's decision; `send` is what we told a peer.
+  | 'federation.arrival-notice.receive'
+  | 'federation.arrival-notice.send'
+  | 'federation.arrival-notice.apply'
+  | 'federation.arrival-notice.resolve'
   // A provisional record was checked against the live foundational authority. Recorded on
   // every outcome, not only success: a live match naming a DIFFERENT person is the entry an
   // investigator most needs to find, and it exists nowhere else.
