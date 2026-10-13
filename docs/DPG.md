@@ -131,7 +131,7 @@ recorded in `docs/PRIVACY.md` §8.
 Two gaps previously listed here have since closed, and the evidence is the acceptance suite
 rather than this page: statutory bases now resolve through the Legal Basis Registry
 (criterion 4), and assurance values resolve through a governed registry with per-authority
-mappings (criterion 3). Run `npm run conformance:orcs` for the current position — where that
+mappings (criterion 3). Run `npm run acceptance` for the current position — where that
 output and this document disagree, the output is right.
 
 A DPIA assesses a deployment processing real people's data; this repository is software and
@@ -189,7 +189,7 @@ attached to every release, signed, alongside the source archive; the container i
 before it is pushed, published to GHCR, signed by digest, and carries build-provenance and SBOM
 attestations (`SECURITY.md`).
 
-The project's own acceptance suite (`npm run conformance:orcs`) is the open test suite this
+The project's own acceptance suite (`npm run acceptance`) is the open test suite this
 indicator asks for as evidence: fourteen criteria, each printing the external requirement it
 serves beside its verdict, held in CI at a recorded baseline that fails on regression. It is
 the project's own, not an external standard, and `README.md` says so where it describes it.

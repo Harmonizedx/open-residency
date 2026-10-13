@@ -27,12 +27,12 @@ Both routes require an authenticated operator (`registrar`; `admin` satisfies it
   `countryCode`, `subnationalUnit`, `assuranceLevel`, `provisional`, `createdAt`. These are
   registration facts and do not change; this does **not** report credential revocation, so call
   `POST /residency/verify` to check a credential is live.
-- `GET /residency/{residentId}/relationship` — what the relationship states about itself
-  (ORCS §4.3): `status`, validity, policy version, evidence references, assurance profile,
+- `GET /residency/{residentId}/relationship` — what the relationship states about itself:
+  `status`, validity, policy version, evidence references, assurance profile,
   issuer and decision provenance. **This is the one that can change** — it is how you tell
   whether the person still holds residency here.
 - `POST /residency/{residentId}/relationship/transition` `{ status, reason }` — end, suspend or
-  reinstate a residency (ORCS §6.2). A terminal transition requires a reason, and the deciding
+  reinstate a residency. A terminal transition requires a reason, and the deciding
   operator is recorded. **Requires `x-admin-key`** (`revoker`). Deliberately does not revoke the
   credential: see [ADR-0007](adr/0007-residency-status-is-lifecycle.md).
 - `POST /residency/verify` — verify a presented VC-JWT (signature, expiry, revocation).
@@ -45,11 +45,11 @@ Both routes require an authenticated operator (`registrar`; `admin` satisfies it
 - `GET /residency/refusals/{reference}` — why an application was refused, by whom, and how to
   appeal. Looked up by the applicant's reference, never by name or number, so refusals cannot
   be enumerated. **Requires `x-admin-key`** (`registrar`).
-- `GET /residency/{residentId}/credential` — the credential's ORCS §10 status: why it was
+- `GET /residency/{residentId}/credential` — the credential's lifecycle status: why it was
   revoked or suspended, by whom, when, and how the holder appeals.
 - `POST /residency/{residentId}/credential/transition` `{ status, reason, appealPath,
   supersededBy }` — suspend, reinstate, revoke or replace a credential. A revocation missing a
-  reason, authority or appeal path is **refused**, not recorded blank (ORCS §10). **Requires
+  reason, authority or appeal path is **refused**, not recorded blank. **Requires
   `x-admin-key`** (`revoker`).
 - `POST /residency/{residentId}/reconcile` — re-check a resident against the foundational
   source and record the outcome (`confirmed`, `already-confirmed`, `unconfirmed`, `mismatch`,
@@ -59,7 +59,7 @@ Both routes require an authenticated operator (`registrar`; `admin` satisfies it
 - `POST /residency/{residentId}/erase` and `POST /residency/retention/sweep` — erasure on
   request and by retention period; see `PRIVACY.md`. Operator action (`admin`).
 
-## Identity links (ORCS §11)
+## Identity links
 
 Which external identifiers belong to which person, with a history. Only tokenized references
 are stored. Enrolment resolves through the links, so a corrected mapping is what the register
@@ -76,7 +76,7 @@ acts on. See [ADR-0014](adr/0014-identity-links-are-a-record-not-a-column.md).
 - `POST /residency/identity-links/{linkId}/dispute/resolve` `{ resolution }` — the link was
   right; use resumes (`registrar`).
 - `POST /residency/{residentId}/identity-links/{linkId}/unlink` `{ reason }` — UNLINK, keeping
-  the history. For the foundational identifier the relationship is SUSPENDED first (ORCS §7)
+  the history. For the foundational identifier the relationship is SUSPENDED first
   and the record stops matching the identifier (`revoker`).
 - `POST /residency/identity-links/{linkId}/relink` `{ residentId, reason, evidenceRefs }` —
   RELINK to the right person after adjudication (`revoker`).
@@ -87,9 +87,10 @@ acts on. See [ADR-0014](adr/0014-identity-links-are-a-record-not-a-column.md).
 - `POST /residency/merges/{mergeId}/split` `{ reason }` — SPLIT: restore the identifiers to the
   duplicate. Its ended relationship stays ended; the person re-enrols (`admin`).
 
-## Assurance (ORCS §7)
+## Assurance
 
-- `GET /assurance/profiles` — the ORCS assurance profiles this deployment recognises.
+- `GET /assurance/profiles` — the assurance profiles this deployment recognises
+  ([ADR-0008](adr/0008-assurance-registry-maps-existing-vocabularies.md)).
 - `GET /assurance/mappings` — how each foundational source's assurance values map onto them.
 - `GET /assurance/resolve/{value}` — resolve one source value to a profile.
 - `GET /residency/{residentId}/assurance` — a resident's assurance, as a profile.
@@ -102,7 +103,8 @@ acts on. See [ADR-0014](adr/0014-identity-links-are-a-record-not-a-column.md).
   automatically during the SSO consent step).
 - `POST /consent/{id}/revoke` — withdraw a consent.
 
-A grant must carry the ORCS §9 accountability fields, and is **refused** rather than recorded
+A grant must carry the accountability fields
+[ADR-0009](adr/0009-legal-basis-registry-closed-vocabulary.md) requires, and is **refused** rather than recorded
 blank without them: `dataCategories` (the classes of personal data released, distinct from the
 OIDC `scopes` carrying them), `evidenceMethod` and `evidenceReference` (where the agreement
 itself is retained — an interaction id, a form, a transaction), and optionally
@@ -116,7 +118,7 @@ becomes `replaced` with `supersededById`. Exactly one consent per relying party 
 The signed receipt carries the controller, processor, data categories, legal basis and
 evidence, so the citizen's own copy names who is accountable without them having to ask.
 
-## Legal Basis Registry (ORCS §9)
+## Legal Basis Registry
 
 Every `legalBasisReference` resolves through this registry, which is a **closed vocabulary** —
 an unregistered reference is refused, never stored as free text. Bases are declared per

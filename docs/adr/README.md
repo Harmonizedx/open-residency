@@ -21,6 +21,7 @@ Numbering starts at 0003 — PR #44 claims 0001 and 0002 for the hexagonal archi
 | [0014](0014-identity-links-are-a-record-not-a-column.md) | Which identifiers belong to which person is an append-only registry beside the record (LINK, DISPUTE, UNLINK, RELINK, MERGE, SPLIT), consulted by enrolment before `subjectRef`; a disputed link refuses issuance; unlinking the foundational identifier suspends first (ORCS §7); split restores identifiers, not relationships | Accepted |
 | [0015](0015-indigeneity-is-not-residency.md) | Indigeneity is not residency: the register holds no origin field in any form, a foundational origin never proves residence, and the credential states residence and nothing about belonging. Asserted by project criterion 14 | Accepted |
 | [0016](0016-applicants-without-a-foundational-identifier.md) | Applicants without a foundational identifier: proposes a counted referral that keeps the applicant's evidence now, and a jurisdiction-declared attested path for named classes later; rejects an attested-only credential by default | Proposed |
+| [0017](0017-the-specification-is-a-working-document.md) | The specification is a working document, not a published standard: the suite that asserts its criteria is the project's acceptance suite (`npm run acceptance`), public material cites decision records rather than its sections, and "conformance" is reserved for standards other people wrote | Accepted |
 
 ## Pending
 

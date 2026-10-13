@@ -91,7 +91,7 @@ jobs:
       # conformance suite asserts the same operations; this suite covers the refusals and the
       # residency-service integration (a disputed link blocks issuance, a merged identifier
       # finds the survivor, unlinking the foundational identifier suspends first).
-      - name: Identity link lifecycle (ORCS §11)
+      - name: Identity link lifecycle
         run: npm run smoke:identity-links
 
       - name: OpenID4VCI issuance (drives the full flow as a wallet)
@@ -150,7 +150,8 @@ jobs:
       - name: MOSIP integration conformance (gate)
         run: npm run conformance:mosip
 
-      # ORCS §15 as a RATCHET, not a pass/fail gate. scripts/orcs-baseline.json records the
+      # The project's acceptance criteria as a RATCHET, not a pass/fail gate.
+      # scripts/acceptance-baseline.json records the
       # verdict each criterion currently holds; this fails when one drops, and also when one
       # improves without the baseline being updated.
       #
@@ -161,8 +162,8 @@ jobs:
       #
       # When every criterion reaches PASS the baseline is all-PASS and this IS the gate, with
       # no separate step to remember.
-      - name: ORCS §15 conformance (ratchet against the recorded baseline)
-        run: npm run conformance:orcs
+      - name: Acceptance criteria (ratchet against the recorded baseline)
+        run: npm run acceptance
 
       # WebAuthn passkey factor (registration + assertion verification against a simulated
       # authenticator, both ES256 and EdDSA) and the assurance model (acr/amr, biometric

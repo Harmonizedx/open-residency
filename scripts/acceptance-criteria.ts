@@ -1,25 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 /* eslint-disable no-console */
 /**
- * ORCS §15 acceptance criteria — the conformance gate.
+ * The project's acceptance criteria -- the ratchet.
  *
- * ORCS-001 §15 lists nine acceptance criteria. This suite asserts them directly, so
- * satisfying §15 becomes something the build decides rather than something a document claims.
+ * Fourteen criteria in two sections. Criteria 1-9 come from the project's own specification,
+ * kept in the order it numbers them. Criteria 10 onward are PROJECT criteria drawn from where
+ * registration programmes actually fail -- a decision for a person without a foundational
+ * identifier, delivery as distinct from issuance, a resident seeing who read their record, a
+ * home for people with no fixed abode, and the absence of any origin field. Both sections are
+ * held to the same ratchet. Say "N of nine specification criteria pass" and "N of M project
+ * criteria pass", never a single blended number.
  *
- * What this suite is NOT is a conformance certificate. ORCS §15 is a sample: nine acceptance
- * criteria over a specification of sixteen sections covering entities, registries, state
- * machines, closed vocabularies and interoperability obligations. Passing all nine means the
- * sampled behaviours hold, not that the implementation conforms -- several tracked findings map
- * to no criterion and are therefore invisible to this build. Say "all nine §15 criteria pass",
- * never "ORCS-conformant", and keep the unmeasured findings in the tracker where a person has
- * to look at them.
+ * WHAT THIS IS NOT. The specification is this project's own, written by this project and
+ * circulated as a working document rather than published (ADR-0017). Passing all nine of its
+ * criteria is therefore not conformance to anything external, and the word "conformance" is
+ * kept in this repository for the suites that verify against standards other people wrote
+ * (`npm run test:conformance`, `npm run conformance:mosip`). The nine are also a sample: nine
+ * behaviours over a specification of sixteen sections, so several tracked findings map to no
+ * criterion and are invisible to this build. Keep those in the implementation tracker, where a
+ * person has to look at them. Section numbers in the comments below (§4.3, §8.1, ...) refer to
+ * that working document; they are rationale for a maintainer who has it, not claims to a
+ * reader who does not.
+ *
+ * EVERY CRITERION NAMES WHAT IT SERVES. A criterion that existed only because the project's
+ * own specification asked for it would be the project grading its own work. So each one also
+ * states the external requirement it satisfies -- a data-protection article, a W3C or OpenID
+ * specification, a GovStack requirement, an ID4D principle -- and that line is printed with the
+ * verdict. Where a criterion serves nothing external, it says so, and that is a finding about
+ * the criterion.
  *
  * IT DOES NOT ALL PASS YET, and the criteria that do not are traced to findings in the gap
  * analysis. A red suite that names exactly what is missing is worth more than a green one that
- * tests only what already works -- and it is what turns each migration phase from "we think
- * we're done" into "criterion 1 went green".
+ * tests only what already works -- it is what turns each phase from "we think we're done" into
+ * "criterion 1 went green".
  *
- * IT RUNS IN CI AS A RATCHET rather than as a pass/fail gate. `scripts/orcs-baseline.json`
+ * IT RUNS IN CI AS A RATCHET rather than as a pass/fail gate. `scripts/acceptance-baseline.json`
  * records the verdict each criterion is currently expected to hold, and this build fails when
  * one of them drops. That answers the objection that kept it out of CI -- a permanently-red
  * required check trains people to ignore red checks -- because the ratchet is GREEN today and
@@ -28,28 +43,13 @@
  * It also fails when a criterion IMPROVES and the baseline was not updated. That is
  * deliberate: a baseline nobody maintains is stale documentation, which is the failure that
  * left criterion 9 asserting nothing while its own prose drifted from six adapters to eight.
- * Run with ORCS_UPDATE_BASELINE=1 to record an improvement.
+ * Run with ACCEPTANCE_UPDATE_BASELINE=1 to record an improvement.
  *
  * When every criterion reaches PASS, the baseline is all-PASS and the ratchet IS the gate --
  * no separate step, and nothing to remember to switch on.
  *
  * Each criterion prints PASS, FAIL or PARTIAL with the finding id, so the output doubles as
  * a progress report against the gap analysis.
- *
- * EVERY CRITERION NAMES WHAT IT SERVES. ORCS is this project's own specification, written
- * by this project; a criterion that existed only "because ORCS requires it" would be the
- * project grading its own homework. So each one also states the external requirement it
- * satisfies -- a data-protection article, a W3C or OpenID specification, a GovStack
- * requirement, an ID4D principle -- and that line is printed with the verdict. Where a
- * criterion serves nothing external, it says so, and that is a finding about the criterion.
- *
- * TWO SECTIONS. Criteria 1-9 are ORCS §15's nine, kept as the specification numbers them.
- * Criteria 10 onward are PROJECT acceptance criteria: things the research into where
- * registration programmes actually fail said matter, that §15 does not sample -- a decision
- * for a person without a foundational identifier, delivery as distinct from issuance, a
- * resident seeing who read their record, a home for people with no fixed abode, and the
- * absence of any origin field. They are held to the same ratchet. Say "seven of nine §15
- * criteria pass" and "N of M project criteria pass", never a single blended number.
  */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -89,18 +89,19 @@ interface Result {
 const results: Result[] = [];
 
 /**
- * What each criterion serves beyond ORCS itself. Cited by identifier so a reviewer can check
+ * What each criterion serves beyond the project's own specification. Cited by identifier so a
+ * reviewer can check
  * the claim, and kept here rather than at each call site so the list can be read in one place.
  */
 const SERVES: Record<number, string> = {
-  1: 'ORCS §4.4 across deployments; ID4D Principle 4 (interoperable platform); W3C VC 2.0 verification of a peer issuer',
+  1: 'ADR-0004 (one deployment, one jurisdiction; multiplicity across deployments); ID4D Principle 4 (interoperable platform); W3C VC 2.0 verification of a peer issuer',
   2: 'nothing external yet: no framework asks a subnational register to adjudicate conflicts; see the rewrite below',
   3: 'NIST SP 800-63-3 IAL/AAL/FAL vocabulary; ID4D Principle 3 (a trusted identity: accurate, with stated assurance)',
   4: 'Nigeria GAID 2025 Art. 41(9) (explicit, revocable consent for third-party sharing); DPG Standard indicator 9a; GovStack Consent BB',
-  5: 'W3C Bitstring Status List 1.0; ORCS §10 revocation record; EUDI ARF status checking; DPG Standard indicator 9a (integrity)',
+  5: 'W3C Bitstring Status List 1.0; a revocation record with reason, authority, time and appeal path; EUDI ARF status checking; DPG Standard indicator 9a (integrity)',
   6: 'ID4D Principle 10 (grievance and correction); NDPA 2023 data-subject right to rectification; GovStack Digital Registries DRS-7 (integrity of change logs)',
   7: 'OpenID Connect Core 1.0 with pairwise subject identifiers; OAuth 2.0 PKCE (RFC 7636); ID4D Principle 6 (privacy by design); DPG indicator 9a',
-  8: 'nothing external yet: ORCS §12 is the only source asking for a publishable event envelope',
+  8: 'nothing external yet: only the project\'s own specification asks for a publishable event envelope',
   9: 'ID4D Principle 5 (open standards, no lock-in); DPG Standard indicator 4 (platform independence)',
   10: 'ID4D Principles 1-2 (universal access, remove barriers); GAID 2025 Schedule 6 (vulnerability); NDPA 2023 s.37 (human review of an automated decision)',
   11: 'ID4D Practitioner\'s Guide on delivery and collection; World Bank Nigeria ID4D ISR (printed is not collected); GovStack Registration BB (status visible to the applicant)',
@@ -120,7 +121,7 @@ function record(
 }
 
 async function main() {
-  console.log('\n== ORCS §15 acceptance criteria ==\n');
+  console.log('\n== Acceptance criteria ==\n');
 
   const key = await KeyStore.generate('conformance-key');
   const issuerDid = didKeyFromJwk(key.publicJwk);
@@ -1141,7 +1142,7 @@ async function main() {
       console.log(`      serves: ${r.serves}`);
     }
   };
-  section('ORCS §15 acceptance criteria (1-9)', (r) => r.n <= 9);
+  section('Specification criteria (1-9)', (r) => r.n <= 9);
   section('Project acceptance criteria (10 onward)', (r) => r.n >= 10);
 
   const tally = (pick: (r: Result) => boolean) => {
@@ -1156,17 +1157,17 @@ async function main() {
   const spec = tally((r) => r.n <= 9);
   const proj = tally((r) => r.n >= 10);
 
-  console.log(`\n== ORCS §15: ${spec.pass} pass, ${spec.partial} partial, ${spec.fail} fail (of ${spec.total}) ==`);
+  console.log(`\n== Specification criteria: ${spec.pass} pass, ${spec.partial} partial, ${spec.fail} fail (of ${spec.total}) ==`);
   console.log(`== Project criteria: ${proj.pass} pass, ${proj.partial} partial, ${proj.fail} fail (of ${proj.total}) ==`);
   const open = [...new Set(results.filter((r) => r.finding).map((r) => r.finding))];
   console.log(
     spec.fail === 0 && spec.partial === 0
-      ? '\nAll nine ORCS §15 acceptance criteria pass.\n\n' +
-        'This is NOT a statement of ORCS conformance, and ORCS is this project\'s own specification.\n' +
-        '§15 is a sample -- nine acceptance criteria over sixteen sections. What each criterion\n' +
-        'serves beyond ORCS is printed above; findings that map to no criterion are not measured\n' +
-        'here at all; see the implementation tracker for those.\n'
-      : `\nORCS §15 not satisfied. Open findings: ${open.join(', ')}\n`,
+      ? '\nAll nine specification criteria pass.\n\n' +
+        'This is not a statement of conformance to anything external: the specification is this\n' +
+        'project\'s own, and its nine criteria are a sample of it. What each criterion serves beyond\n' +
+        'it is printed above; findings that map to no criterion are not measured here at all; see\n' +
+        'the implementation tracker for those.\n'
+      : `\nSpecification criteria not all satisfied. Open findings: ${open.join(', ')}\n`,
   );
 
   process.exit(ratchet(results));
@@ -1189,12 +1190,12 @@ async function main() {
 function ratchet(current: Result[]): number {
   // process.cwd(), not __dirname: this runs compiled from dist-core/scripts, so a path
   // relative to the module lands in the build output and the committed baseline is never read.
-  const path = join(process.cwd(), 'scripts', 'orcs-baseline.json');
+  const path = join(process.cwd(), 'scripts', 'acceptance-baseline.json');
 
   const observed: Record<string, Verdict> = {};
   for (const r of current) observed[String(r.n)] = r.verdict;
 
-  if (process.env.ORCS_UPDATE_BASELINE === '1') {
+  if (process.env.ACCEPTANCE_UPDATE_BASELINE === '1') {
     writeFileSync(path, JSON.stringify(observed, null, 2) + '\n');
     console.log(`Baseline updated: ${path}\n`);
     return 0;
@@ -1205,7 +1206,7 @@ function ratchet(current: Result[]): number {
     baseline = JSON.parse(readFileSync(path, 'utf8')) as Record<string, Verdict>;
   } catch {
     console.log(
-      `No baseline at ${path}. Record one with ORCS_UPDATE_BASELINE=1 npm run conformance:orcs\n`,
+      `No baseline at ${path}. Record one with ACCEPTANCE_UPDATE_BASELINE=1 npm run acceptance\n`,
     );
     return 1;
   }
@@ -1225,7 +1226,7 @@ function ratchet(current: Result[]): number {
   }
 
   if (regressed.length > 0) {
-    console.log('REGRESSION against scripts/orcs-baseline.json:\n');
+    console.log('REGRESSION against scripts/acceptance-baseline.json:\n');
     for (const line of regressed) console.log(`  ${line}`);
     console.log('\nA criterion that passed no longer does. Fix it, or say why in the tracker.\n');
     return 1;
@@ -1235,8 +1236,8 @@ function ratchet(current: Result[]): number {
     console.log('The baseline is out of date -- criteria improved:\n');
     for (const line of improved) console.log(`  ${line}`);
     console.log(
-      '\nRecord it:  ORCS_UPDATE_BASELINE=1 npm run conformance:orcs\n' +
-        'Then commit scripts/orcs-baseline.json with the change that earned it.\n',
+      '\nRecord it:  ACCEPTANCE_UPDATE_BASELINE=1 npm run acceptance\n' +
+        'Then commit scripts/acceptance-baseline.json with the change that earned it.\n',
     );
     return 1;
   }

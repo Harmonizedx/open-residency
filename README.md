@@ -511,7 +511,7 @@ gaps, what an adopter completes before production, and the registry submission p
 
 Claims about conformance should be checkable, so here is exactly what is and is not verified.
 
-**The project's own acceptance criteria** (`npm run conformance:orcs`): two sections, held to one
+**The project's own acceptance criteria** (`npm run acceptance`): two sections, held to one
 ratchet. The first is the nine criteria of the project's own specification — concurrent
 relationships across a federation, conflict only under an explicit rule, assurance values resolving
 to a governed registry, a complete consent lifecycle, credential status and revocation, the
