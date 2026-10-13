@@ -72,10 +72,10 @@ this one.
 2. **Regenerate the Prisma client first** if the schema has changed: `npx prisma generate`. A
    stale client produces dozens of misleading `Property does not exist on PrismaService` errors
    that look like broken code and are not.
-3. **Know the conformance position.** Run `npm run conformance:orcs`. All nine passing is
+3. **Know the acceptance position.** Run `npm run acceptance`. All nine passing is
    **not** a release requirement — an honest count is. The release workflow runs the suite
    against the tagged tree and ships the verbatim output as a signed asset
-   (`ORCS-CONFORMANCE.txt`) and in the release notes, so it cannot be pasted from the tracker
+   (`ACCEPTANCE-CRITERIA.txt`) and in the release notes, so it cannot be pasted from the tracker
    or from a previous release. Running it here is so nothing in the result surprises you.
 4. **`npm run conformance:mosip`** passes. It gates the build and exits non-zero on any non-PASS.
 5. **No known unfixed high-severity advisory.** `npm audit` at the CI gate's level.
@@ -150,8 +150,9 @@ notice, and never in a patch.
 
 ## What a release does not claim
 
-- **Not a conformance certificate.** ORCS §15 is a sample of the specification, not an audit of
-  it. Say "all nine §15 criteria pass" if they do; never "ORCS-conformant".
+- **Not a conformance certificate.** The acceptance criteria are the project's own, and a sample
+  of its specification rather than an audit of it. Say "all nine specification criteria pass"
+  if they do; never "conformant" to the specification ([ADR-0017](docs/adr/0017-the-specification-is-a-working-document.md)).
 - **Not MOSIP certification, compliance or partnership.**
 - **Not a production endorsement.** The issuer key, the pepper, the aggregator contract and the
   legal basis are the deploying jurisdiction's to complete — see the caveats in the README and

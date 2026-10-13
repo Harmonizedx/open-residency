@@ -74,7 +74,7 @@ jobs:
       - name: Generate the Prisma client
         run: npx prisma generate
 
-      # The ORCS §15 position, recorded by running the suite against the tagged tree and
+      # The acceptance-criteria position, recorded by running the suite against the tagged tree and
       # shipped with the release -- as a signed asset and verbatim in the notes. RELEASING.md
       # requires the verbatim result; before this it had to be pasted in by hand after the
       # workflow ran, and nothing checked that it was.
@@ -85,16 +85,16 @@ jobs:
       # ERROR: the file would be signed and attached looking complete, which is the failure
       # this workflow's header exists to prevent -- so the step fails unless the summary line
       # is actually there.
-      - name: Record the ORCS §15 conformance position
+      - name: Record the acceptance-criteria position
         run: |
-          npm run conformance:orcs > conformance.log 2>&1 || true
-          sed -n '/== ORCS .15 acceptance criteria ==/,$p' conformance.log > ORCS-CONFORMANCE.txt
-          if ! grep -qE '^== ORCS .15: [0-9]+ pass' ORCS-CONFORMANCE.txt; then
-            echo "::error::the conformance suite produced no verdict; refusing to sign an empty record"
-            cat conformance.log
+          npm run acceptance > acceptance.log 2>&1 || true
+          sed -n '/== Acceptance criteria ==/,$p' acceptance.log > ACCEPTANCE-CRITERIA.txt
+          if ! grep -qE '^== Specification criteria: [0-9]+ pass' ACCEPTANCE-CRITERIA.txt; then
+            echo "::error::the acceptance suite produced no verdict; refusing to sign an empty record"
+            cat acceptance.log
             exit 1
           fi
-          cat ORCS-CONFORMANCE.txt
+          cat ACCEPTANCE-CRITERIA.txt
 
       # A manual run from a branch has a ref name with a slash in it (feat/x), which `git
       # archive` would read as a directory that does not exist -- so the one path this
@@ -108,7 +108,7 @@ jobs:
           echo "ARCHIVE=open-residency-${VERSION}.tar.gz" >> "$GITHUB_ENV"
 
       - name: Checksums
-        run: sha256sum sbom.cyclonedx.json ORCS-CONFORMANCE.txt "$ARCHIVE" > SHA256SUMS
+        run: sha256sum sbom.cyclonedx.json ACCEPTANCE-CRITERIA.txt "$ARCHIVE" > SHA256SUMS
 
       - uses: sigstore/cosign-installer@v3
 
@@ -116,7 +116,7 @@ jobs:
       # because cosign signs images IN a registry and this job has nothing in one yet.
       - name: Sign the release artifacts
         run: |
-          for f in sbom.cyclonedx.json ORCS-CONFORMANCE.txt "$ARCHIVE" SHA256SUMS; do
+          for f in sbom.cyclonedx.json ACCEPTANCE-CRITERIA.txt "$ARCHIVE" SHA256SUMS; do
             cosign sign-blob --yes \
               --output-signature "${f}.sig" \
               --output-certificate "${f}.pem" \
@@ -129,7 +129,7 @@ jobs:
         with:
           subject-path: |
             sbom.cyclonedx.json
-            ORCS-CONFORMANCE.txt
+            ACCEPTANCE-CRITERIA.txt
             ${{ env.ARCHIVE }}
 
       # Pushing a tag creates a TAG. It does not create a RELEASE -- they are separate objects,
@@ -162,7 +162,7 @@ jobs:
 
           gh release upload "$GITHUB_REF_NAME" \
             sbom.cyclonedx.json sbom.cyclonedx.json.sig sbom.cyclonedx.json.pem \
-            ORCS-CONFORMANCE.txt ORCS-CONFORMANCE.txt.sig ORCS-CONFORMANCE.txt.pem \
+            ACCEPTANCE-CRITERIA.txt ACCEPTANCE-CRITERIA.txt.sig ACCEPTANCE-CRITERIA.txt.pem \
             "$ARCHIVE" "${ARCHIVE}.sig" "${ARCHIVE}.pem" \
             SHA256SUMS SHA256SUMS.sig SHA256SUMS.pem \
             --clobber
@@ -170,11 +170,11 @@ jobs:
           # The verbatim suite output goes into the notes, once. Idempotent so a re-run of the
           # workflow against the same tag does not append it twice.
           gh release view "$GITHUB_REF_NAME" --json body --jq .body > notes.md
-          if ! grep -q '^## ORCS §15 conformance' notes.md; then
+          if ! grep -q '^## Acceptance criteria' notes.md; then
             {
-              printf '\n## ORCS §15 conformance\n\n'
-              printf 'Recorded by `npm run conformance:orcs` against this tag. A criterion is met when the suite says PASS; this is a sample of the specification, not a certificate.\n\n```\n'
-              cat ORCS-CONFORMANCE.txt
+              printf '\n## Acceptance criteria\n\n'
+              printf 'Recorded by `npm run acceptance` against this tag. A criterion is met when the suite says PASS. These are acceptance criteria the project set for itself, not a conformance certificate; each prints the external requirement it serves.\n\n```\n'
+              cat ACCEPTANCE-CRITERIA.txt
               printf '```\n'
             } >> notes.md
             gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
@@ -186,7 +186,7 @@ jobs:
           name: release-artifacts
           path: |
             sbom.cyclonedx.json*
-            ORCS-CONFORMANCE.txt*
+            ACCEPTANCE-CRITERIA.txt*
             SHA256SUMS*
             *.tar.gz*
           if-no-files-found: error

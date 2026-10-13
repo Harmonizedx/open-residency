@@ -56,8 +56,9 @@
 /.github/workflows/                 @Harmonizedx/open-residency-admin
 /.github/CODEOWNERS                 @Harmonizedx/open-residency-admin
 
-# The conformance gates themselves.
-/scripts/orcs-conformance.ts        @Harmonizedx/open-residency-admin
+# The acceptance ratchet and the conformance gates themselves.
+/scripts/acceptance-criteria.ts     @Harmonizedx/open-residency-admin
+/scripts/acceptance-baseline.json   @Harmonizedx/open-residency-admin
 /scripts/mosip-conformance.ts       @Harmonizedx/open-residency-admin
 /scripts/check-license-headers.sh   @Harmonizedx/open-residency-admin
 

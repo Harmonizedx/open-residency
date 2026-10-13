@@ -7,12 +7,28 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) under the pre
 stated in [`RELEASING.md`](RELEASING.md): while the version is `0.x`, a **minor** bump may
 change behaviour an adopter depends on, and a **patch** never does.
 
-Conformance state belongs to the suite, not to this file. `npm run conformance:orcs` prints the
-current ORCS §15 position; where the two disagree, the suite is right.
+The acceptance position belongs to the suite, not to this file. `npm run acceptance` prints the
+current verdict for every criterion; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+**The acceptance suite is named for what it is.** `npm run acceptance` runs the project's own
+acceptance criteria (`scripts/acceptance-criteria.ts`, ratchet baseline
+`scripts/acceptance-baseline.json`, `ACCEPTANCE_UPDATE_BASELINE=1` to record an improvement).
+Its output no longer cites section numbers of the project's own specification, which is a
+working document and is not published; each criterion still prints the external requirement
+it serves, and the two tallies are unchanged. The signed release asset is now
+`ACCEPTANCE-CRITERIA.txt`, and the release-notes section is headed "Acceptance criteria".
+`docs/API.md` cites decision records instead of specification sections.
+[ADR-0017](docs/adr/0017-the-specification-is-a-working-document.md) records the decision
+and the trigger for revisiting it.
+
+### Deprecated
+
+- `npm run conformance:orcs` is an alias for `npm run acceptance` and will be removed in the
+  next minor release.
 
 ## 0.3.0 — 2026-10-02
 
