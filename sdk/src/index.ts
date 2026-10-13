@@ -361,6 +361,30 @@ export class OpenResidencyClient {
       auth: 'operator',
     });
   }
+  /** A peer delivers a signed arrival notice. Public: the signature is the credential (ADR-0018). */
+  receiveArrivalNotice(body: RequestBody<Operation<'post', '/federation/arrival-notices'>>) {
+    return this.request('post', '/federation/arrival-notices', { body });
+  }
+  /** Operator action. A person presented a peer's credential here and was registered here: tell the peer. */
+  sendArrivalNotice(body: RequestBody<Operation<'post', '/federation/arrival-notices/outbound'>>) {
+    return this.request('post', '/federation/arrival-notices/outbound', { body, auth: 'operator' });
+  }
+  /** Operator action. Notices in either direction, oldest first. */
+  arrivalNotices(query: { direction?: 'inbound' | 'outbound'; status?: components['schemas']['ArrivalNoticeStatus']; residentId?: string; countryCode?: string; limit?: number; offset?: number } = {}) {
+    return this.request('get', '/federation/arrival-notices', { query, auth: 'operator' });
+  }
+  /** Operator action. One notice, as stored. */
+  arrivalNotice(id: string) {
+    return this.request('get', '/federation/arrival-notices/{id}', { path: { id }, auth: 'operator' });
+  }
+  /** Operator action. A person decides a conflict: uphold or reverse. */
+  resolveArrivalNotice(id: string, body: RequestBody<Operation<'post', '/federation/arrival-notices/{id}/resolve'>>) {
+    return this.request('post', '/federation/arrival-notices/{id}/resolve', { path: { id }, body, auth: 'operator' });
+  }
+  /** Operator action. Apply due notices and retry failed deliveries. */
+  sweepArrivalNotices() {
+    return this.request('post', '/federation/arrival-notices/sweep', { auth: 'operator' });
+  }
   /** The credential's ORCS status. */
   credential(residentId: string) {
     return this.request('get', '/residency/{residentId}/credential', { path: { residentId } });

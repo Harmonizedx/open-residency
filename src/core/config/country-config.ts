@@ -486,6 +486,25 @@ const federatedIssuerSchema = z.object({
       }),
     )
     .default([]),
+  /**
+   * Where this peer receives arrival notices about credentials it issued. When a person
+   * presents the peer's credential here and is registered here, a signed notice naming the
+   * credential -- and nothing about the person -- is posted there. Absent: the peer is not
+   * told. See docs/adr/0018-arrival-notices-under-a-declared-exclusivity-rule.md.
+   */
+  arrivalNoticeUrl: z.string().url().optional(),
+  /**
+   * This deployment's rule for a notice FROM this peer: what happens to a residency here
+   * when its holder registers with the peer. `none` lets the two coexist; `record` opens a
+   * conflict for a person; `suspend` and `end` act on the relationship once `graceDays` have
+   * run, unless a person reverses the conflict first. Omitted: `record`, three days.
+   */
+  exclusivity: z
+    .object({
+      rule: z.enum(['none', 'record', 'suspend', 'end']).default('record'),
+      graceDays: z.number().int().min(0).max(365).default(3),
+    })
+    .default({ rule: 'record', graceDays: 3 }),
 });
 
 /**

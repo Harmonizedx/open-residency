@@ -215,7 +215,10 @@ Every label value is drawn from a bounded set: route patterns, declared unit cod
 - `time() - openresidency_background_job_last_success_timestamp_seconds{job="audit_checkpoint"}`
   exceeding several times `AUDIT_CHECKPOINT_SECONDS` — the audit tail is unanchored;
 - the same for `federation_status_refresh` against `FEDERATION_STATUS_REFRESH_SECONDS`, where
-  peers are configured — a peer's revocations are going unnoticed.
+  peers are configured — a peer's revocations are going unnoticed;
+- the same for `arrival_notice_sweep` against `ARRIVAL_NOTICE_SWEEP_SECONDS`, where peers are
+  configured — conflicts whose grace period has run are not being applied, and notices this
+  deployment could not deliver are not being retried.
 
 ### Not provided
 

@@ -87,6 +87,38 @@ acts on. See [ADR-0014](adr/0014-identity-links-are-a-record-not-a-column.md).
 - `POST /residency/merges/{mergeId}/split` `{ reason }` — SPLIT: restore the identifiers to the
   duplicate. Its ended relationship stays ended; the person re-enrols (`admin`).
 
+## Federation: arrival notices
+
+What one jurisdiction tells another when a person it registered presents the other's
+credential and is registered there, and what the receiving jurisdiction's declared rule does
+about it ([ADR-0018](adr/0018-arrival-notices-under-a-declared-exclusivity-rule.md)). A notice names the credential and a hash of it as presented, and
+nothing about the person. The rule is per peer, in the federation trust list: `none`, `record`,
+`suspend` or `end`, with a grace period in days.
+
+- `POST /federation/arrival-notices` `{ notice }` — a peer delivers a signed notice. Public;
+  the signature is the credential. Accepted only from a peer in the trust list, signed by a key
+  the list holds, addressed to this deployment, within validity and never seen before (`401`
+  otherwise, `409` for a replay, `400` for a notice carrying anything about the person).
+  Returns the rule applied and what it did: `noted`, `unmatched`, `open`, `pending` (with
+  `effectiveAt`) or `applied` (with `appliedTransition`).
+- `POST /federation/arrival-notices/outbound` `{ countryCode, credential, presentedAt?,
+  registeredAt? }` — a person presented a peer's credential here and was registered here: tell
+  the peer. The credential is verified through the trust list first; a credential this
+  deployment issued, or one it would not accept, gets no notice. Returns the stored notice
+  with its delivery status (`sent` or `failed`; a failed one is retried by the sweep).
+  `registrar`.
+- `GET /federation/arrival-notices?direction=&status=&residentId=&countryCode=&limit=&offset=`
+  — notices in either direction, oldest first. `registrar`.
+- `GET /federation/arrival-notices/{id}` — one notice, as stored, including the signed
+  notice itself. `registrar`.
+- `POST /federation/arrival-notices/{id}/resolve` `{ resolution, reason }` — a person
+  decides: `upheld` applies a pending rule now; `reversed` cancels a pending one or
+  reinstates a suspended relationship. An ended relationship is not reversible from here
+  (`CANNOT_REVERSE_ENDED`): ENDED is terminal and the person re-enrols. `revoker`.
+- `POST /federation/arrival-notices/sweep` — apply inbound notices whose grace period has
+  run and retry failed outbound ones. Also runs on a timer (`ARRIVAL_NOTICE_SWEEP_SECONDS`)
+  where peers are configured. `registrar`.
+
 ## Assurance
 
 - `GET /assurance/profiles` — the assurance profiles this deployment recognises

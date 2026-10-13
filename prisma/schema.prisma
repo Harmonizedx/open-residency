@@ -118,6 +118,9 @@ model Resident {
   erasedAt            DateTime?
 
   @@index([countryCode, subnationalUnit])
+  // An arrival notice from a peer names the credential a person presented there and nothing
+  // else, so the credential id is how a notice reaches a record (ADR-0018).
+  @@index([credentialId])
 }
 
 // One growable revocation bitstring per country/deployment, plus a monotonic counter
@@ -608,4 +611,44 @@ model IdentityMerge {
 
   @@index([survivorRef])
   @@index([duplicateRef])
+}
+
+// Arrival notices between federated jurisdictions, both directions, as evidence (ADR-0018).
+// Inbound: a peer says a person holding our credential registered there, and what our rule
+// for that peer did about it. Outbound: what we told a peer, and whether it arrived. No
+// personal data: the credential id and a hash of the credential as presented are all a
+// notice carries, and all this table holds about the person is our own residentId.
+model ArrivalNotice {
+  id                String    @id
+  direction         String
+  peerDid           String
+  peerName          String?
+  credentialId      String
+  presentationHash  String
+  presentedAt       DateTime
+  registeredAt      DateTime
+  at                DateTime
+  residentId        String?
+  countryCode       String?
+  rule              String?
+  graceDays         Int?
+  effectiveAt       DateTime?
+  status            String
+  conflict          Boolean   @default(false)
+  appliedAt         DateTime?
+  appliedTransition String?
+  applyFailure      String?
+  resolvedAt        DateTime?
+  resolvedBy        String?
+  resolution        String?
+  resolutionReason  String?
+  attempts          Int       @default(0)
+  lastAttemptAt     DateTime?
+  deliveryDetail    String?
+  notice            String
+  createdAt         DateTime  @default(now())
+
+  @@index([residentId, at])
+  @@index([direction, status, effectiveAt])
+  @@index([credentialId])
 }

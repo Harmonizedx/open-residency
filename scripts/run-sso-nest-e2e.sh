@@ -67,3 +67,5 @@ echo "== driving the real app: an OIDC provider as the register =="
 node scripts/identity-oidc-nest-e2e.cjs
 echo "== driving the real app: identity links over HTTP (ORCS §11) =="
 node scripts/identity-links-nest-e2e.cjs
+echo "== driving the real app: arrival notices over HTTP (ADR-0018) =="
+node scripts/arrival-notice-nest-e2e.cjs

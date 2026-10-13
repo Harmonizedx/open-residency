@@ -23,6 +23,7 @@ import {
 } from '../core/credentials/federation';
 import { buildDidWebDocument } from '../core/credentials/did';
 import { ResidencyService } from '../core/residency/residency-service';
+import { ArrivalNoticeService } from '../core/residency/arrival-notice';
 import { Oid4vciService } from '../core/oid4vci/oid4vci-service';
 import { Oid4vpService } from '../core/oid4vp/oid4vp-service';
 import { OtpService, OtpSender } from '../core/sso/otp';
@@ -61,6 +62,7 @@ import {
   PrismaUpstreamAuthStore,
   PrismaAuditCheckpointStore,
   PrismaDeliveryStore,
+  PrismaArrivalNoticeStore,
   PrismaBreachStore,
 } from '../prisma/prisma.service';
 import { tokenizeSubject } from '../core/foundational/util';
@@ -91,6 +93,7 @@ export class PlatformService implements OnModuleDestroy {
   private statusListPublisher!: StatusListPublisher;
   private verifier!: VcVerifier;
   private residency!: ResidencyService;
+  private arrivalNotices!: ArrivalNoticeService;
   private oid4vci!: Oid4vciService;
   private oid4vp!: Oid4vpService;
   private vpVerifier!: VpVerifier;
@@ -126,6 +129,7 @@ export class PlatformService implements OnModuleDestroy {
     private auditCheckpointStore: PrismaAuditCheckpointStore,
     private custody: KeyCustody,
     private deliveryStore: PrismaDeliveryStore,
+    private arrivalNoticeStore: PrismaArrivalNoticeStore,
     private breachStore: PrismaBreachStore,
   ) {}
 
@@ -237,6 +241,24 @@ export class PlatformService implements OnModuleDestroy {
     }
 
     this.vpVerifier = new VpVerifier(this.verifier, ldpTrust);
+
+    // Arrival notices (ADR-0018): what this deployment tells a peer when a holder of the
+    // peer's credential registers here, and what its declared rule for a peer does when the
+    // peer says the same about one of ours. Signed with the issuer key, verified against the
+    // same trust map as every credential, delivered over plain HTTPS to the endpoint the
+    // peer published in the trust list.
+    this.arrivalNotices = new ArrivalNoticeService({
+      store: this.arrivalNoticeStore,
+      residents: this.store,
+      residency: this.residency,
+      verifier: this.verifier,
+      trust: this.trust,
+      peers: () => this.federatedPeers,
+      ownIssuers: () =>
+        this.listConfigs().map((c) => ({ countryCode: c.countryCode, did: c.credential.issuerDid })),
+      signer: this.key.signer,
+      deliver: (url, body) => axios.post(url, body, { timeout: 10_000 }).then(() => undefined),
+    });
     // OpenID4VP is deployment-wide (a presentation request names no country), so its
     // profile is read from the default -- that is, the first -- country config.
     const defaultCfg = this.listConfigs()[0];
@@ -360,6 +382,7 @@ export class PlatformService implements OnModuleDestroy {
       oidcStore: this.oidcStore,
       federatedPeers: () => this.federatedPeers,
       syncFederatedStatusLists: () => this.syncFederatedStatusLists(),
+      sweepArrivalNotices: () => this.sweepArrivalNotices(),
     });
     this.jobs.start();
 
@@ -525,6 +548,37 @@ export class PlatformService implements OnModuleDestroy {
     const dir = process.env.PRIVACY_PROFILE_DIR ?? join(process.env.COUNTRY_CONFIG_DIR ?? join(process.cwd(), 'config/countries'), '..', 'privacy');
     return loadRegulatoryProfile(dir, countryCode) ?? NEUTRAL_PROFILE;
   }
+  getArrivalNotices(): ArrivalNoticeService {
+    return this.arrivalNotices;
+  }
+
+  /**
+   * Apply inbound notices whose grace period has run and retry failed outbound ones. Each
+   * applied transition is audited here, attributed to the rule and the peer, because the
+   * core service has no audit log and a suspension nobody can find in the trail is the
+   * failure the trail exists to prevent.
+   */
+  async sweepArrivalNotices(): Promise<{ applied: number; openedForReview: number; resent: number; stillFailed: number }> {
+    const due = await this.arrivalNotices.applyDue();
+    for (const n of due) {
+      await this.audit.record({
+        action: 'federation.arrival-notice.apply',
+        actor: `rule:exclusivity:${n.peerDid}`,
+        target: n.residentId,
+        countryCode: n.countryCode,
+        outcome: n.status === 'applied' ? 'success' : 'failure',
+        metadata: { noticeId: n.id, rule: n.rule, appliedTransition: n.appliedTransition, reason: n.applyFailure },
+      });
+    }
+    const retried = await this.arrivalNotices.retryFailed();
+    return {
+      applied: due.filter((n) => n.status === 'applied').length,
+      openedForReview: due.filter((n) => n.status !== 'applied').length,
+      resent: retried.sent.length,
+      stillFailed: retried.failed.length,
+    };
+  }
+
   getDeliveries(): PrismaDeliveryStore {
     return this.deliveryStore;
   }

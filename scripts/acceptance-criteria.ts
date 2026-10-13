@@ -67,6 +67,14 @@ import { KeyStore } from '../src/core/credentials/keystore';
 import { didKeyFromJwk } from '../src/core/credentials/did';
 import { StatusList } from '../src/core/credentials/status-list';
 import { VcVerifier, TrustedIssuer } from '../src/core/credentials/vc-verifier';
+import { ExclusivityPolicy } from '../src/core/credentials/federation';
+import { signJwt } from '../src/core/credentials/signer';
+import {
+  ARRIVAL_NOTICE_TYP,
+  ArrivalNoticeService,
+  InMemoryArrivalNoticeStore,
+  presentationHashOf,
+} from '../src/core/residency/arrival-notice';
 import { buildDefaultAssuranceRegistry } from '../src/core/assurance/profiles';
 import { InMemoryRefusalStore } from '../src/core/residency/refusal';
 import { InMemoryDeliveryStore } from '../src/core/credentials/delivery';
@@ -95,7 +103,7 @@ const results: Result[] = [];
  */
 const SERVES: Record<number, string> = {
   1: 'ADR-0004 (one deployment, one jurisdiction; multiplicity across deployments); ID4D Principle 4 (interoperable platform); W3C VC 2.0 verification of a peer issuer',
-  2: 'nothing external yet: no framework asks a subnational register to adjudicate conflicts; see the rewrite below',
+  2: 'Germany BMG §33 pattern (the registering authority notifies the previous one; the notice, not a shared register, drives deregistration locally); ADR-0004 (no jurisdiction writes to another\'s register); ADR-0018 (the rule is the deployment\'s own, declared per peer)',
   3: 'NIST SP 800-63-3 IAL/AAL/FAL vocabulary; ID4D Principle 3 (a trusted identity: accurate, with stated assurance)',
   4: 'Nigeria GAID 2025 Art. 41(9) (explicit, revocable consent for third-party sharing); DPG Standard indicator 9a; GovStack Consent BB',
   5: 'W3C Bitstring Status List 1.0; a revocation record with reason, authority, time and appeal path; EUDI ARF status checking; DPG Standard indicator 9a (integrity)',
@@ -328,23 +336,147 @@ async function main() {
   // 2. A conflict is detected only under an explicit exclusivity rule.
   // ---------------------------------------------------------------------------
   //
-  // What this criterion will assert, once the code exists: a deployment holds an explicit
-  // per-peer exclusivity policy (none | record | suspend | end); a peer's signed arrival
-  // notice -- carrying this deployment's own credential id and no personal data -- is the
-  // evidence it evaluates; under `none` two ACTIVE residencies coexist and NO conflict is
-  // recorded (the false-positive half of the criterion), and under `record` or stronger a
-  // conflict is recorded, attributed to the peer and the rule, with a reason. Adjudication
-  // stays local and human: no central adjudicator, which ORCS §1.2 and ADR-0004 rule out.
-  // Nothing in src/core evaluates exclusivity yet, so both halves fail.
+  // Under ADR-0004 this is a cross-deployment question, and the evidence is a peer's signed
+  // arrival notice (ADR-0018): the person presented our credential at the peer's desk and was
+  // registered there, and the notice carries our credential's id and a hash of it, nothing
+  // about the person. What happens here is OUR declared rule for that peer. Both halves of
+  // the criterion are asserted on the same person and the same two deployments:
+  //
+  //   - under `none`, two ACTIVE residencies coexist and NO conflict is recorded -- the
+  //     false-positive half, which a register that flagged every second residency would fail;
+  //   - under `record`, a conflict is recorded, attributed to the peer and the rule, and the
+  //     relationship is untouched; under `suspend` with a grace period nothing is applied until
+  //     the period has run, and a person can reverse it before then.
+  //
+  // Adjudication stays local and human; neither register gains a row for the other's
+  // residency; a notice from an unlisted jurisdiction, a replay, or a notice carrying anything
+  // about the person is refused.
+  const homePeers: { policy: ExclusivityPolicy }[] = [{ policy: { rule: 'none', graceDays: 0 } }];
+  const homeNotices = new InMemoryArrivalNoticeStore();
+  const homeClock = { now: new Date('2026-10-13T09:00:00.000Z') };
+  const homeArrivals = new ArrivalNoticeService({
+    store: homeNotices,
+    residents: homeStore,
+    residency: home,
+    verifier: homeVerifier,
+    trust,
+    peers: () => [{ did: peerDid, name: 'Kano State Residency Authority', publicJwks: [peerKey.publicJwk], exclusivity: homePeers[0].policy }],
+    ownIssuers: () => [{ countryCode: 'NG', did: issuerDid }],
+    signer: key.signer,
+    deliver: async () => undefined,
+    now: () => homeClock.now,
+  });
+  const peerTrust = new Map<string, TrustedIssuer>();
+  peerTrust.set(peerDid, { did: peerDid, publicJwks: [peerKey.publicJwk], statusLists: {} });
+  peerTrust.set(issuerDid, { did: issuerDid, publicJwks: [key.publicJwk], statusLists: {} });
+  const peerArrivals = new ArrivalNoticeService({
+    store: new InMemoryArrivalNoticeStore(),
+    residents: peerStore,
+    residency: peer,
+    verifier: new VcVerifier(peerTrust),
+    trust: peerTrust,
+    peers: () => [{ did: issuerDid, name: 'Katsina State Residency Authority', publicJwks: [key.publicJwk], arrivalNoticeUrl: 'https://id.katsina.gov.ng/federation/arrival-notices' }],
+    ownIssuers: () => [{ countryCode: 'NG', did: peerDid }],
+    signer: peerKey.signer,
+    deliver: async (_url, body) => {
+      const got = await homeArrivals.receive(body.notice);
+      if (!got.ok) throw new Error(got.reason);
+    },
+  });
+  const homeCredential = first.status === 'issued' ? first.credentialJwt : '';
+  const homeResidentId = first.status === 'issued' ? first.residentId : '';
+  const homeStatus = async () => (await home.relationshipFor(homeResidentId))?.status;
+  const tell = () => peerArrivals.notify({ countryCode: 'NG', credential: homeCredential, presentedAt: '2026-10-13T08:30:00.000Z', registeredAt: '2026-10-13T08:45:00.000Z' });
+
+  // (a) `none`: the notice arrives, is matched to our record, and no conflict exists.
+  const underNone = await tell();
+  const notedUnderNone = underNone.ok ? await homeNotices.findById(underNone.notice.id) : null;
+  const noticeCarriesNoPersonalData =
+    underNone.ok &&
+    Object.keys(JSON.parse(Buffer.from(underNone.notice.notice.split('.')[1], 'base64url').toString()))
+      .sort()
+      .join(',') === 'aud,credentialId,exp,iat,iss,jti,presentationHash,presentedAt,registeredAt';
+  const noConflictUnderNone =
+    !!notedUnderNone &&
+    notedUnderNone.status === 'noted' &&
+    notedUnderNone.conflict === false &&
+    notedUnderNone.residentId === homeResidentId &&
+    (await homeStatus()) === 'ACTIVE' &&
+    peerIssued.status === 'issued' &&
+    (await peer.relationshipFor(peerIssued.residentId))?.status === 'ACTIVE';
+
+  // (b) `record`: a conflict, attributed, relationship untouched, resolved by a person.
+  homePeers[0].policy = { rule: 'record', graceDays: 3 };
+  const underRecord = await tell();
+  const conflictUnderRecord = underRecord.ok ? await homeNotices.findById(underRecord.notice.id) : null;
+  const recordedConflict =
+    !!conflictUnderRecord &&
+    conflictUnderRecord.status === 'open' &&
+    conflictUnderRecord.conflict === true &&
+    conflictUnderRecord.peerDid === peerDid &&
+    conflictUnderRecord.rule === 'record' &&
+    (await homeStatus()) === 'ACTIVE';
+  const humanlyResolved =
+    recordedConflict &&
+    (await homeArrivals.resolve(conflictUnderRecord!.id, { by: 'operator:registrar-1', resolution: 'upheld', reason: 'Confirmed with the resident' })).ok;
+
+  // (c) `suspend` with a grace period: pending, reversible, then applied by the rule.
+  homePeers[0].policy = { rule: 'suspend', graceDays: 3 };
+  const underSuspend = await tell();
+  const pending = underSuspend.ok ? await homeNotices.findById(underSuspend.notice.id) : null;
+  const pendingNotApplied = !!pending && pending.status === 'pending' && (await homeStatus()) === 'ACTIVE' && (await homeArrivals.applyDue(new Date('2026-10-15T00:00:00.000Z'))).length === 0;
+  const reversedInTime = pendingNotApplied && (await homeArrivals.resolve(pending!.id, { by: 'operator:registrar-1', resolution: 'reversed', reason: 'Work address, not a move' })).ok && (await homeStatus()) === 'ACTIVE';
+  const underSuspendAgain = await tell();
+  homeClock.now = new Date('2026-10-16T09:00:00.000Z');
+  const appliedByRule = await homeArrivals.applyDue();
+  const suspendedByRule =
+    underSuspendAgain.ok &&
+    appliedByRule.length === 1 &&
+    appliedByRule[0].appliedTransition === 'SUSPENDED' &&
+    (await homeStatus()) === 'SUSPENDED' &&
+    (await home.relationshipFor(homeResidentId))?.decidedBy === `rule:exclusivity:${peerDid}`;
+  const reinstatedByPerson = suspendedByRule && (await homeArrivals.resolve(appliedByRule[0].id, { by: 'operator:registrar-2', resolution: 'reversed', reason: 'The person never left' })).ok && (await homeStatus()) === 'ACTIVE';
+
+  // (d) Refusals, and sovereignty.
+  const replayRefused = underNone.ok && !(await homeArrivals.receive(underNone.notice.notice)).ok;
+  const strangerNoticeKey = await KeyStore.generate('stranger-notice-key');
+  const strangerNoticeDid = didKeyFromJwk(strangerNoticeKey.publicJwk);
+  const strangerNotice = await signJwt(strangerNoticeKey.signer, { kid: `${strangerNoticeDid}#k`, typ: ARRIVAL_NOTICE_TYP }, { iss: strangerNoticeDid, aud: issuerDid, jti: 'urn:uuid:stranger', exp: Math.floor(Date.now() / 1000) + 600, credentialId: first.status === 'issued' ? first.record.credentialId : 'x', presentationHash: presentationHashOf(homeCredential), presentedAt: '2026-10-13T08:30:00.000Z', registeredAt: '2026-10-13T08:45:00.000Z' });
+  const strangerRefused = (await homeArrivals.receive(strangerNotice)).ok === false;
+  const leakyNotice = await signJwt(peerKey.signer, { kid: `${peerDid}#${peerKey.kid}`, typ: ARRIVAL_NOTICE_TYP }, { iss: peerDid, aud: issuerDid, jti: 'urn:uuid:leaky', exp: Math.floor(Date.now() / 1000) + 600, credentialId: first.status === 'issued' ? first.record.credentialId : 'x', presentationHash: presentationHashOf(homeCredential), presentedAt: '2026-10-13T08:30:00.000Z', registeredAt: '2026-10-13T08:45:00.000Z', fullName: 'A. Person' });
+  const personalDataRefused = (await homeArrivals.receive(leakyNotice)).ok === false;
+  const registersStaySeparate = (await homeStore.list({ countryCode: 'NG' })).total === 1 && (await peerStore.list({ countryCode: 'NG' })).total === 1;
+
+  const criterion2 =
+    noticeCarriesNoPersonalData &&
+    noConflictUnderNone &&
+    recordedConflict &&
+    humanlyResolved &&
+    pendingNotApplied &&
+    reversedInTime &&
+    suspendedByRule &&
+    reinstatedByPerson &&
+    replayRefused &&
+    strangerRefused &&
+    personalDataRefused &&
+    registersStaySeparate;
   record(
     2,
     'Conflict detected only under an explicit exclusivity rule',
-    'FAIL',
-    'no exclusivity policy, no arrival-notice endpoint and no conflict record exist; nothing ' +
-      'in src/core evaluates exclusivity, so neither a true conflict nor a false one can be ' +
-      'distinguished. The design is settled (per-peer policy over a signed peer notice) and ' +
-      'awaits an ADR and the code',
-    'G-06',
+    criterion2 ? 'PASS' : 'FAIL',
+    criterion2
+      ? "a peer's signed arrival notice names our credential and nothing about the person; under " +
+        'rule `none` both residencies stay ACTIVE and no conflict is recorded; under `record` a ' +
+        'conflict is recorded, attributed to the peer and the rule, and resolved by a person; under ' +
+        '`suspend` nothing is applied until the grace period has run, a person can reverse it before ' +
+        'then, and the rule then suspends the relationship in its own name; a replay, an unlisted ' +
+        'jurisdiction and a notice carrying personal data are refused; neither register holds the other\'s row'
+      : `no personal data in notice: ${noticeCarriesNoPersonalData}; no conflict under none: ${noConflictUnderNone}; ` +
+        `conflict under record: ${recordedConflict}; resolved by a person: ${humanlyResolved}; pending not applied: ${pendingNotApplied}; ` +
+        `reversed in time: ${reversedInTime}; suspended by rule after grace: ${suspendedByRule}; reinstated: ${reinstatedByPerson}; ` +
+        `replay refused: ${replayRefused}; stranger refused: ${strangerRefused}; personal data refused: ${personalDataRefused}; ` +
+        `registers separate: ${registersStaySeparate}`,
+    criterion2 ? undefined : 'G-06',
   );
 
   // ---------------------------------------------------------------------------

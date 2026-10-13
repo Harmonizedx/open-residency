@@ -12,6 +12,26 @@ current verdict for every criterion; where the two disagree, the suite is right.
 
 ## [Unreleased]
 
+### Added
+
+**Arrival notices between federated jurisdictions, under a declared exclusivity rule.** When a
+person presents a peer's residency credential here and is registered here, the peer is told
+with a signed notice (`POST /federation/arrival-notices/outbound`) that names the credential
+and a hash of it as presented, and nothing about the person. A notice received from a peer
+(`POST /federation/arrival-notices`, public, the signature is the credential) is acted on by
+this deployment's declared rule for that peer: `none` notes it, `record` opens a conflict for a
+person, `suspend` and `end` act on the relationship once a grace period has run, through the
+ordinary lifecycle and attributed to the rule and the peer. A person resolves a conflict
+(`POST /federation/arrival-notices/{id}/resolve`): a pending one can be cancelled, a suspension
+reinstated; an ended relationship is terminal. Notices in both directions are listed and kept
+as evidence; undeliverable ones are retried by a sweep (`POST /federation/arrival-notices/sweep`,
+and on a timer, `ARRIVAL_NOTICE_SWEEP_SECONDS`). Two per-peer trust-list fields:
+`arrivalNoticeUrl` and `exclusivity` (default `record`, three days). Acceptance criterion 2
+passes; `npm run smoke:arrival-notice` and the store and end-to-end suites cover it. SDK:
+`receiveArrivalNotice`, `sendArrivalNotice`, `arrivalNotices`, `arrivalNotice`,
+`resolveArrivalNotice`, `sweepArrivalNotices`. Migration `20261013090000_arrival_notices`
+(additive). [ADR-0018](docs/adr/0018-arrival-notices-under-a-declared-exclusivity-rule.md).
+
 ### Changed
 
 **The acceptance suite is named for what it is.** `npm run acceptance` runs the project's own

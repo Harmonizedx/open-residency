@@ -52,7 +52,39 @@ export interface FederatedIssuer {
    * canonicalized without a network fetch at verification time.
    */
   contexts?: { url: string; document: unknown }[];
+  /**
+   * Where this peer receives arrival notices about credentials IT issued. When a person
+   * presents the peer's credential here and is registered here, this deployment posts a
+   * signed notice there (ADR-0018). Absent means the peer is not told.
+   */
+  arrivalNoticeUrl?: string;
+  /**
+   * This deployment's rule for a notice FROM this peer: what happens here when a person
+   * holding our credential registers with the peer. Defaults to `record` with a three-day
+   * grace period. Declared per peer because reciprocity is bilateral -- it is what the two
+   * jurisdictions agreed -- and never inferred from the peer's own configuration.
+   */
+  exclusivity?: ExclusivityPolicy;
 }
+
+/**
+ * What a deployment does when a peer reports that a person it registered has registered
+ * there. `none`: the residencies coexist and no conflict exists. `record`: a conflict is
+ * opened for a person to look at. `suspend` / `end`: the relationship is suspended or ended
+ * once the grace period has run, unless a person reverses the conflict first.
+ */
+export type ExclusivityRule = 'none' | 'record' | 'suspend' | 'end';
+
+export const EXCLUSIVITY_RULES: readonly ExclusivityRule[] = ['none', 'record', 'suspend', 'end'];
+
+export interface ExclusivityPolicy {
+  rule: ExclusivityRule;
+  /** Days between receiving a notice and applying `suspend` or `end`. Zero applies at once. */
+  graceDays: number;
+}
+
+/** Record, and give a person three days: the posture a deployment gets by listing a peer and saying nothing. */
+export const DEFAULT_EXCLUSIVITY: ExclusivityPolicy = { rule: 'record', graceDays: 3 };
 
 /** Trust-map entry (VC-JWT verifier) for a federated peer. */
 export function federatedTrustedIssuer(peer: FederatedIssuer): TrustedIssuer {
