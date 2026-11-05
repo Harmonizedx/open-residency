@@ -63,10 +63,14 @@ guide, and runnable smoke tests that double as executable documentation.
 Evidence: `README.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/openapi.yaml`,
 `docs/SDK.md`, `docs/INTEGRATION.md`, `docs/DEPLOY.md`, `scripts/smoke.ts`.
 
-### 6. Mechanism for extracting data
+### 6. Mechanism for extracting data and content
 
-The Standard asks for a documented way to extract or import **non-PII** data in a
-non-proprietary format. OpenResidency provides four, none of which carries personal data:
+The Standard's own wording: *"Digital public goods with non-personally identifiable
+information (PII) design for possibility of extracting or importing non-PII data and content
+from the system in a non-proprietary format."* Note that it asks about **import** as well as
+export, and about **content** as well as data. OpenResidency provides four mechanisms, none
+of which carries personal data; on content, the system holds none at all — there is no
+user-generated content (indicator 9b):
 
 - **Aggregate residency statistics.** `GET /admin/statistics` (JSON) and
   `GET /admin/statistics.csv` (RFC 4180 CSV) return counts by country, subnational unit,
@@ -102,7 +106,9 @@ Evidence: `src/core/statistics/aggregate.ts`, `src/admin/statistics.controller.t
 
 ### 7. Adherence to privacy and applicable laws
 
-Against the six privacy requirements the DPGA added to the Standard in 2024:
+Against the six privacy requirements the DPGA added to the Standard on 11 September 2025
+(April 2024 is when the Privacy Expert Group that drafted them was convened, not when they
+landed):
 
 | Requirement | Status |
 | --- | --- |
@@ -211,6 +217,10 @@ Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
 
 ### 9. Do no harm by design
 
+The Standard splits this indicator into **9a** (data privacy and security), **9b**
+(inappropriate and illegal content) and **9c** (protection from harassment). The mitigations
+below answer 9a; 9b and 9c are addressed at the end of this section.
+
 - **Exclusion.** Mitigated by offline verification (QR carriage, cached status lists) and a
   USSD state machine for feature phones with no data plan. Evidence: `src/core/offline/*`,
   `src/offline/offline.controller.ts`.
@@ -224,8 +234,8 @@ Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
   indicator 6.
 - **Privileged insider access.** Mitigated by per-operator identity, roles, and audited reads.
 
-The system has no user-generated content and no social features, so the content-moderation and
-harassment provisions of the Standard do not apply.
+The system has no user-generated content and no social features, so **9b** (inappropriate and
+illegal content) and **9c** (protection from harassment) do not apply.
 
 ## Honest caveats
 
@@ -280,12 +290,12 @@ tamper-evident audit trail. Reusable by any state, province, or county.
 
 ## Do-no-harm questions the reviewer will ask
 
-The Standard's do-no-harm prompts map onto indicator 9 above, with two the form asks
-separately:
+The Standard's do-no-harm prompts map onto indicator 9 above. 9a is answered by the
+mitigations there; the other two sub-indicators the form asks separately:
 
-- **Inappropriate or illegal content:** not applicable — infrastructure, no user-generated
-  content.
-- **Protection from harassment:** not applicable — no social features.
+- **9b — inappropriate or illegal content:** not applicable — infrastructure, no
+  user-generated content.
+- **9c — protection from harassment:** not applicable — no social features.
 
 Repeat the "Honest caveats" section verbatim in the submission rather than smoothing it over.
 
