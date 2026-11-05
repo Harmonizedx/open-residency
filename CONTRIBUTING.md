@@ -95,6 +95,46 @@ git log --format='%h %G? %s' -3
 
 If your key has a passphrase, load it first: `ssh-add ~/.ssh/id_ed25519`.
 
+## Commits must also be signed off (DCO)
+
+Signing and signing *off* are two different things, and this repository requires both. A
+signature proves the commit came from your key. A **sign-off** is your statement, under the
+[Developer Certificate of Origin](DCO) at the root of this repository, that you wrote the
+contribution or otherwise have the right to submit it under the project's licence. A
+perfectly signed commit with no sign-off still fails CI.
+
+Add the trailer with `-s`:
+
+```bash
+git commit -s -m "fix(scope): summary"
+```
+
+which appends:
+
+```
+Signed-off-by: Your Name <your@email>
+```
+
+The e-mail in the trailer must match the commit's author e-mail — the `DCO` check compares
+them exactly, so a sign-off naming a different address is treated as missing.
+
+**It is checked on every commit in the pull request, not just the last one.** If you forget:
+
+```bash
+git commit --amend -s --no-edit          # the most recent commit
+git rebase --signoff origin/main         # every commit on your branch
+```
+
+Both rewrite history, so you will need `git push --force-with-lease` to your own branch
+afterwards. Do that before requesting review rather than after.
+
+One caveat if you are an organization member branching inside this repository rather than
+from a fork: the branch ruleset currently applies to *every* branch, not just `main`, so it
+refuses both non-fast-forward pushes and ordinary follow-up pushes to a branch that already
+exists. Until that ruleset is narrowed, a rewrite means a fresh branch and a new pull
+request. Contributors working from a fork are unaffected — the ruleset does not reach your
+fork.
+
 ## Development setup
 
 ```bash
