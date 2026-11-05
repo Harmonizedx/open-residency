@@ -201,16 +201,27 @@ serves beside its verdict, held in CI at a recorded baseline that fails on regre
 the project's own, not an external standard, and `README.md` says so where it describes it.
 
 **Stated plainly:** the dependency audit gate fails the build at *moderate* severity on
-runtime dependencies, and the tree currently reports **zero advisories at every severity,
-development dependencies included**.
+runtime dependencies, and **as of 2026-11-05 it is failing**. `npm audit --omit=dev
+--audit-level=moderate` reports advisories against `body-parser`, `follow-redirects`,
+`multer`, `fast-uri`, `qs` and `zod` — 15 across the full tree (2 low, 5 moderate, 8 high).
+Most clear with `npm audit fix`; `multer` does not, because its only fix is a semver-major
+`@nestjs/platform-express` upgrade that has to be re-verified against the credential
+conformance suite first.
 
-That was not true until recently, and the history is worth stating. The gate sat at *critical*
+The gate stays where it is rather than being lowered to make the build green, which is the
+whole point of having set it there. A reviewer reading this during a red window should see
+the red, not a sentence written during a green one. Check the current position with that
+command rather than trusting this paragraph's date.
+
+The history is worth stating, because this is the second time round. The gate sat at *critical*
 because `undici` (via `jsonld`), `lodash` (via `@nestjs/config`) and `multer` with
 `@nestjs/platform-express` carried high-severity advisories whose only fixes were semver-major
 upgrades — `jsonld` in particular affects JSON-LD context processing and could not be bumped
 without re-running the full credential conformance suite. Those upgrades have landed
 (`jsonld@9`, the NestJS 11 family, `js-yaml`, `jose`), each verified against that suite, and
-the gate was raised once the tree could hold it rather than before.
+the gate was raised once the tree could hold it rather than before. New advisories have since
+landed against the upgraded tree, which is the ordinary condition of a dependency tree rather
+than a regression — the claim that ages badly is "zero advisories", not the gate.
 
 Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
 `.github/workflows/codeql.yml`, `.github/dependabot.yml`, `SECURITY.md`, `docs/INTEROP.md`.
@@ -311,7 +322,9 @@ sections above — answer the form from those sections, not from the old caveat:
   covers residency records only, and nothing schedules it.
 - **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
   analysis all run in CI. The audit gate fails the build at *moderate* on runtime
-  dependencies, and the tree reports zero advisories at every severity. Releases ship a
+  dependencies. Report the audit's position at submission time by running it
+  (`npm audit --omit=dev --audit-level=moderate`) rather than copying a count from this
+  page — it was failing on known advisories when this was last revised. Releases ship a
   signed SBOM and a signed, attested container image, so the supply-chain claim covers the
   artifact a government actually runs, not only the source.
 
@@ -329,9 +342,11 @@ sections above — answer the form from those sections, not from the old caveat:
 - [x] Data-protection statement published (`docs/PRIVACY.md`).
 - [x] Retention enforcement (`POST /residency/retention/sweep`, dry-run by default).
 - [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
-- [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
-      CodeQL). The audit gate fails the build at *moderate* on runtime dependencies, with
-      zero advisories outstanding at any severity.
+- [ ] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
+      CodeQL) — all present and gating. **Unticked because the gate is red:** the audit is
+      failing at *moderate* on runtime dependencies as of 2026-11-05. Re-run
+      `npm audit --omit=dev --audit-level=moderate` and tick this only when it passes;
+      submitting against a red supply-chain gate invites the reviewer to find it first.
 - [x] No dead documentation links. Indicator 5 is a documentation indicator, and a broken link
       in the README's front-door table is the first thing a reviewer clicks. Every `docs/` link
       in the repository now resolves.
