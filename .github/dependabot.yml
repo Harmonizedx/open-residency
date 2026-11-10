@@ -41,3 +41,11 @@ updates:
       # made the genuinely risky npm majors harder to pick out of the list.
       actions:
         patterns: ['*']
+
+  # The runtime image is pinned to a digest, so a Node security release does nothing here
+  # until the digest moves. Without this entry the image scan is the only thing that
+  # notices, and it notices by failing every open pull request at once.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

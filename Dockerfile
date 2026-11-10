@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS build
+FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -18,7 +18,7 @@ RUN npx prisma generate \
     && npm prune --omit=dev \
     && npx prisma generate
 
-FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436
+FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d
 # Apply Debian security updates on top of the pinned digest.
 #
 # Pinning by digest buys reproducibility and costs currency: the image is frozen at whatever
