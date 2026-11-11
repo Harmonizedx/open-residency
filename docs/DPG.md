@@ -187,10 +187,11 @@ regression, operator identity and
 roles, issuer-key custody against PKCS#11 HSM and AWS/Google Cloud KMS, the non-PII statistics
 export, a full-stack run of the real application against PostgreSQL, and a container build.
 
-Secure development: Dependabot covers the application, the SDK and the GitHub Actions
-themselves; CodeQL runs `security-and-quality` on every pull request and weekly; the OpenSSF
-Scorecard runs weekly with its result published to the public Scorecard API, so the score can be
-checked without trusting this page; a CycloneDX SBOM is generated from the installed tree and
+Secure development: Dependabot covers the application, the SDK, the GitHub Actions themselves
+and the runtime image's pinned base digest; CodeQL runs `security-and-quality` on every pull
+request and weekly; the OpenSSF Scorecard runs weekly with its result published to the public
+Scorecard API, so the score can be checked without trusting this page; a CycloneDX SBOM is
+generated from the installed tree and
 attached to every release, signed, alongside the source archive; the container image is scanned
 before it is pushed, published to GHCR, signed by digest, and carries build-provenance and SBOM
 attestations (`SECURITY.md`).
@@ -201,17 +202,16 @@ serves beside its verdict, held in CI at a recorded baseline that fails on regre
 the project's own, not an external standard, and `README.md` says so where it describes it.
 
 **Stated plainly:** the dependency audit gate fails the build at *moderate* severity on
-runtime dependencies, and **as of 2026-11-05 it is failing**. `npm audit --omit=dev
---audit-level=moderate` reports advisories against `body-parser`, `follow-redirects`,
-`multer`, `fast-uri`, `qs` and `zod` — 15 across the full tree (2 low, 5 moderate, 8 high).
-Most clear with `npm audit fix`; `multer` does not, because its only fix is a semver-major
-`@nestjs/platform-express` upgrade that has to be re-verified against the credential
-conformance suite first.
+runtime dependencies, and the image scan fails it at *high* on fixable findings in the
+container. Both pass on `main`. Check the position with `npm audit --omit=dev
+--audit-level=moderate` rather than trusting this paragraph: a dependency tree acquires
+advisories between revisions of a document, and this one has.
 
-The gate stays where it is rather than being lowered to make the build green, which is the
-whole point of having set it there. A reviewer reading this during a red window should see
-the red, not a sentence written during a green one. Check the current position with that
-command rather than trusting this paragraph's date.
+What the gate does not cover, said openly: `npm audit` without `--omit=dev` also reports
+advisories in development-only dependencies, under `@nestjs/cli` and its build tooling. They
+are published in the CI log but do not fail the build, because nothing from that tree reaches
+the runtime image, which is built from the pruned production dependencies and ships no package
+manager. The number of them is whatever the command prints on the day.
 
 The history is worth stating, because this is the second time round. The gate sat at *critical*
 because `undici` (via `jsonld`), `lodash` (via `@nestjs/config`) and `multer` with
@@ -219,9 +219,14 @@ because `undici` (via `jsonld`), `lodash` (via `@nestjs/config`) and `multer` wi
 upgrades — `jsonld` in particular affects JSON-LD context processing and could not be bumped
 without re-running the full credential conformance suite. Those upgrades have landed
 (`jsonld@9`, the NestJS 11 family, `js-yaml`, `jose`), each verified against that suite, and
-the gate was raised once the tree could hold it rather than before. New advisories have since
-landed against the upgraded tree, which is the ordinary condition of a dependency tree rather
-than a regression — the claim that ages badly is "zero advisories", not the gate.
+the gate was raised once the tree could hold it rather than before. In October and November
+2026 eight new advisories landed against the upgraded tree and a Node security release left the
+pinned base image behind; every open pull request went red together, the gate stayed where it
+was, and the tree and the image were moved rather than the threshold. That is the ordinary
+condition of a dependency tree rather than a regression — the claim that ages badly is "zero
+advisories", not the gate. The base image's digest is now tracked by Dependabot alongside the
+packages, so the next Node security release arrives as a pull request instead of as a red
+build.
 
 Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
 `.github/workflows/codeql.yml`, `.github/dependabot.yml`, `SECURITY.md`, `docs/INTEROP.md`.
@@ -322,9 +327,9 @@ sections above — answer the form from those sections, not from the old caveat:
   covers residency records only, and nothing schedules it.
 - **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
   analysis all run in CI. The audit gate fails the build at *moderate* on runtime
-  dependencies. Report the audit's position at submission time by running it
-  (`npm audit --omit=dev --audit-level=moderate`) rather than copying a count from this
-  page — it was failing on known advisories when this was last revised. Releases ship a
+  dependencies, and the image scan at *high* on fixable findings. Report the audit's position
+  at submission time by running it (`npm audit --omit=dev --audit-level=moderate`) rather
+  than copying a count from this page. Releases ship a
   signed SBOM and a signed, attested container image, so the supply-chain claim covers the
   artifact a government actually runs, not only the source.
 
@@ -342,11 +347,11 @@ sections above — answer the form from those sections, not from the old caveat:
 - [x] Data-protection statement published (`docs/PRIVACY.md`).
 - [x] Retention enforcement (`POST /residency/retention/sweep`, dry-run by default).
 - [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
-- [ ] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
-      CodeQL) — all present and gating. **Unticked because the gate is red:** the audit is
-      failing at *moderate* on runtime dependencies as of 2026-11-05. Re-run
-      `npm audit --omit=dev --audit-level=moderate` and tick this only when it passes;
-      submitting against a red supply-chain gate invites the reviewer to find it first.
+- [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
+      CodeQL) — all present and gating, and the gate passes on `main`. Re-run
+      `npm audit --omit=dev --audit-level=moderate` on the day of submission and untick this
+      if it fails; submitting against a red supply-chain gate invites the reviewer to find it
+      first.
 - [x] No dead documentation links. Indicator 5 is a documentation indicator, and a broken link
       in the README's front-door table is the first thing a reviewer clicks. Every `docs/` link
       in the repository now resolves.

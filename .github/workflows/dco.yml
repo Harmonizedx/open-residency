@@ -83,7 +83,7 @@ jobs:
             echo "Sign off every future commit automatically:"
             echo "    git config format.signoff true"
             echo ""
-            echo "See CONTRIBUTING.md -> 'Provenance: DCO and signing', and the DCO file at the repo root."
+            echo "See CONTRIBUTING.md -> 'Commits must also be signed off (DCO)', and the DCO file at the repo root."
             exit 1
           fi
 
