@@ -49,3 +49,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Digest and patch moves within the Node line CI tests on. A new Node major is a
+      # decision taken once, across the image, the workflows and `engines`, not a weekly bump.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
