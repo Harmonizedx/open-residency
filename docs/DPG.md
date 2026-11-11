@@ -63,10 +63,14 @@ guide, and runnable smoke tests that double as executable documentation.
 Evidence: `README.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/openapi.yaml`,
 `docs/SDK.md`, `docs/INTEGRATION.md`, `docs/DEPLOY.md`, `scripts/smoke.ts`.
 
-### 6. Mechanism for extracting data
+### 6. Mechanism for extracting data and content
 
-The Standard asks for a documented way to extract or import **non-PII** data in a
-non-proprietary format. OpenResidency provides four, none of which carries personal data:
+The Standard's own wording: *"Digital public goods with non-personally identifiable
+information (PII) design for possibility of extracting or importing non-PII data and content
+from the system in a non-proprietary format."* Note that it asks about **import** as well as
+export, and about **content** as well as data. OpenResidency provides four mechanisms, none
+of which carries personal data; on content, the system holds none at all — there is no
+user-generated content (indicator 9b):
 
 - **Aggregate residency statistics.** `GET /admin/statistics` (JSON) and
   `GET /admin/statistics.csv` (RFC 4180 CSV) return counts by country, subnational unit,
@@ -102,7 +106,9 @@ Evidence: `src/core/statistics/aggregate.ts`, `src/admin/statistics.controller.t
 
 ### 7. Adherence to privacy and applicable laws
 
-Against the six privacy requirements the DPGA added to the Standard in 2024:
+Against the six privacy requirements the DPGA added to the Standard on 11 September 2025
+(April 2024 is when the Privacy Expert Group that drafted them was convened, not when they
+landed):
 
 | Requirement | Status |
 | --- | --- |
@@ -195,21 +201,36 @@ serves beside its verdict, held in CI at a recorded baseline that fails on regre
 the project's own, not an external standard, and `README.md` says so where it describes it.
 
 **Stated plainly:** the dependency audit gate fails the build at *moderate* severity on
-runtime dependencies, and the tree currently reports **zero advisories at every severity,
-development dependencies included**.
+runtime dependencies, and **as of 2026-11-05 it is failing**. `npm audit --omit=dev
+--audit-level=moderate` reports advisories against `body-parser`, `follow-redirects`,
+`multer`, `fast-uri`, `qs` and `zod` — 15 across the full tree (2 low, 5 moderate, 8 high).
+Most clear with `npm audit fix`; `multer` does not, because its only fix is a semver-major
+`@nestjs/platform-express` upgrade that has to be re-verified against the credential
+conformance suite first.
 
-That was not true until recently, and the history is worth stating. The gate sat at *critical*
+The gate stays where it is rather than being lowered to make the build green, which is the
+whole point of having set it there. A reviewer reading this during a red window should see
+the red, not a sentence written during a green one. Check the current position with that
+command rather than trusting this paragraph's date.
+
+The history is worth stating, because this is the second time round. The gate sat at *critical*
 because `undici` (via `jsonld`), `lodash` (via `@nestjs/config`) and `multer` with
 `@nestjs/platform-express` carried high-severity advisories whose only fixes were semver-major
 upgrades — `jsonld` in particular affects JSON-LD context processing and could not be bumped
 without re-running the full credential conformance suite. Those upgrades have landed
 (`jsonld@9`, the NestJS 11 family, `js-yaml`, `jose`), each verified against that suite, and
-the gate was raised once the tree could hold it rather than before.
+the gate was raised once the tree could hold it rather than before. New advisories have since
+landed against the upgraded tree, which is the ordinary condition of a dependency tree rather
+than a regression — the claim that ages badly is "zero advisories", not the gate.
 
 Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
 `.github/workflows/codeql.yml`, `.github/dependabot.yml`, `SECURITY.md`, `docs/INTEROP.md`.
 
 ### 9. Do no harm by design
+
+The Standard splits this indicator into **9a** (data privacy and security), **9b**
+(inappropriate and illegal content) and **9c** (protection from harassment). The mitigations
+below answer 9a; 9b and 9c are addressed at the end of this section.
 
 - **Exclusion.** Mitigated by offline verification (QR carriage, cached status lists) and a
   USSD state machine for feature phones with no data plan. Evidence: `src/core/offline/*`,
@@ -224,8 +245,8 @@ Evidence: `src/core/credentials/*`, `src/sso/*`, `.github/workflows/ci.yml`,
   indicator 6.
 - **Privileged insider access.** Mitigated by per-operator identity, roles, and audited reads.
 
-The system has no user-generated content and no social features, so the content-moderation and
-harassment provisions of the Standard do not apply.
+The system has no user-generated content and no social features, so **9b** (inappropriate and
+illegal content) and **9c** (protection from harassment) do not apply.
 
 ## Honest caveats
 
@@ -280,12 +301,12 @@ tamper-evident audit trail. Reusable by any state, province, or county.
 
 ## Do-no-harm questions the reviewer will ask
 
-The Standard's do-no-harm prompts map onto indicator 9 above, with two the form asks
-separately:
+The Standard's do-no-harm prompts map onto indicator 9 above. 9a is answered by the
+mitigations there; the other two sub-indicators the form asks separately:
 
-- **Inappropriate or illegal content:** not applicable — infrastructure, no user-generated
-  content.
-- **Protection from harassment:** not applicable — no social features.
+- **9b — inappropriate or illegal content:** not applicable — infrastructure, no
+  user-generated content.
+- **9c — protection from harassment:** not applicable — no social features.
 
 Repeat the "Honest caveats" section verbatim in the submission rather than smoothing it over.
 
@@ -301,7 +322,9 @@ sections above — answer the form from those sections, not from the old caveat:
   covers residency records only, and nothing schedules it.
 - **Indicator 8.** Dependency scanning (Dependabot), a CycloneDX SBOM, and CodeQL static
   analysis all run in CI. The audit gate fails the build at *moderate* on runtime
-  dependencies, and the tree reports zero advisories at every severity. Releases ship a
+  dependencies. Report the audit's position at submission time by running it
+  (`npm audit --omit=dev --audit-level=moderate`) rather than copying a count from this
+  page — it was failing on known advisories when this was last revised. Releases ship a
   signed SBOM and a signed, attested container image, so the supply-chain claim covers the
   artifact a government actually runs, not only the source.
 
@@ -319,9 +342,11 @@ sections above — answer the form from those sections, not from the old caveat:
 - [x] Data-protection statement published (`docs/PRIVACY.md`).
 - [x] Retention enforcement (`POST /residency/retention/sweep`, dry-run by default).
 - [x] PII erasure implemented (`POST /residency/{id}/erase`), erasure-compatible audit redaction included.
-- [x] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
-      CodeQL). The audit gate fails the build at *moderate* on runtime dependencies, with
-      zero advisories outstanding at any severity.
+- [ ] Dependency scanning, SBOM, and static analysis in CI (Dependabot, CycloneDX SBOM,
+      CodeQL) — all present and gating. **Unticked because the gate is red:** the audit is
+      failing at *moderate* on runtime dependencies as of 2026-11-05. Re-run
+      `npm audit --omit=dev --audit-level=moderate` and tick this only when it passes;
+      submitting against a red supply-chain gate invites the reviewer to find it first.
 - [x] No dead documentation links. Indicator 5 is a documentation indicator, and a broken link
       in the README's front-door table is the first thing a reviewer clicks. Every `docs/` link
       in the repository now resolves.
