@@ -6,6 +6,7 @@ import { urlencoded, json } from 'express';
 import { join } from 'node:path';
 import type Provider from 'oidc-provider' with { 'resolution-mode': 'import' };
 import { AppModule } from './app.module';
+import { securityHeaders } from './platform/security-headers';
 import { trustedProxyHops } from './common/caller-throttler.guard';
 import { OIDC_PROVIDER } from './sso/oidc.module';
 import { createRootLogger } from './observability/logging';
@@ -25,6 +26,10 @@ async function bootstrap() {
   // Request observation goes FIRST, ahead of the body parsers, so a request the parser rejects
   // is still timed, counted, and answered with a request id.
   app.use(requestObserver(log));
+
+  // Security response headers (OR-04). Extracted so the smoke test mounts the SAME
+  // middleware this bootstrap does, rather than a copy of its settings.
+  app.use(securityHeaders());
 
   // Express reads X-Forwarded-For only when told how far to trust it. Declared by the
   // deployment rather than guessed: blanket trust would let any caller forge the address a
