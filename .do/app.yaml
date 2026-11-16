@@ -1,0 +1,151 @@
+# DigitalOcean App Platform spec for opnresidex.org.
+#
+# Apply with:  doctl apps create   --spec .do/app.yaml      (first time)
+#              doctl apps update <id> --spec .do/app.yaml   (thereafter)
+#
+# Secrets are NOT in this file. Every `type: SECRET` value below is a placeholder that must be
+# set in the console or with `doctl apps update --spec` from a copy held outside the repo. DO
+# encrypts them at rest and returns them as EV[1:...] ciphertext; committing that ciphertext is
+# still committing a secret, so don't paste it back here.
+spec:
+  name: opnresidex
+  region: lon
+
+  domains:
+    # The apex is the OpenID4VCI Credential Issuer Identifier. A wallet's key proof names it in
+    # `aud`, so changing it later rejects every proof as audience-mismatched and breaks
+    # credentials already in residents' wallets. It is effectively permanent -- see PUBLIC_BASE_URL.
+    #
+    # Renamed openresidency.global -> opnresidex.org on 2026-11-11, and the only reason that
+    # was safe is that this spec had never been applied: the apex resolved to the nginx
+    # landing-page box, and /.well-known/openid-credential-issuer,
+    # /.well-known/oauth-authorization-server and /health all returned 404. No issuer was
+    # running, so no key proof had ever named the old identifier and no resident held a
+    # credential bound to it.
+    #
+    # That window is now closed. Once this spec is applied and the first credential is
+    # issued, the name above cannot be changed again without invalidating every credential
+    # already in a wallet. Verify the issuer is NOT live before ever editing it.
+    - domain: opnresidex.org
+      type: PRIMARY
+    - domain: www.opnresidex.org
+      type: ALIAS
+
+  databases:
+    - name: openres-db
+      engine: PG
+      version: "16"
+      production: true
+      cluster_name: openres-db
+
+  # Migrations run to completion BEFORE the new revision takes traffic, and a failure aborts
+  # the deploy with the old revision still serving. The container ships no npm (the Dockerfile
+  # strips it), so the Prisma CLI is invoked at its real entry point.
+  jobs:
+    - name: migrate
+      kind: PRE_DEPLOY
+      image:
+        registry_type: DOCR
+        repository: open-residency
+        tag: latest
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-1gb
+      run_command: ./node_modules/.bin/prisma migrate deploy
+      envs:
+        - key: DATABASE_URL
+          scope: RUN_TIME
+          value: ${openres-db.DATABASE_URL}
+
+  services:
+    - name: api
+      image:
+        registry_type: DOCR
+        repository: open-residency
+        tag: latest
+        deploy_on_push:
+          enabled: true
+      instance_count: 1
+      instance_size_slug: apps-s-1vcpu-1gb
+      http_port: 3000
+
+      # The same path the Kubernetes manifests probe (deploy/k8s/app.yaml:78). There is no
+      # dedicated /health route; this one reads configuration and is the cheapest honest signal
+      # that the app booted with a usable country config.
+      health_check:
+        http_path: /residency/countries
+        initial_delay_seconds: 30
+        period_seconds: 10
+        failure_threshold: 3
+
+      envs:
+        - key: NODE_ENV
+          value: production
+        - key: PORT
+          value: "3000"
+
+        - key: DATABASE_URL
+          value: ${openres-db.DATABASE_URL}
+
+        # Must match the domain above exactly, https, no trailing slash.
+        - key: PUBLIC_BASE_URL
+          value: https://opnresidex.org
+
+        # App Platform terminates TLS and proxies to the container, so exactly one hop sets
+        # X-Forwarded-For that we may believe. At 0 every caller collapses into one rate-limit
+        # budget; too high and a caller forges the address they are counted as (ADR-0013).
+        - key: TRUSTED_PROXY_HOPS
+          value: "1"
+
+        - key: RATE_LIMIT_PER_MINUTE
+          value: "120"
+        - key: FEDERATION_STATUS_REFRESH_SECONDS
+          value: "900"
+        - key: STATISTICS_SUPPRESSION_THRESHOLD
+          value: "5"
+
+        # --- secrets: set these out of band, never in this file ---
+        # openssl rand -hex 32 for each of the three below.
+        - key: SUBJECT_PEPPER            # rotating re-tokenizes every resident
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: OIDC_COOKIE_SECRET        # app refuses to start without it
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: USSD_GATEWAY_SECRET       # webhook fails closed without it
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: ADMIN_API_KEY             # only while operatorAuth.mode is sharedKey
+          type: SECRET
+          value: SET_IN_CONSOLE
+
+        # DigitalOcean has no KMS or HSM, so `env` is the only backend that works without
+        # reaching into another cloud. The private key is resident in this process and readable
+        # by anything that can read the environment. Acceptable for a pilot; move to pkcs11
+        # before a ministry depends on it.
+        - key: ISSUER_KEY_BACKEND
+          value: env
+        - key: ISSUER_PRIVATE_JWK
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: ISSUER_KID
+          value: issuer-key-1
+
+        # These four exist only because config/countries/demo.yaml declares four relying
+        # parties and the app refuses to start when any configured RP lacks its secret.
+        # ng.yaml declares none. Ship a config dir without demo.yaml and all four can go.
+        - key: HEALTH_CLIENT_SECRET
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: TAX_CLIENT_SECRET
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: PERMITS_CLIENT_SECRET
+          type: SECRET
+          value: SET_IN_CONSOLE
+        - key: SUBSIDY_CLIENT_SECRET
+          type: SECRET
+          value: SET_IN_CONSOLE
+
+  alerts:
+    - rule: DEPLOYMENT_FAILED
+    - rule: DOMAIN_FAILED

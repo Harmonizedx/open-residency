@@ -2,11 +2,34 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { docsPage } from './docs-page';
 
 /**
  * Serves the machine-readable API spec and a browsable docs page. The spec is the
  * source of truth the Interoperability SDK is generated against.
+ *
+ * ## Both routes are public on purpose (OR-04)
+ *
+ * The register's security review raised `/docs` and `/openapi.yaml` as unauthenticated.
+ * They are, and they should be. This repository is public and `docs/openapi.yaml` is
+ * tracked in it, so the spec is already published; gating the endpoint would hide nothing
+ * and would break the SDK generation that reads it. A Digital Public Good publishing its
+ * API surface is the point. What must not leak is the register's DATA, which these routes
+ * do not touch.
+ *
+ * ## What WAS wrong here
+ *
+ * The page loaded Swagger UI from `cdn.jsdelivr.net` at a floating major (`@5`), with no
+ * integrity check — third-party script executing on the register's own origin, changing
+ * whenever the CDN published a release, with nothing to detect a substitution. For a
+ * government residency register that is the more serious half of this finding and the
+ * review did not raise it.
+ *
+ * Now pinned to an exact version with SRI, so a CDN serving different bytes is refused by
+ * the browser instead of executed. The version is bumped deliberately, never floated: a
+ * floating version and an integrity hash cannot both be right.
  */
+
 @Controller()
 export class MetaController {
   private specCache?: string;
@@ -39,16 +62,6 @@ export class MetaController {
   @Get('docs')
   @Header('content-type', 'text/html')
   docs(): string {
-    return `<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OpenResidency API</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-</head><body>
-<div id="swagger"></div>
-<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-<script>
-  window.onload = () => SwaggerUIBundle({ url: '/openapi.yaml', dom_id: '#swagger' });
-</script>
-</body></html>`;
+    return docsPage();
   }
 }
